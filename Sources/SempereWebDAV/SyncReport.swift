@@ -45,6 +45,9 @@ public struct SyncReport: Codable, Hashable, Sendable {
     /// Push-only runs: mutable files (`vault.json`, `rewrap-journal.json`)
     /// whose different server copy was replaced by the local one. Also in `uploaded`.
     public var overwritten: [String] = []
+    /// Files changed on both sides whose copies were merged rather than kept
+    /// apart: `settings.age` (format.md §13). The result is written to both sides.
+    public var merged: [String] = []
     /// Remote files that were not taken because they failed a check: a
     /// `vault.json` whose device list changed without a valid tag (format.md
     /// §2.1). The local copy stays; nothing is uploaded over the remote one.
@@ -77,6 +80,6 @@ public struct SyncReport: Codable, Hashable, Sendable {
     /// True when nothing was transferred, deleted or reported.
     public var isEmpty: Bool {
         uploaded.isEmpty && downloaded.isEmpty && deleted.isEmpty && conflicts.isEmpty && errors.isEmpty && rejected.isEmpty
-            && extraneous.isEmpty && overwritten.isEmpty && quarantined.isEmpty
+            && extraneous.isEmpty && overwritten.isEmpty && quarantined.isEmpty && merged.isEmpty
     }
 }

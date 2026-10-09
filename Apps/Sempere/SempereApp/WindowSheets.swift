@@ -11,9 +11,14 @@ struct WindowSheets: ViewModifier {
     @State private var versionName = ""
     @State private var pdfPassword = ""
 
+    // Two halves: as one chain the body is past what the type checker solves in time.
     func body(content: Content) -> some View {
+        noteDialogs(importsAndPrompts(content))
+    }
+
+    private func importsAndPrompts(_ content: Content) -> some View {
         @Bindable var ui = ui
-        content
+        return content
             // Each importer on a view of its own: two `fileImporter`s on one view do not both work.
             .background {
                 SwiftUI.Color.clear.fileImporter(isPresented: $ui.importingPDF, allowedContentTypes: [.pdf]) { result in
@@ -64,6 +69,11 @@ struct WindowSheets: ViewModifier {
                                         set: { _ in })) {
                 OpenedPDFsView(ui: ui)
             }
+    }
+
+    private func noteDialogs(_ content: some View) -> some View {
+        @Bindable var ui = ui
+        return content
             .onChange(of: ui.renameNoteID) { _, id in
                 if let id, let note = model.notes.first(where: { $0.id == id }) { title = note.title }
             }

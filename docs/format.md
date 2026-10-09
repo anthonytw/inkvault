@@ -22,10 +22,11 @@ Notes.sempere/
     <captureId>.capture.age               a voice note sealed without the vault's key (§11), until adopted
     <captureId>.transcript.age            its transcript, sealed the same way (§11)
   sempere-summaries.sealed                optional published note summaries, a hint for listing (§12)
+  settings.age                            optional shared settings, merged per key (§13)
 ```
 
 Everything under `notes/` (revisions and `att/` blobs alike) is written once
-and never modified. The only exception is a recipient change (§3.3), which
+and never modified (`settings.age`, at the root, is a mutable file, §13). The only exception is a recipient change (§3.3), which
 rewrites files in place (and renames blobs, §8.1.5).
 
 Unknown files and directories must be ignored, never deleted.
@@ -407,7 +408,10 @@ change can be finished by any device holding an identity of the new set:
    same directory, then rename; blobs: §8.1.5). Files waiting in `inbox/`
    (§11) are rewritten the same way, re-tagged under the current secret's
    capture key (§11.1); one that cannot be decrypted or verified is left as
-   it is, reported, and does not keep the journal.
+   it is, reported, and does not keep the journal. So is `settings.age`
+   (§13): re-encrypted and re-tagged like a revision, its JSON unchanged
+   whatever its `$minReaderVersion`; one that cannot be decrypted or verified
+   is left as it is, reported, and does not keep the journal.
 4. Delete `rewrap-journal.json` once every file is complete. If any file
    could not be read or verified, keep the journal (it is the only copy of
    the outgoing secret), report those files, and retry step 3 later.
@@ -1595,7 +1599,8 @@ open (and, for markers 1 and 2, whenever it opens it), it:
 - does not change `vault.json` (not even `features`, §2), so it never tags
   an untagged vault (§2.1), and keeps no trust record for it;
 - writes nothing to and deletes nothing from `inbox/` (§11): it adopts no
-  capture and enables no capture profile.
+  capture and enables no capture profile;
+- does not write `settings.age` (§13).
 
 It still may: read, verify and report on everything; export and render;
 write per-device data outside the vault (caches, §10); and copy the vault's
@@ -1679,6 +1684,11 @@ are a compatible extension: older readers ignore both fields and keep
 reading, and the `"recipients-tag"` feature keeps older writers from writing
 (§2). Nothing under `notes/` or `inbox/` changes, so the stock-CLI recovery
 (§4, §8.1.7, §11.2) works as before.
+
+*New: shared settings.* `settings.age` (§13) is a compatible extension: an
+unknown file to older readers (§1), so it needs no `features` entry and no
+format bump; the file carries its own versions (`$schemaVersion`,
+`$minReaderVersion`, §13.4).
 
 A future change that older readers must not merge blindly (new merge
 semantics, not just a new kind of placed content) still needs a new op type
@@ -2740,6 +2750,7 @@ where the table says how they degrade.
 | PDF page drawn as pixels (SVG, PNG) | 16 M pixels per page (drawn at a lower resolution beyond), 256 M per export (placeholders beyond) | `RenderLimits.maxBackgroundPixels…` |
 | summary cache file (§10) | 64 MiB on disk, 256 MiB after gunzip; any failure discards it | `SummaryCache.maxFileBytes` |
 | published summaries (§12) | 64 MiB on disk, 256 MiB after gunzip; unknown fields skipped, not kept; any failure ignores the file, a bad entry only that entry | `PublishedSummaries.maxFileBytes` |
+| shared settings (§13) | 1 MiB on disk, 1 MiB after gunzip; 4 096 slots, 32 type blocks (else the file is refused); a malformed `$meta` entry or version, or an invalid value, is ignored alone | `SharedSettings.maxFileBytes`, `.maxSlots`, `.maxBlocks` |
 
 Foundation's own parsers are not safe on hostile bytes on every platform:
 on Linux, `PropertyListSerialization` crashes on a binary plist holding a
@@ -3167,3 +3178,103 @@ say once it opens a note, and prefers that summary from then on.
 webdav` keeps the server's copy current, computed from what the server holds
 after the sync. The file is never copied between the two sides of a sync:
 each writer computes it from its own listing. The app does not write it.
+
+## 13. Shared settings
+
+*New: shared settings.* A vault may hold, at its root, `settings.age`: settings
+that the devices which opted in follow, merged per key (rationale, the list of
+settings and the app's behaviour: `docs/settings-sync.md`; JSON Schema:
+`docs/settings.schema.json`). It is not under `notes/` and is not write-once: a
+writer replaces it whole, atomically. A reader that does not implement this
+section ignores it (§1).
+
+### 13.1 File
+
+`settings.age` is an age file encrypted to the vault's recipients, whose plaintext
+is the body framing of §4 with the label `settings` in place of the note id:
+
+```
+Tag = HMAC-SHA256(key = vaultSecret,
+                  message = "sempere/1" ‖ 0x00 ‖ "settings" ‖ 0x00 ‖ "settings.age" ‖ 0x00 ‖ gzipBytes)
+```
+
+(`settings` is never a note id, §6.) Recovery without the app is that of §4:
+`age -d -i key settings.age | tail -c +38 | gunzip | jq .` A reader verifies the tag
+under the current secret or, while a rewrap journal is pending, the previous one
+(§3.3.1); a file that does not verify is not read. Readers bound the file at 1 MiB
+on disk and after gunzip (§9).
+
+### 13.2 JSON
+
+A JSON object (VS Code `settings.json` style):
+
+- `"$schemaVersion"` and `"$minReaderVersion"`: integers ≥ 1 (§13.4). A missing or
+  malformed one reads as 1.
+- **Settings**: every other member whose name starts neither with `$` nor with
+  `[`. The name is the setting's key, flat and dotted (`editor.defaultPaper`); the
+  value any JSON value. The keys, their values and defaults are listed once in
+  `docs/settings-sync.md` §5 with the device types that use them.
+- **Type blocks**: a member named `[t]`, `t` 1 to 16 lowercase ASCII letters or digits
+  starting with a letter (`[mac]`, `[ipad]`, `[iphone]`), whose value is an object of
+  settings for devices of type `t` only. A `[t]` member that is not an object is kept
+  as an unknown member.
+- `"$meta"`: an object with, per setting at the top level, and under `[t]` per
+  setting of block `t`, the setting's last write: `{"modified": m, "type": t}` with
+  `m` Unix milliseconds, an integer 0 … 2^53 − 1, and `type` the kind of device that
+  wrote it (absent for a writer that is not a device, such as the CLI). Unknown
+  members of an entry are kept. A malformed entry is ignored (its setting has no
+  entry).
+- Other members starting with `$` are unknown members, kept.
+
+A **slot** is one setting at the top level or in one block: its value, or none,
+and its `$meta` entry, or none. A slot with an entry and no value is a **reset**:
+the setting reads as its default (at that level). A device of type `t` resolves a
+setting from the first of: its own local choice (outside the vault), the slot in
+`[t]`, the slot at the top level, the setting's default. A value of the wrong type
+or out of range for a setting the reader knows is skipped, with a warning, and
+resolution goes on; it never makes the file unreadable.
+
+### 13.3 Merge
+
+Two copies merge slot by slot; for each slot the copy with the greater
+`(modified, type, value)` wins: `modified` as an integer, a slot without an entry
+lowest; then `type` as a string, absent lowest; then the value's canonical JSON
+(sorted object keys, no whitespace), a reset lowest; then the canonical JSON of the
+entry. This total order makes the merge commutative, associative and idempotent.
+Slots, blocks and members a reader does not know are merged and written back
+unchanged. `$schemaVersion` and `$minReaderVersion` merge to the larger value;
+unknown `$` members (and `[t]` members that are not objects) to their union, the
+greater canonical JSON winning when both copies hold the member with different values.
+
+A write of a slot (a value or a reset) records `modified = max(now, m + 1)`, where
+`m` is the `modified` the writer holds for that slot, so a write wins over what its
+writer saw whatever the clocks. A writer merges the file as it is on disk into what
+it writes. A device keeps its own merged copy and writes the merge back when the file
+lacks or holds older slots than its copy (a write lost to a file-level race on the
+storage is thus restored).
+
+### 13.4 Versions
+
+`$schemaVersion` names the version of the keys' names and meanings; this document
+defines version 1. Changes are additive (new keys); a rename or a change of meaning
+keeps the old key written beside the new one (equal values) for several releases,
+and a reader that knows both resolves from whichever slot was written last.
+Migrations from an older `$schemaVersion` run on read, on the reader's copy, copying
+old keys into new ones with their `$meta` entries; they never remove a key that a
+reader of at least `$minReaderVersion` reads.
+
+`$minReaderVersion` is the oldest reader version that may read **and** write the
+file; it is raised only for a breaking change. A reader older than it (its version,
+1 for this document, is below the file's `$minReaderVersion`) does not apply, merge
+or write the file; it may still copy it byte for byte (a sync, a backup, a rewrap
+that re-encrypts it unchanged, §3.3.1). A reader at least as new, saving a file of a
+later `$schemaVersion`, keeps everything it does not know verbatim, and both numbers.
+
+### 13.5 Writers
+
+Writing `settings.age` is a write to the vault: refused for a read-only vault (§7.3),
+a legacy vault (§3.3.2) and a tampered recipients list (§2.1). A writer that replaces a file
+that does not verify first checks that `vault.json` on disk still lists the recipients and
+wraps the secret it holds: one that stayed open while another device changed the keys
+would otherwise overwrite the current file with one for the old recipients. WebDAV sync (`docs/io.md`)
+merges the file when both sides changed and the vault is unlocked.

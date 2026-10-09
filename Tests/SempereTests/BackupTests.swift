@@ -214,6 +214,24 @@ final class BackupTests: VaultTestCase {
         }
     }
 
+    func testSharedSettingsAreBackedUpVersionedAndRestored() throws {
+        var s = SharedSettings()
+        try s.set(SettingSlotKey("photos.removeMetadata"), to: .bool(false), type: .ipad, now: wallAt(baseMillis))
+        try vault.writeSharedSettings(s)
+        let first = try Backup.run(source: vault, to: dest)
+        XCTAssertTrue(first.copied.contains("settings.age"))
+        XCTAssertEqual(first.copied.suffix(2), ["settings.age", "vault.json"], "with the small mutable files, last")
+        try s.set(SettingSlotKey("photos.removeMetadata"), to: .bool(true), type: .mac, now: wallAt(baseMillis + 1))
+        try vault.writeSharedSettings(s)
+        let second = try Backup.run(source: vault, to: dest)
+        XCTAssertEqual(second.replaced, ["settings.age"])
+        XCTAssertTrue(second.versioned.contains { $0.hasSuffix("/settings.age") }, "the previous copy is kept")
+        XCTAssertTrue(Backup.verify(at: dest, identities: [id]).isHealthy)
+        let target = tmp.appendingPathComponent("Restored.sempere")
+        XCTAssertTrue(try Backup.restore(from: dest, to: target, identities: [id]).errors.isEmpty)
+        XCTAssertEqual(try Vault.open(at: target, identities: [id]).readSharedSettings(), s)
+    }
+
     // MARK: - Status, preview and protected targets
 
     func testStatusReadsTheIndexOnly() throws {

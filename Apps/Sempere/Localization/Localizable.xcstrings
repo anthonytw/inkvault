@@ -5169,6 +5169,18 @@
         }
       }
     },
+    "Editor" : {
+      "comment" : "Settings section: tools of the note editor",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Editor"
+          }
+        }
+      }
+    },
     "Encrypted. It becomes a note the next time you unlock the vault." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -6781,6 +6793,30 @@
         }
       }
     },
+    "Kept for this kind of device only" : {
+      "comment" : "Tooltip of a setting's badge",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Solo en este tipo de dispositivo"
+          }
+        }
+      }
+    },
+    "Kept on this device only" : {
+      "comment" : "Tooltip of a setting's badge",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Solo en este dispositivo"
+          }
+        }
+      }
+    },
     "Key" : {
       "comment" : "New vault form: section header and picker for where the vault's key comes from",
       "extractionState" : "manual",
@@ -7154,6 +7190,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Ubicación"
+          }
+        }
+      }
+    },
+    "Macs" : {
+      "comment" : "Settings badge: the setting has its own value on Macs",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mac"
           }
         }
       }
@@ -8327,6 +8375,18 @@
         }
       }
     },
+    "Object Eraser" : {
+      "comment" : "Settings ▸ Editor ▸ Eraser: erases whole strokes",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Borrador de objetos"
+          }
+        }
+      }
+    },
     "Object Eraser Size" : {
       "comment" : "Menu / picker title",
       "extractionState" : "manual",
@@ -8358,6 +8418,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Desactivado por omisión. Las transcripciones se hacen en este dispositivo y se guardan cifradas en la nota; no se envía audio ni texto a ningún sitio."
+          }
+        }
+      }
+    },
+    "On" : {
+      "comment" : "A switch setting's value",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sí"
           }
         }
       }
@@ -8398,14 +8470,13 @@
         }
       }
     },
-    "Once a day, autosaves older than %@ are removed from this vault on every device. Saved versions and the last autosave of each editing session are always kept, and stay restorable. This setting is for this device only." : {
-      "comment" : "Settings ▸ Version History footer; the value is “30 days”, “1 year”…",
+    "Once a day, autosaves older than %@ are removed from this vault on every device. Saved versions and the last autosave of each editing session are always kept, and stay restorable. With Sync Settings on, every device that syncs with this vault uses the same setting." : {
       "extractionState" : "manual",
       "localizations" : {
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Una vez al día se eliminan de esta bóveda, en todos los dispositivos, los guardados automáticos de más de %@. Las versiones guardadas y el último guardado automático de cada sesión de edición se conservan siempre y se pueden restaurar. Este ajuste es solo para este dispositivo."
+            "value" : "Una vez al día se eliminan de esta bóveda, en todos los dispositivos, los guardados automáticos de más de %@. Las versiones guardadas y el último guardado automático de cada sesión de edición se conservan siempre y se pueden restaurar. Con la sincronización de ajustes activada, todos los dispositivos que se sincronizan con esta bóveda usan el mismo ajuste."
           }
         }
       }
@@ -8500,6 +8571,54 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Solo las versiones anteriores de estas notas muestran estos adjuntos. Se liberan al reducir esas versiones (Ajustes › Historial de versiones)."
+          }
+        }
+      }
+    },
+    "Only on Macs" : {
+      "comment" : "Settings row menu: keep this value on every Mac, not on other devices",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Solo en los Mac"
+          }
+        }
+      }
+    },
+    "Only on This Device" : {
+      "comment" : "Settings row menu: keep this setting's value on this device only",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Solo en este dispositivo"
+          }
+        }
+      }
+    },
+    "Only on iPads" : {
+      "comment" : "Settings row menu: keep this value on every iPad, not on other devices",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Solo en los iPad"
+          }
+        }
+      }
+    },
+    "Only on iPhones" : {
+      "comment" : "Settings row menu: keep this value on every iPhone, not on other devices",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Solo en los iPhone"
           }
         }
       }
@@ -9511,6 +9630,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Imágenes y vídeo"
+          }
+        }
+      }
+    },
+    "Pixel Eraser" : {
+      "comment" : "Settings ▸ Editor ▸ Eraser: erases parts of strokes",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Borrador de píxeles"
           }
         }
       }
@@ -10884,6 +11015,17 @@
         }
       }
     },
+    "Replace the Vault's Settings with This Device's" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sustituir los ajustes de la bóveda por los de este dispositivo"
+          }
+        }
+      }
+    },
     "Replace the saved key for “%@”" : {
       "comment" : "Face ID prompt; the value is the vault name",
       "extractionState" : "manual",
@@ -10892,6 +11034,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Sustituir la clave guardada de «%@»"
+          }
+        }
+      }
+    },
+    "Replacing changes these settings on every device that syncs with this vault." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Al sustituirlos, estos ajustes cambian en todos los dispositivos que se sincronizan con esta bóveda."
           }
         }
       }
@@ -11793,6 +11946,83 @@
         }
       }
     },
+    "Settings are stored encrypted in this vault and follow it to every device that syncs with it. Changing a setting here changes it there. To keep a different value on this device, touch and hold the setting and choose Only on This Device." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "variations" : {
+            "device" : {
+              "ipad" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Settings are stored encrypted in this vault and follow it to every device that syncs with it. Changing a setting here changes it there. To keep a different value on this device, touch and hold the setting and choose Only on This Device."
+                }
+              },
+              "iphone" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Settings are stored encrypted in this vault and follow it to every device that syncs with it. Changing a setting here changes it there. To keep a different value on this device, touch and hold the setting and choose Only on This Device."
+                }
+              },
+              "mac" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Settings are stored encrypted in this vault and follow it to every device that syncs with it. Changing a setting here changes it there. To keep a different value on this Mac, Control-click the setting and choose Only on This Device."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Settings are stored encrypted in this vault and follow it to every device that syncs with it. Changing a setting here changes it there. To keep a different value on this device, touch and hold the setting and choose Only on This Device."
+                }
+              }
+            }
+          }
+        },
+        "es" : {
+          "variations" : {
+            "device" : {
+              "ipad" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Los ajustes se guardan cifrados en esta bóveda y la acompañan a todos los dispositivos que se sincronizan con ella. Cambiar un ajuste aquí lo cambia allí. Para conservar otro valor en este dispositivo, mantén pulsado el ajuste y elige «Solo en este dispositivo»."
+                }
+              },
+              "iphone" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Los ajustes se guardan cifrados en esta bóveda y la acompañan a todos los dispositivos que se sincronizan con ella. Cambiar un ajuste aquí lo cambia allí. Para conservar otro valor en este dispositivo, mantén pulsado el ajuste y elige «Solo en este dispositivo»."
+                }
+              },
+              "mac" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Los ajustes se guardan cifrados en esta bóveda y la acompañan a todos los dispositivos que se sincronizan con ella. Cambiar un ajuste aquí lo cambia allí. Para conservar otro valor en este Mac, haz clic en el ajuste con la tecla Control pulsada y elige «Solo en este dispositivo»."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Los ajustes se guardan cifrados en esta bóveda y la acompañan a todos los dispositivos que se sincronizan con ella. Cambiar un ajuste aquí lo cambia allí. Para conservar otro valor en este dispositivo, mantén pulsado el ajuste y elige «Solo en este dispositivo»."
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "Settings could not be synced: %@" : {
+      "comment" : "Settings ▸ Sync Settings; the error text follows (English)",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No se pudieron sincronizar los ajustes: %@"
+          }
+        }
+      }
+    },
     "Settings for this device" : {
       "comment" : "Help tag of the sidebar's gear",
       "extractionState" : "manual",
@@ -11801,6 +12031,39 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Ajustes de este dispositivo"
+          }
+        }
+      }
+    },
+    "Settings sync is paused until the vault's device list is checked." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La sincronización de ajustes está en pausa hasta que se compruebe la lista de dispositivos de la bóveda."
+          }
+        }
+      }
+    },
+    "Settings sync is paused: this vault is read-only on this device." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La sincronización de ajustes está en pausa: esta bóveda es de solo lectura en este dispositivo."
+          }
+        }
+      }
+    },
+    "Settings sync is paused: this vault's settings need a newer Sempere. Update the app to resume." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La sincronización de ajustes está en pausa: los ajustes de esta bóveda necesitan una versión más reciente de Sempere. Actualiza la app para reanudarla."
           }
         }
       }
@@ -12495,6 +12758,17 @@
         }
       }
     },
+    "Store settings encrypted in this vault, so every device that opens it can use the same ones. Device keys and Face ID stay on each device." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Guarda los ajustes cifrados en esta bóveda, para que todos los dispositivos que la abren puedan usar los mismos. Las claves de los dispositivos y Face ID se quedan en cada dispositivo."
+          }
+        }
+      }
+    },
     "Storing your key under the passphrase…" : {
       "comment" : "Progress",
       "extractionState" : "manual",
@@ -12647,6 +12921,41 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Cambiar a páginas e insertar PDF…"
+          }
+        }
+      }
+    },
+    "Sync" : {
+      "comment" : "Settings section header: settings sync through the vault",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sincronización"
+          }
+        }
+      }
+    },
+    "Sync Settings" : {
+      "comment" : "Title of the sheet asking which settings to keep",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sincronizar ajustes"
+          }
+        }
+      }
+    },
+    "Sync Settings with This Vault" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sincronizar ajustes con esta bóveda"
           }
         }
       }
@@ -13303,6 +13612,17 @@
         }
       }
     },
+    "The editor's own menus change these too. Searching recording transcripts reads and decrypts every transcript of the notes searched, on this device." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Los menús del editor también los cambian. Buscar en las transcripciones de grabaciones lee y descifra, en este dispositivo, todas las transcripciones de las notas buscadas."
+          }
+        }
+      }
+    },
     "The files are deleted from the app when you close this sheet." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -13909,6 +14229,18 @@
         }
       }
     },
+    "This Device" : {
+      "comment" : "Settings badge: the setting is kept on this device only",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Este dispositivo"
+          }
+        }
+      }
+    },
     "This List" : {
       "comment" : "Search scope: the notes the sidebar selection shows",
       "extractionState" : "manual",
@@ -14030,6 +14362,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "No se puede leer el registro que este dispositivo guarda de los dispositivos de la bóveda, así que la lista no se puede comprobar con él."
+          }
+        }
+      }
+    },
+    "This device: %@" : {
+      "comment" : "Sync Settings prompt: this device's value of a setting",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Este dispositivo: %@"
           }
         }
       }
@@ -14226,6 +14570,17 @@
         }
       }
     },
+    "This vault already has settings, and some differ from this device's." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Esta bóveda ya tiene ajustes, y algunos son distintos de los de este dispositivo."
+          }
+        }
+      }
+    },
     "This vault has no notes yet. Create one with the New Note button." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -14339,6 +14694,18 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "This vault: %@" : {
+      "comment" : "Sync Settings prompt: the vault's value of a setting",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Esta bóveda: %@"
           }
         }
       }
@@ -14951,6 +15318,17 @@
         }
       }
     },
+    "Unlock a vault to sync settings with it." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Desbloquea una bóveda para sincronizar los ajustes con ella."
+          }
+        }
+      }
+    },
     "Unlock the vault first." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -15214,6 +15592,18 @@
         }
       }
     },
+    "Use Synced Value" : {
+      "comment" : "Settings row menu: follow the vault's value again",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Usar el valor sincronizado"
+          }
+        }
+      }
+    },
     "Use This Key Instead" : {
       "comment" : "Button",
       "extractionState" : "manual",
@@ -15270,6 +15660,29 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Usar por omisión en notas nuevas"
+          }
+        }
+      }
+    },
+    "Use on All Devices" : {
+      "comment" : "Settings row menu: drop this kind of device's own value",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Usar en todos los dispositivos"
+          }
+        }
+      }
+    },
+    "Use the Vault's Settings" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Usar los ajustes de la bóveda"
           }
         }
       }
@@ -15839,6 +16252,30 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "iCloud Drive aún no ha listado los archivos de esta nota (sin listar: %lld). Vuelve a intentarlo en un momento."
+          }
+        }
+      }
+    },
+    "iPads" : {
+      "comment" : "Settings badge: the setting has its own value on iPads",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "iPad"
+          }
+        }
+      }
+    },
+    "iPhones" : {
+      "comment" : "Settings badge: the setting has its own value on iPhones",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "iPhone"
           }
         }
       }

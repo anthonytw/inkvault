@@ -32,6 +32,7 @@ final class SempereFuzzTests: VaultTestCase {
         } catch is BodyFramingError {
         } catch is GzipError {
         } catch is AgeError {
+        } catch is SharedSettingsError {
         } catch { return "untyped error \(type(of: error)): \(error)" }
         return nil
     }
@@ -368,6 +369,35 @@ final class SempereFuzzTests: VaultTestCase {
                     _ = clock.tick(wall: Self.wall)
                     _ = clock.observe(HLC(millis: HLC.maxMillis, counter: HLC.maxCounter)!, wall: .distantFuture)
                 }
+            }
+        })
+    }
+
+    /// A broken invariant: untyped, so the fuzzer reports it.
+    struct SettingsInvariant: Error { var what: String }
+
+    /// settings.age's JSON (format.md §13): decoding, migration, validation,
+    /// resolution, merge, a device pass and re-encoding. A file that decodes
+    /// round-trips to the same settings.
+    func testFuzzSharedSettings() throws {
+        let fixtures = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("Fixtures/settings")
+        let seeds = try ["v1.json", "future-v2.json", "future-v3-breaking.json"].map { try Data(contentsOf: fixtures.appendingPathComponent($0)) }
+        let base = try SharedSettings.decode(seeds[0]).settings
+        assertClean(Fuzz.run("settings", seeds: seeds, quick: 1500, text: true) { input in
+            Self.typed {
+                let decoded = try SharedSettings.decode(input)
+                let s = SharedSettingsMigrations.migrated(decoded.settings)
+                _ = SharedSettingsCatalog.issues(in: decoded)
+                for spec in SharedSettingsCatalog.specs {
+                    for type in SettingsDeviceType.allCases { _ = s.resolve(spec, for: type) }
+                }
+                if s.merging(base).slots != base.merging(s).slots { throw SettingsInvariant(what: "merge not commutative") }
+                var state = SettingsSyncState()
+                var local: [String: JSONValue] = [:]
+                for spec in SharedSettingsCatalog.specs(for: .ipad) { local[spec.name] = spec.defaultValue }
+                _ = try state.enable(.useVault, local: local, file: s, type: .ipad, now: Self.wall)
+                let again = try SharedSettings.decode(try decoded.settings.encoded()).settings
+                if again != decoded.settings { throw SettingsInvariant(what: "round trip changed the settings") }
             }
         })
     }

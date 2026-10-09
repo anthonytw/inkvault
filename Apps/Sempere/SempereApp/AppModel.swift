@@ -324,6 +324,25 @@ final class AppModel {
     @ObservationIgnored var backupStore = BackupStore()
     /// Delivers backup reminders; the app installs `UserNotificationBackupNotifier`.
     @ObservationIgnored var backupNotifier: any BackupNotifying = NoBackupNotifier()
+    /// Settings sync with the open vault (`AppModel+SettingsSync`, docs/settings-sync.md):
+    /// this device's state for it, kept per vault in `settingsDefaults`.
+    var settingsSync = SettingsSyncState()
+    /// Why settings sync is paused or failed; nil while it works (or is off).
+    var settingsSyncProblem: SettingsSyncProblem?
+    /// Turning sync on found settings that differ: the choice to ask for.
+    var settingsSyncPrompt: SettingsSyncPrompt?
+    /// Bumped whenever values from the vault were applied, so the Settings
+    /// sections that hold copies of their values reload them.
+    var settingsAppliedRevision = 0
+    /// Where settings are read and written (tests use a scratch suite).
+    @ObservationIgnored var settingsDefaults: UserDefaults = .standard
+    /// Tests: the device type to sync as (nil: this device's).
+    @ObservationIgnored var settingsDeviceTypeOverride: SettingsDeviceType?
+    /// How long after the last local change a pass runs.
+    @ObservationIgnored var settingsSyncDebounce: Duration = .seconds(1)
+    @ObservationIgnored var settingsSyncObserver: (any NSObjectProtocol)?
+    @ObservationIgnored var settingsSyncScheduled: Task<Void, Never>?
+    @ObservationIgnored var settingsSyncRunning = false
     /// Pause between progressive passes, passes with an unchanged note set
     /// before the loop slows to `cloudIdleInterval` (doubling while nothing
     /// changes, up to `cloudMaxIdleInterval`), and how long without progress
@@ -695,6 +714,7 @@ final class AppModel {
         refreshQuickCaptureProfile()
         startInboxAdoption()
         Task { await rescheduleBackupReminder() }
+        startSettingsSync()
     }
 
     /// Enters the migration screen for the vault just unlocked with
@@ -737,6 +757,7 @@ final class AppModel {
         // old one from now on would never be adopted (format.md §11.1).
         refreshQuickCaptureProfile()
         keyEpoch += 1
+        scheduleSettingsSync()   // re-encrypted with the vault; a pass checks it under the new keys
     }
 
     /// Makes `opened` the open vault and shows the notes (after a migration).
@@ -747,6 +768,7 @@ final class AppModel {
         phase = .unlocked
         loadActivity()
         refreshQuickCaptureProfile()   // the migration rotated the secret, and with it the capture key
+        startSettingsSync()
         try await reload()
     }
 
@@ -987,6 +1009,7 @@ final class AppModel {
     /// note's pending changes and any edit already being written are saved.
     func close() {
         generation += 1
+        stopSettingsSync()
         cancelCloudDownload()
         stopCloudSync()
         syncingInBackground = false

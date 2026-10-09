@@ -9,6 +9,15 @@ The section for a version is the body of its GitHub Release (`docs/releasing.md`
 
 ### Added
 
+- Settings sync through the vault (`docs/settings-sync.md`, `format.md` §13): the vault can hold
+  `settings.age`, a VS Code-style settings.json encrypted and tagged like a revision, that devices
+  which opt in (Settings ▸ Sync Settings with This Vault) follow. Every setting syncs; keys only some
+  kinds of device use are ignored by the others, and `[mac]` / `[ipad]` / `[iphone]` blocks hold
+  per-type values. Merged per key (last writer wins), so concurrent edits on two devices both survive.
+  "Only on This Device" keeps a setting local until "Use Synced Value". `$schemaVersion` and
+  `$minReaderVersion` keep older and newer apps compatible (older apps pause rather than write).
+  CLI: `sempere settings list|get|set|reset|edit|validate|schema` (`--type` for a type block); the
+  schema is `docs/settings.schema.json`. Backups copy the file and `sempere sync webdav` merges it.
 - Web viewer in Spanish: the interface is in English or Spanish, taken from the browser's language list
   with a Language selector (Automatic, English, Español) that overrides it and is remembered in the
   browser. Notes, notebook and tag names, recording titles and transcripts are shown as written; dates,
