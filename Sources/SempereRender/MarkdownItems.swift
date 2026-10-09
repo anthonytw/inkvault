@@ -12,8 +12,24 @@ enum MarkdownItems {
     /// `it`'s pieces, or nil when it is not a Markdown box (or there is no
     /// shaper to measure with: it is then drawn like any text item without one).
     static func expand(_ it: PreparedItem, shaper: (any TextShaper)?) -> [PreparedItem]? {
+        var ignored: [String] = []
+        return expand(it, shaper: shaper, warnings: &ignored)
+    }
+
+    /// Like `expand(_:shaper:)`, adding to `warnings` when formulas are drawn
+    /// as their source (no typeset rendering stored, format.md §8.5.4).
+    static func expand(_ it: PreparedItem, shaper: (any TextShaper)?, warnings: inout [String]) -> [PreparedItem]? {
         guard it.item.kind == .text, let content = it.item.text, content.isMarkdown, let shaper else { return nil }
-        let layout = MarkdownLayout(content, frame: it.item.frame, measure: MarkdownLayout.measure(with: shaper))
+        let plan = MarkdownPlan(content)
+        let layout = MarkdownLayout(plan: plan, frame: it.item.frame, measure: MarkdownLayout.measure(with: shaper))
+        let unrendered = plan.formulas.filter {
+            MarkdownText.formula(in: content, latex: $0.latex, display: $0.display, size: $0.size, color: $0.color) == nil
+        }.count
+        if unrendered > 0 {
+            warnings.append("page \(it.pageNumber): text box \(it.item.id.uuidString.lowercased().prefix(8)): "
+                + "\(unrendered) formula\(unrendered == 1 ? " is" : "s are") drawn as its LaTeX source "
+                + "(no typeset rendering stored; typeset it in the app)")
+        }
         return pieces(it, layout)
     }
 
