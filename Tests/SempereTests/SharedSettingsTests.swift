@@ -267,9 +267,10 @@ final class SharedSettingsTests: VaultTestCase {
     let testMigrations: [SharedSettingsMigrations.Migration] = [
         .init(from: 1, [.copy(from: "pen.width", to: "ink.width"),
                         .copy(from: "pen.style", to: "pen.kind", map: { $0 == .string("bitmap") ? .string("pixel") : $0 })]),
+        // `@Sendable` spelled out: in a tuple literal the macOS compiler does not infer it.
         .init(from: 2, [.split(key: "ink.width", into: [
-            (key: "ink.penWidth", map: { $0 }),
-            (key: "ink.markerWidth", map: { v in if case .number(let n) = v { return .number(n * 4) } else { return nil } }),
+            (key: "ink.penWidth", map: { @Sendable v in v }),
+            (key: "ink.markerWidth", map: { @Sendable v in if case .number(let n) = v { return .number(n * 4) } else { return nil } }),
         ])]),
     ]
 
