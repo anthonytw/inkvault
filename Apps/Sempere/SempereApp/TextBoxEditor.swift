@@ -442,19 +442,37 @@ final class TextBoxEditorController: NSObject, UITextViewDelegate, UIGestureReco
 
     /// Inserts or removes Markdown syntax around the selection, as one undoable change of the text.
     func applyMarkdown(_ action: MarkdownEditing.Action) {
-        guard let tv = textView, session != nil else { return }
+        guard let tv = textView, let session else { return }
         let old = tv.text ?? ""
-        let r = MarkdownEditing.apply(action, to: old, selection: tv.selectedRange)
+        let before = tv.selectedRange
+        let r = MarkdownEditing.apply(action, to: old, selection: before)
         guard r.text != old else { return }
-        // Replace only what changed, through the text view, so the system undo reaches it.
         let change = TextBoxEditing.changedRange(from: old, to: r.text)
-        guard Self.fits(old, replacing: change.range, with: change.replacement),
-              let start = tv.position(from: tv.beginningOfDocument, offset: change.range.location),
-              let end = tv.position(from: start, offset: change.range.length),
-              let range = tv.textRange(from: start, to: end) else { return }
-        tv.replace(range, withText: change.replacement)
-        tv.selectedRange = r.selection
-        session?.dirty = true
+        let length = (old as NSString).length
+        guard change.range.location >= 0, change.range.location + change.range.length <= length,
+              Self.fits(old, replacing: change.range, with: change.replacement) else { return }
+        // Only what changed, in the text storage (no UITextInput round trip), as one undo step.
+        let removed = (old as NSString).substring(with: change.range)
+        tv.textStorage.replaceCharacters(in: change.range, with: NSAttributedString(
+            string: change.replacement, attributes: TextBoxEditing.markdownAttributes(session.style)))
+        let selection = NSRange(location: min(r.selection.location, tv.textStorage.length),
+                                length: min(r.selection.length, max(0, tv.textStorage.length - min(r.selection.location, tv.textStorage.length))))
+        tv.selectedRange = selection
+        let inserted = NSRange(location: change.range.location, length: (change.replacement as NSString).length)
+        tv.undoManager?.registerUndo(withTarget: self) { target in
+            MainActor.assumeIsolated { target.undoMarkdown(inserted, back: removed, selection: before) }
+        }
+        self.session?.dirty = true
+        layoutTextView()
+    }
+
+    /// Puts back the text a Markdown helper replaced (its undo).
+    private func undoMarkdown(_ inserted: NSRange, back removed: String, selection: NSRange) {
+        guard let tv = textView, let session, inserted.location + inserted.length <= tv.textStorage.length else { return }
+        tv.textStorage.replaceCharacters(in: inserted, with: NSAttributedString(
+            string: removed, attributes: TextBoxEditing.markdownAttributes(session.style)))
+        if selection.location + selection.length <= tv.textStorage.length { tv.selectedRange = selection }
+        self.session?.dirty = true
         layoutTextView()
     }
 
