@@ -234,6 +234,61 @@ What iOS does not allow, so the app cannot promise it:
 The Mac (Catalyst) keeps apps running when their windows are in the
 background, so it schedules nothing.
 
+## Other Files providers (Proton Drive) (app only)
+
+Privacy first: the only cloud providers the project targets are iCloud Drive
+(the system's) and Proton Drive; others may work through the same code but
+are not tested on purpose. A vault in a provider's storage is opened like any
+picked folder (`VaultLocator`, a security-scoped bookmark), and what happens
+next depends on how the provider presents its files.
+
+**Code paths that assume local files** (audited 2026-10-09):
+
+| Path | Assumes | With a provider |
+| --- | --- | --- |
+| `VaultLocator.resolve`, `FolderAccess.check` | the picked folder lists its files | a provider that has not listed the folder yet makes a vault look like a plain folder ("not a vault"); try again once Files shows the contents |
+| `VaultBookmark` (recents, backups, quick capture) | bookmarks of the folder resolve later | a provider that renames or re-creates its root gives a stale bookmark (refreshed) or a dead one ("choose it again") |
+| `CloudVault.download` / `ProgressiveLoad` / `requireLocal` | files report a downloading status (`ubiquitousItemDownloadingStatus`), placeholders are `.<name>.icloud` or dataless files | used only when the folder is ubiquitous (`isUbiquitousItem`): iCloud Drive and replicated File Provider extensions (every `~/Library/CloudStorage` provider on a Mac) report it; then `startDownloadingUbiquitousItem` and the dataless check apply unchanged |
+| `CloudVault.coordinatedRead` / `coordinatedWrite`, `NoteWriter(coordinated:)` | — | a provider fetches a file it holds only remotely for a coordinated read, and sees a new file through a coordinated write |
+| `NotesFolderPresenter` | a file presenter hears of other devices' revisions | the same for any provider that coordinates; otherwise the list changes only on reload (pull to refresh) |
+| `Vault` writes (`rename(2)`, `link(2)` for blobs, `fsync`) | a POSIX file system | File Provider storage is a local file system (APFS); `link(2)` falls back to rename where refused (above) |
+| Error texts in `CloudVault.CloudError` | iCloud | they name iCloud Drive even for another provider (only shown when a ubiquitous provider stalls or fails a download) |
+
+**Guard added** (`StorageLocation`): a vault whose path is another app's
+provider storage (`~/Library/CloudStorage/<Provider>-…` on a Mac; a shared
+app-group container or `File Provider Storage` on iPadOS) is treated like an
+iCloud vault for coordination even when it does not report its files as
+ubiquitous: every read and write is coordinated, so a non-replicated provider
+fetches and uploads what the vault needs. Download requests and the
+downloading status stay off for such a folder (there is nothing to wait
+for); a ubiquitous provider takes the whole iCloud path as before. Vaults in
+the app's own container (on this device, WebDAV copies) and on external
+drives are not coordinated, as before. `StorageLocationTests` pin the
+classification.
+
+**Verified** (without a device): the classification of iCloud Drive, Mac
+`CloudStorage` provider, iPadOS app-group and app-container paths; that the
+iCloud path keys on `isUbiquitousItem` and so already covers replicated
+providers; that coordination is a no-op cost for local files.
+
+**Not verified; needs the maintainer's device test** (with
+`SEMPERE_DEBUG_PROBE=1`, which logs how the files present, never names):
+
+1. Proton Drive on iPadOS: whether its Files location lets the folder picker
+   choose a folder at all (user reports say the location is unavailable while
+   Proton's app lock (PIN or Face ID) is on, and that some folders fail to list),
+   whether it opens in place with write access, and whether its files report
+   `isUbiquitousItem`.
+2. Creating a vault there, writing notes, quitting, reopening from Recents
+   (bookmark), and a second device seeing the notes after Proton syncs.
+3. Proton Drive for Mac (`~/Library/CloudStorage/ProtonDrive-…`) with the
+   sandboxed Catalyst build: open, write, evict a note in Finder ("Remove
+   Download") and reopen it (dataless path).
+4. A blob write (`link(2)`) in Proton's storage on both platforms.
+
+If 1 fails, Proton Drive on iPadOS cannot hold a vault through Files, and the
+alternatives are iCloud Drive or a WebDAV server (above).
+
 ## Opening a vault fast (app)
 
 The note list is shown from a persistent local **index**: the encrypted
@@ -1038,7 +1093,9 @@ the next run a first sync: nothing is deleted, nothing overwritten.
 
 **Testing.** `scripts/test-webdav.sh` starts a local wsgidav
 (`pip install wsgidav cheroot`) and runs the integration tests, which are
-skipped unless `SEMPERE_WEBDAV_TEST_URL` is set.
+skipped unless `SEMPERE_WEBDAV_TEST_URL` is set. CI's Linux job runs the
+script (pinned wsgidav and cheroot in a venv), so they run on every PR that
+touches the package.
 
 ## WebDAV vaults in the app
 

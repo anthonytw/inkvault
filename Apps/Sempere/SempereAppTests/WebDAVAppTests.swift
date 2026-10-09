@@ -270,3 +270,37 @@ struct WebDAVAppTests {
         #expect(WebDAVConnectSheet.fingerprint("ab01") == "AB:01")
     }
 }
+
+/// Where a vault lives decides whether its files are coordinated (docs/io.md, "Other Files providers").
+struct StorageLocationTests {
+    let home = "/private/var/mobile/Containers/Data/Application/1111-AAAA"
+
+    func classify(_ path: String) -> StorageLocation {
+        StorageLocation.classify(URL(fileURLWithPath: path), container: home)
+    }
+
+    @Test func iCloudDriveAndProvidersAreCoordinated() {
+        #expect(classify("/private/var/mobile/Library/Mobile Documents/com~apple~CloudDocs/Notes.sempere") == .iCloudDrive)
+        #expect(classify("/Users/me/Library/Mobile Documents/com~apple~CloudDocs/Notes.sempere") == .iCloudDrive)
+        #expect(classify("/Users/me/Library/CloudStorage/ProtonDrive-me@proton.me-folder/Notes.sempere")
+                == .fileProvider(name: "ProtonDrive"))
+        #expect(classify("/Users/me/Library/CloudStorage/Dropbox/Notes.sempere") == .fileProvider(name: "Dropbox"))
+        #expect(classify("/private/var/mobile/Containers/Shared/AppGroup/2222-BBBB/File Provider Storage/Notes.sempere")
+                == .fileProvider(name: nil))
+        #expect(classify("/private/var/mobile/Containers/Shared/AppGroup/2222-BBBB/Notes.sempere") == .fileProvider(name: nil))
+        for path in ["/private/var/mobile/Library/Mobile Documents/x/V.sempere",
+                     "/Users/me/Library/CloudStorage/ProtonDrive-x/V.sempere"] {
+            #expect(classify(path).needsCoordination, "\(path)")
+        }
+    }
+
+    @Test func localFoldersAreNot() {
+        #expect(classify(home + "/Documents/Notes.sempere") == .appContainer)
+        #expect(classify(home + "/Library/Application Support/Sempere/WebDAV/x/V.sempere") == .appContainer)
+        #expect(classify("/private/var/mobile/Containers/Data/Application/3333-CCCC/Documents/V.sempere") == .other)
+        #expect(classify("/Volumes/USB/V.sempere") == .other)
+        #expect(classify(home + "x/V.sempere") == .other, "a sibling with the same prefix is not the container")
+        #expect(!classify(home + "/Documents/V.sempere").needsCoordination)
+        #expect(!classify("/Volumes/USB/V.sempere").needsCoordination)
+    }
+}

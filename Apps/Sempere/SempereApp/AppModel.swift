@@ -256,8 +256,9 @@ final class AppModel {
     var thinningConcurrency = min(ProcessInfo.processInfo.activeProcessorCount, 4)
     /// Set while vault files are being fetched from iCloud Drive (`AppModel+Cloud`).
     var cloudProgress: CloudProgress?
-    /// True when the open vault is in iCloud Drive: reads and writes are
-    /// coordinated and reloads fetch new files first.
+    /// True when the open vault is in iCloud Drive or another provider's
+    /// storage (`StorageLocation`): reads and writes are coordinated and
+    /// reloads fetch new files first (when the provider reports download states).
     var isCloudVault = false
     var cloudTask: Task<Bool, any Error>?
     /// Notes of an iCloud vault whose files are still downloading.
@@ -619,8 +620,11 @@ final class AppModel {
                   (try? FileManager.default.contentsOfDirectory(atPath: url.path)) != nil ? 1 : 0)
             #endif
             try FolderAccess.check(url, scoped: scoped)
-            let cloud = try await fetchFromICloud(url, scope: .essentials)
+            let ubiquitous = try await fetchFromICloud(url, scope: .essentials)
             try ensureCurrent(gen)
+            // Another app's provider that does not report its files as ubiquitous still
+            // fetches and uploads only what is read and written coordinated (`StorageLocation`).
+            let cloud = ubiquitous || StorageLocation.classify(url).needsCoordination
             let opened = try await offMain { try CloudVault.coordinatedRead(cloud ? url : nil) { try Vault.open(at: url) } }
             try ensureCurrent(gen)
             Perf.end(interval, "cloud=\(cloud)")

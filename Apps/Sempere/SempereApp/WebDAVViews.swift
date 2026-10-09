@@ -88,6 +88,7 @@ struct WebDAVConnectSheet: View {
                     }
                 }
             }
+            .accessibilityIdentifier("webdavConnectSheet")
             .navigationTitle(editing == nil ? Text("Open from WebDAV") : Text("Server Settings"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
