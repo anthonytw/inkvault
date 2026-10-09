@@ -348,7 +348,9 @@ sempere vault summaries [--out PATH|-] [--plaintext] [--no-cache]
   note changed (a failure is a warning); commands without the key leave it
   alone, so it may lag until the next one. `--plaintext` writes the JSON
   content instead, in the clear (for checks and the web goldens); it needs
-  `--out`, so it never lands at the vault's sealed path by default. Legacy
+  `--out`, so it never lands at the vault's sealed path by default, and a
+  file it writes is readable by its owner only (created 0600 next to the
+  target, then renamed over it). Legacy
   vaults are refused (exit 5). `--json` emits `path`, `notes`, `entries`,
   `read` (notes summarised again) and `bytes`.
 
@@ -1204,11 +1206,13 @@ note made from a PDF become `pdfPage` backgrounds at the bands where
 Notability showed them, backed by the original PDF as one blob of the note,
 images become `image` items, typed text becomes `text` items (styles mapped
 to runs), and recordings become the note's recordings with their audio
-(strokes get `rec` where `eventTokens` read as times in the one recording);
+(strokes get `rec` where `eventTokens` read as times in the one recording; a transcript
+Notability kept with a recording becomes its transcript blob, `engine` `notability-<version>`,
+counted as `transcripts`);
 blobs are written before the note's delta.
 JPEG and PNG metadata (camera, location) is stripped unless
-`--keep-image-metadata`; HEIC is stored as is; GIF, TIFF, WebP and other
-formats are reported and left out. `--no-attachments` imports ink, recognised
+`--keep-image-metadata`; HEIC is stored as is; GIF (first frame) and baseline
+TIFF are converted to PNG; WebP and other formats are reported and left out. `--no-attachments` imports ink, recognised
 handwriting and metadata only and reports every attachment as dropped. A note with
 no ink and none of its PDF pages imported gets a `no ink in …` line. A note
 already in the vault is skipped unless `--overwrite`, which
@@ -1338,7 +1342,13 @@ does: every recognised word containing a word of the term, numbered across the
 note (pages in order, words in reading order). Human output adds one line per
 match (`NOTE p.PAGE  N of M  WORD  [x, y, w, h]`); with `--json` every hit gains
 `locations`, a list of `{n, of, text, box}` for the matches on that hit's page
-(`n` counts from 1 over the whole note, `of` is the note's total).
+(`n` counts from 1 over the whole note, `of` is the note's total). Words inside
+a text box are located too (a `text` hit gets its own `locations`, each with the
+box's `itemId`): the box's text is laid out with the fonts `export` draws with
+and each match is the glyph extent of the matched letters, `0.8 × size` above the
+baseline to `0.25 × size` below it, turned with the item (a right-to-left line
+highlights the whole line). Within a page, recognised words come first, then text
+boxes in drawing order; the app's highlights step through the same list.
 
 ### Handwriting recognition
 

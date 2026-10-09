@@ -140,6 +140,15 @@ final class AppModel {
     var searchResults: [NoteSearchHit] = []
     /// True from a change of the query until its results are in.
     var isSearching = false
+    /// Also search the transcripts of recordings (`AppModel+TranscriptSearch`; per device, off by default).
+    var searchTranscripts = TranscriptSearchPreference.isOn()
+    /// Transcript segments matching `searchText` while `searchTranscripts` is on.
+    var transcriptHits: [TranscriptSearchHit] = []
+    /// Transcripts the last transcript search could not read.
+    var transcriptSearchProblems = 0
+    @ObservationIgnored let transcriptCache = TranscriptSearchCache()
+    /// The recording to show once its note is open (a tapped transcript hit).
+    var pendingRecordingJump: RecordingJump?
     /// The page to show once the note is open (a tapped search hit).
     var pendingJump: PageJump?
     @ObservationIgnored var searchTask: Task<Void, Never>?
@@ -1057,6 +1066,9 @@ final class AppModel {
         dragProvider = nil
         dropTarget = nil
         pendingJump = nil
+        pendingRecordingJump = nil
+        transcriptHits = []
+        transcriptCache.removeAll()
         searchText = ""
         sidebarSelection = .allNotes
         phase = .noVault

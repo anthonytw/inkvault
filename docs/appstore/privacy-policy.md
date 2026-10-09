@@ -1,6 +1,6 @@
 # Sempere Privacy Policy
 
-*Effective: 2026-10-06. Last updated: 2026-10-08.*
+*Effective: 2026-10-06. Last updated: 2026-10-09.*
 
 This page is the Privacy Policy URL App Store Connect has today. The same text is served by
 GitHub Pages from [`docs/privacy/index.html`](../privacy/index.html), at
@@ -9,7 +9,7 @@ GitHub Pages from [`docs/privacy/index.html`](../privacy/index.html), at
 
 **Short version: Sempere does not collect, transmit or share any data about you. It has no
 servers, no accounts, no analytics and no advertising, and it makes no network connections of
-its own.**
+its own (see "Network connections" for the one dormant exception).**
 
 ## What Sempere is
 
@@ -53,6 +53,21 @@ your key, nobody can decrypt your notes.**
   Photos).
 - **Quick voice notes** from the Lock Screen or Control Center are encrypted on the device
   before they are saved, without unlocking your vault.
+
+## Network connections
+
+This version of Sempere makes no network connections of its own. Your notes reach iCloud Drive or
+another storage provider only through the system's Files and iCloud services, which copy the
+encrypted files you saved there; the speech model download above is the system's too.
+
+The app contains one piece of networking code: a downloader for an optional handwriting-to-math
+recognition model (Settings → Handwritten Math). It runs only when you tap a model's Download
+button, and this version offers no model, so it never runs and has no address to connect to; on a
+Mac the app is not even permitted to make outgoing connections. If a future version offers a
+model, it will be downloaded only when you ask, over HTTPS, from an address this policy will name,
+and it will be checked against a fingerprint built into the app. The download request carries
+nothing from your vault, and the model then runs on your device: your ink never leaves it. This
+policy will be updated before such a version is released.
 
 ## Device permissions
 

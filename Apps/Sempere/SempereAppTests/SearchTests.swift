@@ -53,6 +53,32 @@ struct SearchTests {
         #expect(editor.currentPage?.id == pages[0])
     }
 
+    /// GA-07: the words found inside a text box are highlighted too, in the box's frame.
+    @Test func highlightsTheWordsInsideATextBox() async throws {
+        let (model, vault, pages) = try await Self.model(texts: nil)
+        let page = try #require(try vault.reconstruct(noteId: Self.lecture).pages.first)
+        let item = AttachmentEditorTests.textItem("The wombat sleeps, wombat wakes")
+        try vault.apply(try NoteOps.addItems([item], to: page).ops, to: Self.lecture, deviceState: TS.deviceStateURL(), app: "test")
+        try await model.refresh([Self.lecture])
+        model.searchText = "WOMBAT"
+        #expect(await TS.waitUntil { !model.searchResults.isEmpty })
+        model.openSearchHit(try #require(model.searchResults.first))
+        await model.showSelectedNote()
+        let editor = try #require(model.editor)
+        #expect(await TS.waitUntil { editor.searchCursor != nil })
+        let cursor = try #require(editor.searchCursor)
+        #expect(cursor.count == 2)
+        #expect(cursor.matches.allSatisfy { $0.item == item.id && $0.pageId == pages[0] })
+        let boxes = editor.highlightBoxes(onPage: pages[0]).filter { $0.style == .search }
+        #expect(boxes.count == 2 && boxes.filter(\.isCurrent).count == 1)
+        for b in boxes {
+            #expect(b.box.x >= item.frame.x && b.box.x + b.box.w <= item.frame.x + item.frame.w + 1)
+            #expect(b.box.y >= item.frame.y - 2 && b.box.w > 5)
+        }
+        #expect(boxes[1].box.x > boxes[0].box.x, "the second word is further right")
+        model.close()
+    }
+
     @Test func findsByTitleTagAndNotebookAndHonoursTheScope() async throws {
         let (model, _, _) = try await Self.model()
         for query in ["fixture lecture", "#fixture", "FIXTURE"] {

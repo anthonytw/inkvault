@@ -24,10 +24,11 @@ pbx="Apps/Sempere/Sempere.xcodeproj/project.pbxproj"
 # edit FILE PYTHON-EXPR: rewrites FILE (relative to the copy) as expr(s).
 edit() { python3 -I -c 'import sys; p=sys.argv[1]; s=open(p).read(); exec("s="+sys.argv[2]); open(p,"w").write(s)' "$tmp/root/$1" "$2"; }
 
-# expect NAME ok|fail|warn [PATTERN]: runs the check on the copy.
+# expect NAME ok|fail|warn [PATTERN]: runs the check on the copy (with the arguments in $extra, if any).
+extra=()
 expect() {
   local name="$1" want="$2" pattern="${3:-}" out code=0
-  out="$("$check" --root "$tmp/root" 2>&1)" || code=$?
+  out="$("$check" --root "$tmp/root" ${extra[@]+"${extra[@]}"} 2>&1)" || code=$?
   local ok=1
   case "$want" in
     ok) [ "$code" -eq 0 ] || ok=0 ;;
@@ -124,6 +125,64 @@ expect "YES without a compliance code warns" warn "without ITSEncryptionExportCo
 
 fresh; edit "docs/privacy/index.html" 're.sub(r"\d{4}-\d{2}-\d{2}</span>", "2099-01-01</span>", s) if (re:=__import__("re")) else s'
 expect "privacy policy copies out of date" fail "privacy policy copies differ in date"
+
+# Networking: only the allow-listed model downloader, and only while its catalogue is empty.
+fresh; printf 'import Foundation\nfunc ping() { URLSession.shared.dataTask(with: URL(fileURLWithPath: "/")).resume() }\n' > "$tmp/root/Apps/Sempere/SempereApp/Ping.swift"
+expect "URLSession outside the allow-list" fail "SempereApp/Ping.swift:2: networking in the shipping app"
+
+fresh; printf 'import Network\n' > "$tmp/root/Apps/Sempere/SempereShared/Reach.swift"
+expect "Network.framework in the shared intents" fail "SempereShared/Reach.swift:1: networking"
+
+fresh; printf 'import WebKit\n' > "$tmp/root/Apps/Sempere/SempereWidgets/Web.swift"
+expect "WebKit in the widget" fail "SempereWidgets/Web.swift:1: networking"
+
+fresh; mkdir -p "$tmp/root/Apps/Sempere/NewFolder" && printf 'let fd = socket(2, 1, 0)\n' > "$tmp/root/Apps/Sempere/NewFolder/Raw.c"
+expect "a new app folder is scanned too" fail "NewFolder/Raw.c:1: networking"
+
+fresh; printf 'import Foundation\nlet r = URLRequest(url: URL(fileURLWithPath: "/"))\n' > "$tmp/root/Sources/SempereRender/Fetch.swift"
+expect "a linked package target counts for networking" fail "Sources/SempereRender/Fetch.swift:2: networking"
+
+fresh; printf 'import Foundation\n// URLSession in a comment\nlet s = "x".connect\nfunc f() { open(URL(string: "https://example.com")!) }\n' > "$tmp/root/Apps/Sempere/SempereApp/Words.swift"
+expect "comments, methods named connect and handing a URL to the system are not networking" ok
+
+fresh; printf 'import Foundation\nlet s = URLSession.shared\n' > "$tmp/root/Apps/Sempere/SempereAppTests/Stub.swift"
+expect "test targets may use URLSession" ok
+
+fresh; edit "Apps/Sempere/SempereApp/MathModels.swift" '__import__("re").sub(r"\bURL(Session|Request)", r"Plain\1", s)'
+expect "an allow-listed file without networking warns" warn "MathModels.swift is in NETWORK_ALLOWED but has no networking"
+
+fresh; edit "Sources/SempereRender/MathModel.swift" 's.replace("entries: [MathModelCatalogEntry] = []", "entries: [MathModelCatalogEntry] = [MathModelCatalogEntry(id: \"m\", name: \"M\", manifestURL: \"https://example.com/m/manifest.json\", manifestSHA256: \"00\", downloadBytes: 1, licence: \"x\")]")'
+expect "a model in the catalogue turns the downloader on" fail "MathModelCatalog.entries is not"
+
+# The app's package pins.
+fresh; edit "Apps/Sempere/Sempere.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved" 's.replace("\"version\" : \"1.7.3\"", "\"version\" : \"1.7.4\"", 1)'
+expect "exact version resolved to another" fail "pinned to exactly 1.7.3 in project.pbxproj but .* resolves 1.7.4"
+
+fresh; rm "$tmp/root/Apps/Sempere/Sempere.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved"
+expect "the app's Package.resolved missing" fail "Package.resolved is missing"
+
+# Third-party checkouts (--checkouts): a fake SwiftMath.
+checkout() {
+  rm -rf "$tmp/co" && mkdir -p "$tmp/co/SwiftMath/Sources/SwiftMath" "$tmp/co/SwiftMath/Tests/SwiftMathTests"
+  printf 'import Foundation\nlet d = UserDefaults.standard\n' > "$tmp/co/SwiftMath/Sources/SwiftMath/Fonts.swift"
+  printf 'import Foundation\nlet s = URLSession.shared\nlet t = mach_absolute_time()\n' > "$tmp/co/SwiftMath/Tests/SwiftMathTests/T.swift"
+}
+fresh; checkout; extra=(--checkouts "$tmp/co")
+expect "a checkout whose API use the app declares, tests ignored" ok "SwiftMath \(1.7.3, revision unknown\): privacy manifest absent; required-reason APIs: UserDefaults; networking: none"
+
+fresh; checkout; printf 'import Foundation\nlet t = ProcessInfo.processInfo.systemUptime\n' > "$tmp/co/SwiftMath/Sources/SwiftMath/Clock.swift"
+expect "a checkout using an undeclared category" fail "SwiftMath uses NSPrivacyAccessedAPICategorySystemBootTime"
+
+fresh; checkout; printf 'import Foundation\nlet t = ProcessInfo.processInfo.systemUptime\n' > "$tmp/co/SwiftMath/Sources/SwiftMath/Clock.swift"
+printf '<?xml version="1.0" encoding="UTF-8"?>\n<plist version="1.0"><dict><key>NSPrivacyTracking</key><false/><key>NSPrivacyCollectedDataTypes</key><array/><key>NSPrivacyAccessedAPITypes</key><array><dict><key>NSPrivacyAccessedAPIType</key><string>NSPrivacyAccessedAPICategorySystemBootTime</string><key>NSPrivacyAccessedAPITypeReasons</key><array><string>35F9.1</string></array></dict></array></dict></plist>\n' > "$tmp/co/SwiftMath/Sources/SwiftMath/PrivacyInfo.xcprivacy"
+expect "a checkout declaring its own category" ok "privacy manifest present: Sources/SwiftMath/PrivacyInfo.xcprivacy"
+
+fresh; checkout; printf 'import Foundation\nlet s = URLSession.shared\n' > "$tmp/co/SwiftMath/Sources/SwiftMath/Net.swift"
+expect "a checkout with networking" fail "SwiftMath: SwiftMath/Sources/SwiftMath/Net.swift:2: networking"
+
+fresh; rm -rf "$tmp/co" && mkdir -p "$tmp/co"
+expect "no SwiftMath checkout" fail "no SwiftMath checkout"
+extra=()
 
 echo "release-check tests: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

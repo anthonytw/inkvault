@@ -216,6 +216,44 @@ func writeNewSecretFile(_ text: String, to path: String) throws {
     handle.write(Data(text.utf8))
 }
 
+/// Writes `data` to `url`, replacing it, readable by the owner only: a
+/// temporary file in the same directory is created with mode 0600 (`O_EXCL`,
+/// so the bytes never sit in a file anyone else can open), written, flushed
+/// and renamed over `url`. An existing file at `url` is replaced, not
+/// rewritten, so it ends at 0600 whatever its mode was; a symlink at `url`
+/// is replaced itself, never followed. For plaintext the user asked for.
+func writePrivateFile(_ data: Data, to url: URL) throws {
+    let tmp = url.deletingLastPathComponent()
+        .appendingPathComponent(".sempere-tmp-" + UUID().uuidString.lowercased())
+    let fd = tmp.withUnsafeFileSystemRepresentation { p -> Int32 in
+        p.map { open($0, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0o600) } ?? -1
+    }
+    guard fd >= 0 else {
+        throw CLIError.failure("cannot create a file next to \(url.path): \(String(cString: strerror(errno)))")
+    }
+    let handle = FileHandle(fileDescriptor: fd, closeOnDealloc: false)
+    do {
+        try handle.write(contentsOf: data)
+        try handle.synchronize()
+        try handle.close()
+    } catch {
+        try? handle.close()
+        try? FileManager.default.removeItem(at: tmp)
+        throw CLIError.failure("cannot write \(url.path): \(error.localizedDescription)")
+    }
+    let rc = tmp.withUnsafeFileSystemRepresentation { src in
+        url.withUnsafeFileSystemRepresentation { dst -> Int32 in
+            guard let src, let dst else { return -1 }
+            return rename(src, dst)
+        }
+    }
+    guard rc == 0 else {
+        let reason = String(cString: strerror(errno))
+        try? FileManager.default.removeItem(at: tmp)
+        throw CLIError.failure("cannot write \(url.path): \(reason)")
+    }
+}
+
 func readIdentityFile(_ path: String) throws -> NativeIdentity {
     let text: String
     do { text = try String(contentsOfFile: path, encoding: .utf8) } catch {

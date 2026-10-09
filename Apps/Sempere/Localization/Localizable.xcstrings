@@ -561,6 +561,54 @@
         }
       }
     },
+    "%lld files or folders chosen" : {
+      "comment" : "Notability import options: what was picked",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld file or folder chosen"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld files or folders chosen"
+                }
+              }
+            }
+          }
+        },
+        "es" : {
+          "variations" : {
+            "plural" : {
+              "many" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld de archivos o carpetas elegidos"
+                }
+              },
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld archivo o carpeta elegido"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld archivos o carpetas elegidos"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "%lld items, %@" : {
       "comment" : "Settings ▸ Storage: number of unused attachments and their total size",
       "extractionState" : "manual",
@@ -1773,6 +1821,54 @@
         }
       }
     },
+    "%lld transcripts could not be read" : {
+      "comment" : "Transcript search: transcripts that failed to load",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld transcript could not be read"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld transcripts could not be read"
+                }
+              }
+            }
+          }
+        },
+        "es" : {
+          "variations" : {
+            "plural" : {
+              "many" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "No se pudieron leer %lld de transcripciones"
+                }
+              },
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "No se pudo leer %lld transcripción"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "No se pudieron leer %lld transcripciones"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "%lld unchanged, %lld not exported so far" : {
       "comment" : "Bulk export progress: notes skipped, notes that failed [not-plural]",
       "extractionState" : "manual",
@@ -2838,6 +2934,18 @@
         }
       }
     },
+    "Attachment files no note names" : {
+      "comment" : "Notability import report: not imported",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Archivos adjuntos que ninguna nota nombra"
+          }
+        }
+      }
+    },
     "Attachments" : {
       "comment" : "Restore preview: number of attachments",
       "extractionState" : "manual",
@@ -2846,6 +2954,30 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Adjuntos"
+          }
+        }
+      }
+    },
+    "Attachments are PDF pages, images, typed text and recordings; off imports the ink, Notability's handwriting text and the note's details only. Camera and location data in photos is removed unless you keep it. PDF page text makes the pages searchable." : {
+      "comment" : "Footer of the Notability import options",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Los adjuntos son páginas PDF, imágenes, texto escrito y grabaciones; desactivados, solo se importan la tinta, el texto de la escritura a mano de Notability y los datos de la nota. Los datos de cámara y ubicación de las fotos se quitan salvo que los conserves. El texto de las páginas PDF permite buscar en ellas."
+          }
+        }
+      }
+    },
+    "Attachments with no file in the backup" : {
+      "comment" : "Notability import report: not imported",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Adjuntos sin archivo en la copia"
           }
         }
       }
@@ -4309,6 +4441,18 @@
         }
       }
     },
+    "Counts of what Notability stores that Sempere does not convert (yet). Everything else of those notes was imported." : {
+      "comment" : "Footer of the Not Imported section of the Notability import report",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cantidades de lo que Notability guarda y Sempere no convierte (todavía). Todo lo demás de esas notas se importó."
+          }
+        }
+      }
+    },
     "Cream" : {
       "comment" : "Paper colour preset",
       "extractionState" : "manual",
@@ -4449,6 +4593,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Oscuro"
+          }
+        }
+      }
+    },
+    "Dashed strokes (imported solid)" : {
+      "comment" : "Notability import report: not imported",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Trazos discontinuos (importados continuos)"
           }
         }
       }
@@ -5849,6 +6005,54 @@
         }
       }
     },
+    "Handwriting could not be read in %lld notes." : {
+      "comment" : "Notability import result: notes the app could not read after the import",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Handwriting could not be read in %lld note."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Handwriting could not be read in %lld notes."
+                }
+              }
+            }
+          }
+        },
+        "es" : {
+          "variations" : {
+            "plural" : {
+              "many" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "No se pudo leer la escritura a mano en %lld de notas."
+                }
+              },
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "No se pudo leer la escritura a mano en %lld nota."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "No se pudo leer la escritura a mano en %lld notas."
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "Handwriting is read on this device; the text is saved, encrypted, in the vault so every device can search it." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -5856,6 +6060,54 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "La escritura a mano se lee en este dispositivo; el texto se guarda cifrado en la bóveda para que todos los dispositivos puedan buscar en él."
+          }
+        }
+      }
+    },
+    "Handwriting read on %lld pages." : {
+      "comment" : "Notability import result: pages the app read after the import",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Handwriting read on %lld page."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Handwriting read on %lld pages."
+                }
+              }
+            }
+          }
+        },
+        "es" : {
+          "variations" : {
+            "plural" : {
+              "many" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Escritura a mano leída en %lld de páginas."
+                }
+              },
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Escritura a mano leída en %lld página."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Escritura a mano leída en %lld páginas."
+                }
+              }
+            }
           }
         }
       }
@@ -6088,6 +6340,30 @@
         }
       }
     },
+    "Images" : {
+      "comment" : "Notability import report row",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Imágenes"
+          }
+        }
+      }
+    },
+    "Images and other media" : {
+      "comment" : "Notability import report: not imported",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Imágenes y otros elementos"
+          }
+        }
+      }
+    },
     "Import" : {
       "comment" : "Button: import the PDFs opened with Sempere",
       "extractionState" : "manual",
@@ -6196,6 +6472,30 @@
         }
       }
     },
+    "Import Report" : {
+      "comment" : "Title of the Notability import report",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Informe de importación"
+          }
+        }
+      }
+    },
+    "Import from Notability" : {
+      "comment" : "Title of the Notability import options sheet",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Importar de Notability"
+          }
+        }
+      }
+    },
     "Import from Notability…" : {
       "comment" : "File menu (Mac) and the note list's toolbar",
       "extractionState" : "manual",
@@ -6204,6 +6504,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Importar de Notability…"
+          }
+        }
+      }
+    },
+    "Imported" : {
+      "comment" : "Notability import report: section of what was imported",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Importado"
           }
         }
       }
@@ -6264,6 +6576,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "En Reconocidas recientemente"
+          }
+        }
+      }
+    },
+    "In Recordings" : {
+      "comment" : "Section of the search results: matches in recording transcripts",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "En grabaciones"
           }
         }
       }
@@ -6479,6 +6803,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Cursiva"
+          }
+        }
+      }
+    },
+    "Keep Photo Metadata" : {
+      "comment" : "Toggle in the Notability import options: keep camera and location data in photos",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Conservar metadatos de las fotos"
           }
         }
       }
@@ -6831,6 +7167,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Grosor de línea"
+          }
+        }
+      }
+    },
+    "Links from strokes to recordings" : {
+      "comment" : "Notability import report: not imported",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vínculos de trazos a grabaciones"
           }
         }
       }
@@ -7697,6 +8045,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Ninguno disponible"
+          }
+        }
+      }
+    },
+    "Not Imported" : {
+      "comment" : "Notability import report: section of what was left out",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No importado"
           }
         }
       }
@@ -8588,6 +8948,18 @@
         }
       }
     },
+    "PDF Page Text" : {
+      "comment" : "Toggle in the Notability import options",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Texto de las páginas PDF"
+          }
+        }
+      }
+    },
     "PDF Pages…" : {
       "comment" : "Insert menu item: insert pages of a PDF",
       "extractionState" : "manual",
@@ -8608,6 +8980,78 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Contraseña del PDF"
+          }
+        }
+      }
+    },
+    "PDF files" : {
+      "comment" : "Notability import report: not imported",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Archivos PDF"
+          }
+        }
+      }
+    },
+    "PDF highlights" : {
+      "comment" : "Notability import report: not imported",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Resaltados de PDF"
+          }
+        }
+      }
+    },
+    "PDF pages" : {
+      "comment" : "Notability import report row",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Páginas PDF"
+          }
+        }
+      }
+    },
+    "PDF pages (blank paper instead)" : {
+      "comment" : "Notability import report: not imported",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Páginas PDF (papel en blanco)"
+          }
+        }
+      }
+    },
+    "PDF pages with text for search" : {
+      "comment" : "Notability import report row",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Páginas PDF con texto para buscar"
+          }
+        }
+      }
+    },
+    "PDF pages without text for search" : {
+      "comment" : "Notability import report: not imported",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Páginas PDF sin texto para buscar"
           }
         }
       }
@@ -9586,6 +10030,18 @@
         }
       }
     },
+    "Read Handwriting Notability Did Not Index" : {
+      "comment" : "Toggle in the Notability import options",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Leer la escritura que Notability no indexó"
+          }
+        }
+      }
+    },
     "Read by Recognize All in the last 7 days" : {
       "comment" : "Header above the Recently Recognized list",
       "extractionState" : "manual",
@@ -9654,6 +10110,30 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Leyendo la escritura en este dispositivo…"
+          }
+        }
+      }
+    },
+    "Reads and decrypts every transcript of the notes searched, on this device." : {
+      "comment" : "Caption under the transcript search toggle",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lee y descifra en este dispositivo todas las transcripciones de las notas buscadas."
+          }
+        }
+      }
+    },
+    "Reads the handwriting of pages Notability never recognised, on this device, right after the import." : {
+      "comment" : "Footer of the Notability import options",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lee en este dispositivo la escritura a mano de las páginas que Notability nunca reconoció, justo después de importar."
           }
         }
       }
@@ -11241,6 +11721,18 @@
         }
       }
     },
+    "Search Recording Transcripts" : {
+      "comment" : "Toggle above the search results: also search what was said in recordings",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Buscar en transcripciones de grabaciones"
+          }
+        }
+      }
+    },
     "Search notes and handwriting" : {
       "comment" : "Placeholder of the note list's search field",
       "extractionState" : "manual",
@@ -11494,6 +11986,18 @@
         }
       }
     },
+    "Shapes not converted" : {
+      "comment" : "Notability import report: not imported",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Formas sin convertir"
+          }
+        }
+      }
+    },
     "Share…" : {
       "comment" : "Button: share the exported files",
       "extractionState" : "manual",
@@ -11562,6 +12066,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Mostrar páginas"
+          }
+        }
+      }
+    },
+    "Show Report" : {
+      "comment" : "Button of the Notability import result alert",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ver informe"
           }
         }
       }
@@ -12160,6 +12676,66 @@
         }
       }
     },
+    "Strokes linked to a recording" : {
+      "comment" : "Notability import report row",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Trazos vinculados a una grabación"
+          }
+        }
+      }
+    },
+    "Strokes of a kind not understood" : {
+      "comment" : "Notability import report: not imported",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Trazos de un tipo no reconocido"
+          }
+        }
+      }
+    },
+    "Strokes of an unknown style (imported as pen)" : {
+      "comment" : "Notability import report: not imported",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Trazos de estilo desconocido (como bolígrafo)"
+          }
+        }
+      }
+    },
+    "Strokes whose position was not stored" : {
+      "comment" : "Notability import report: not imported",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Trazos sin posición guardada"
+          }
+        }
+      }
+    },
+    "Strokes with a missing style, colour or width" : {
+      "comment" : "Notability import report: not imported",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Trazos sin estilo, color o grosor"
+          }
+        }
+      }
+    },
     "Strong" : {
       "comment" : "Smooth Mouse Strokes setting: more smoothing",
       "extractionState" : "manual",
@@ -12216,6 +12792,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Etiqueta"
+          }
+        }
+      }
+    },
+    "Tag Notes with Their Notability Folders" : {
+      "comment" : "Toggle in the Notability import options",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Etiquetar las notas con sus carpetas de Notability"
           }
         }
       }
@@ -12466,6 +13054,18 @@
         }
       }
     },
+    "Template PDF paper" : {
+      "comment" : "Notability import report: not imported",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Papel de plantilla PDF"
+          }
+        }
+      }
+    },
     "Text" : {
       "comment" : "Toolbar toggle: the text tool",
       "extractionState" : "manual",
@@ -12510,6 +13110,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Cuadro de texto"
+          }
+        }
+      }
+    },
+    "Text boxes" : {
+      "comment" : "Notability import report row",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cuadros de texto"
           }
         }
       }
@@ -14215,6 +14827,18 @@
         }
       }
     },
+    "Transcripts" : {
+      "comment" : "Notability import report row",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Transcripciones"
+          }
+        }
+      }
+    },
     "Trust This List" : {
       "comment" : "Recipients alert button: record the vault's current device list as trusted on this device",
       "extractionState" : "manual",
@@ -14337,6 +14961,18 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "Typed text (characters)" : {
+      "comment" : "Notability import report: not imported",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Texto escrito (caracteres)"
           }
         }
       }
@@ -14934,6 +15570,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Esperando la bóveda"
+          }
+        }
+      }
+    },
+    "Warnings" : {
+      "comment" : "Notability import report: section of the importer's warnings",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Avisos"
           }
         }
       }
@@ -15588,6 +16236,54 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "«Sin título»"
+          }
+        }
+      }
+    },
+    "…and %lld more warnings." : {
+      "comment" : "After the first warnings of a Notability import report",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "…and %lld more warning."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "…and %lld more warnings."
+                }
+              }
+            }
+          }
+        },
+        "es" : {
+          "variations" : {
+            "plural" : {
+              "many" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "…y %lld de avisos más."
+                }
+              },
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "…y %lld aviso más."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "…y %lld avisos más."
+                }
+              }
+            }
           }
         }
       }

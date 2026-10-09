@@ -96,17 +96,27 @@ extension AppModel {
             searchTask = nil
             isSearching = false
             if !searchResults.isEmpty { searchResults = [] }
+            if !transcriptHits.isEmpty { transcriptHits = [] }
+            transcriptSearchProblems = 0
             return
         }
         isSearching = true
         let candidates = searchCandidates
         let gen = generation
         let delay = searchDebounce
+        let withTranscripts = searchTranscripts
+        if !withTranscripts, !transcriptHits.isEmpty { transcriptHits = [] }
         searchTask = Task { [weak self] in
             do { try await Task.sleep(for: delay) } catch { return }
             let hits = await Task.detached(priority: .userInitiated) { NoteSearch.search(query, in: candidates) }.value
             guard !Task.isCancelled, let self, gen == self.generation else { return }
             self.searchResults = hits
+            if withTranscripts {
+                self.transcriptHits = []
+                // The notes' hits are in; the transcripts follow as they are read.
+                await self.runTranscriptSearch(query, in: candidates, generation: gen)
+                guard !Task.isCancelled, gen == self.generation else { return }
+            }
             self.isSearching = false
         }
     }
@@ -123,6 +133,7 @@ extension AppModel {
     /// Shows the pending page when its note is the one on the canvas; drops
     /// a jump that belongs to another note.
     func applyPendingJump() {
+        applyPendingRecordingJump()
         guard let jump = pendingJump, let editor else { return }
         guard editor.noteID == jump.note else {
             if selectedNoteID != jump.note { pendingJump = nil }

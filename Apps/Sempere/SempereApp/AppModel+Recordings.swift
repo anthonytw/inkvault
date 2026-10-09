@@ -109,14 +109,21 @@ extension AppModel {
     /// The transcript of `recording`, verified (format.md §8.3.2: it must
     /// name this recording); nil when it cannot be read.
     func loadTranscript(_ recording: Recording, note: UUID) async -> Transcript? {
-        guard let ref = recording.transcript, let cache = attachmentCache() else { return nil }
+        guard let ref = recording.transcript else { return nil }
+        return await loadTranscript(ref: ref, recording: recording.id, note: note)
+    }
+
+    /// The transcript blob `ref` of recording `recording` in `note`, verified and decoded; nil when it
+    /// cannot be read or names another recording. Also the transcript search's reader.
+    func loadTranscript(ref: BlobRef, recording: UUID, note: UUID) async -> Transcript? {
+        guard let cache = attachmentCache() else { return nil }
         guard let url = try? await cache.acquire(note: note, ref: ref) else { return nil }
         defer { Task { await cache.release(note: note, ref: ref, discard: true) } }
         let decoded = await Task.detached(priority: .userInitiated) { () -> Transcript? in
             guard let data = try? BoundedRead.contents(of: url, maxBytes: Transcript.maxSize) else { return nil }
             return try? Transcript.decode(data)
         }.value
-        return decoded?.recording == recording.id ? decoded : nil
+        return decoded?.recording == recording ? decoded : nil
     }
 
     // MARK: - Transcription
