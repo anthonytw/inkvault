@@ -68,7 +68,6 @@ final class CLISummariesTests: CLITestCase {
         let content = try JSONSerialization.jsonObject(with: Data(contentsOf: URL(fileURLWithPath: out))) as? [String: Any]
         XCTAssertEqual(content?["format"] as? String, "sempere-summaries/1")
         XCTAssertEqual(try fm.contentsOfDirectory(atPath: tmp.path).filter { $0.hasPrefix(".sempere-tmp-") }, [])
-
     }
 
     /// Once it exists, any command that unlocks the vault keeps it current;
