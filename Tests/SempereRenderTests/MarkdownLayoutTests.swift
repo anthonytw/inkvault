@@ -219,4 +219,28 @@ final class MarkdownLayoutTests: XCTestCase {
         XCTAssertNil(r.placeholder)
         XCTAssertTrue(r.image.pixels.contains { $0 != 0 })
     }
+
+    func testMarkdownExportPassesTheSourceThroughAndHTMLRendersIt() throws {
+        let source = "# Plan <b>\n\n- [x] **done** with $a<b$\n- see [site](https://e.org) and [bad](javascript:alert(1))\n\n> q"
+        let note = Self.note(try MarkdownText.content(source))
+        var styled = Item.text(try NoteOps.text("plain box"), frame: Rect(x: 0, y: 200, w: 100, h: 20), z: "a1")
+        styled.id = UUID()
+        var state = note
+        state.pages[0].items.append(styled)
+        let info = ExportNoteInfo(id: UUID(), title: "M", tags: [], notebook: nil, created: Date(timeIntervalSince1970: 0),
+                                  modified: nil, pages: 1, source: "sempere")
+        let md = MarkdownExport.note(info: info, state: state, pdfName: nil)
+        XCTAssertTrue(md.contains("\n" + source + "\n"), md)
+        XCTAssertTrue(md.contains("```text\nplain box\n```"), md)
+        let html = HTMLExport.notePage(info: info, state: state, svgs: ["<svg></svg>"], indexHref: nil)
+        XCTAssertTrue(html.contains("<h1>Plan &lt;b&gt;</h1>"), html)
+        XCTAssertTrue(html.contains("<input type=\"checkbox\" disabled=\"disabled\" checked=\"checked\"/> "), html)
+        XCTAssertTrue(html.contains("<strong>done</strong>"), html)
+        XCTAssertTrue(html.contains("<span class=\"math\">\\(a&lt;b\\)</span>"), html)
+        XCTAssertTrue(html.contains("<a href=\"https://e.org\">site</a>"), html)
+        XCTAssertFalse(html.contains("javascript:"), html)
+        XCTAssertTrue(html.contains("<blockquote>\n<p>q</p>\n</blockquote>"), html)
+        // Still well-formed XML.
+        _ = TextExportTests.parse(html)
+    }
 }
