@@ -247,12 +247,14 @@ Existing rows were not touched.
 | Import | Notability transcripts as transcript blobs; GIF/TIFF/WebP handling checked against the doc | S | GA-09, GA-10 | 📋 |
 | Transcription | `DictationTranscriber` step in the fallback chain | S | GA-11 | 📋 |
 | Recording | Live transcript while recording; faded ink playback mode | L | GA-12 | 💡 |
-| Mac | Shortcuts for item actions and recording; Note menu entries for toolbar-only commands | M | GA-13, GA-14 | 📋 |
-| iPhone | Page layout switch, page duplicate/delete/add-after, insert PDF at page, thumbnail strip, swipe to turn pages | M | GA-15, GA-16 | 📋 |
+| Mac | Shortcuts for item actions and recording | S | GA-13 | 📋 |
+| Mac | Note/Tools/View menu entries for toolbar-only commands | M | GA-14 | 🔀 #136 (not yet tried on a Mac) |
+| iPhone | Page layout switch, page duplicate/delete/add-after, insert PDF at page, thumbnail strip, swipe to turn pages, paper picker layout | M | GA-15, GA-16 | 🔀 #136 (not yet tried on an iPhone) |
 | Keys | Recipient `repair --keep` and replace-recipient in the app (today the alert says to use the CLI) | M | GA-17 | 📋 |
 | Backup | CLI reminder (overdue check) for the app's "Remind Me" | S | GA-18 | 📋 |
 | Math | Ship a handwriting model: pick one, settle the training-data question, pin the manifest hash (then `network.client` for the Mac build and the privacy answers) | L | GA-22, GA-40 | 💡 (needs the maintainer) |
-| Capture | Mac menu-bar item for quick capture; adopting captures from a key that no longer verifies | M / L | GA-23, GA-24 | 💡 |
+| Capture | Mac menu-bar item for quick capture (File > Start/Stop Voice Note) | M | GA-23 | 🔀 #136 |
+| Capture | Adopting captures from a key that no longer verifies | L | GA-24 | 💡 |
 | Web viewer | Ink linked to audio (`rec`) and search highlights | M | GA-25, GA-26 | 📋 |
 | Import | Undecoded `.ntb` stroke and shape kinds, dashed strokes | M–L | GA-27 | 💡 |
 | Security | Open review findings: P3, P4 (web), P5 (`vault summaries` file mode), C2, C8 | S–M | GA-28, GA-30, GA-31, GA-34 | 📋 |

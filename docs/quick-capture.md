@@ -117,7 +117,7 @@ transcription on. That transcript goes through the normal path: a blob, then
 | Lock Screen, Home Screen | `VoiceNoteWidget` (circular, rectangular, small): the same three actions |
 | While recording | `VoiceNoteLiveActivity`: pulsing record dot, elapsed time and a large Stop, on the Lock Screen and in the Dynamic Island (required for `AudioRecordingIntent`); then where the voice note went |
 | In the app | `VoiceNoteBanner`: a red bar with the time and Stop at the top of the window (and of the unlock and Settings sheets) while recording, then where the voice note went |
-| Mac | Shortcuts and Siri (no widgets in the Catalyst build; a menu bar item is future work) |
+| Mac | File > Start / Stop Voice Note (⇧⌘M, `VoiceNoteMenu`), Shortcuts and Siri; no widgets in the Catalyst build, and no status-bar icon (Catalyst has none) |
 | CLI | `sempere inbox enable`, `capture`, `transcript`, `list`, `import` (`docs/cli.md`) |
 
 The intents live in `Apps/Sempere/SempereShared/`, which both the app and

@@ -46,6 +46,15 @@ Read-first:
   (`drawingPolicy = .anyInput`), and the bottom bar gives way to a Pages menu so it does not sit on
   the palette. Annotation turns off again on the next note. Edits are ordinary deltas through
   `NoteWriter`, exactly as on the iPad. Read-only notes (deleted, legacy) never draw.
+- **Page actions** are in the overflow menu's Pages submenu, with or without the pencil: Add Page
+  After This One, Add Page at End, Insert PDF Pages at this page, Duplicate, Delete, Undo Delete,
+  Show/Hide Pages (the thumbnails, a sheet at phone width that closes when a page is picked) and the
+  Pages/Pageless switch (`PhonePageMenu`). Read-only notes get the thumbnails only.
+- **Swipe to turn pages.** In reading mode, on a paged note that fits the width, a swipe left goes to
+  the next page and right to the previous (`PhoneReading.swipeTurnsPages`; off while annotating or
+  zoomed, where a swipe draws or pans).
+- **Search hits** are highlighted on the page and stepped through exactly as on the iPad (the
+  same canvas code; `PhoneStackTests`).
 - **The rest** is in the overflow menu: Rename, Export (PDF, PNG, text), Version History, Keep Screen
   On, Tags, Paper, and the object-eraser size while annotating. The title in the bar renames the
   note on tap or long press.
@@ -101,6 +110,8 @@ iCloud Drive; if it does and the picker still does not, that is a new finding.
 
 - Not tried on a physical iPhone: the layouts, the Face ID prompt and finger annotation are
   covered by simulator tests and by reading the code only.
-- Swiping left and right to turn pages, a page-thumbnail strip, and word highlights on the page for
-  search hits.
-- The paper picker is in the overflow menu but has no iPhone-specific layout pass.
+- Swipe-to-turn on a pageless note that has several pages (rare, older notes); the one-page canvas
+  has no swipe.
+- Not tried on the device: the swipe against the system back gesture, the thumbnails sheet, the paper
+  picker at half height (`PaperPickerLayout`: one strip of kinds, a capped preview, "Use as Default"
+  scrolls with the controls).
