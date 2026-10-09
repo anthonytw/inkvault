@@ -197,5 +197,32 @@ struct RecipientsAlertTests {
                                        entries: [])
         #expect(!replaced.canRemove)
         #expect(replaced.message.contains("backup"))
+        #expect(replaced.displayTitle == RecipientsAlert.title)
+    }
+
+    /// Version markers changed without the key (format.md §2.1, security
+    /// review 2026-10, N3): their own title and repair, no device list.
+    @Test func markersAlertPointsToTheMarkersRepair() {
+        for reason in [RecipientsProblem.Reason.markersMismatch, .markersRemoved, .markersRolledBack] {
+            let alert = RecipientsAlert(problem: .init(reason: reason, unexpected: [], missing: [], restore: nil), entries: [])
+            #expect(alert.displayTitle == RecipientsAlert.markersTitle)
+            #expect(alert.message.contains("sempere vault markers repair"))
+            #expect(!alert.message.contains("unknown device"))
+            #expect(!alert.canRemove)
+            #expect(!alert.canConfirm)
+        }
+    }
+
+    /// Who captured a voice note, in its recording menu (format.md §8.3.1).
+    @Test func capturedByNamesTheDevice() throws {
+        let key = try NativeIdentity.generate(.postQuantum).recipient.string
+        let entries: [VaultManifest.Recipient] = [.init(key: key, label: "iPad", added: Date())]
+        var r = Recording(blob: BlobRef(content: Data([1]), type: "audio/mp4"), started: Date())
+        #expect(RecordingsMenu.capturedBy(r, recipients: entries) == nil)
+        r.captured = CaptureAttribution(device: "0b0b0b0b", recipient: CaptureKey.fingerprint(of: key))
+        #expect(RecordingsMenu.capturedBy(r, recipients: entries) == "Voice note from iPad")
+        #expect(RecordingsMenu.capturedBy(r, recipients: []) == "Voice note from a device no longer in this vault")
+        r.captured?.recipient = nil
+        #expect(RecordingsMenu.capturedBy(r, recipients: entries) == "Voice note from an unverified device")
     }
 }

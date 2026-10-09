@@ -671,6 +671,22 @@ final class AppModel {
                 opened = upgraded
             }
         }
+        if !opened.isLegacy, !opened.isReadOnly, !opened.pendingRewrap, opened.recipientsStatus.problem == nil,
+           !opened.markersTagged {
+            // Authenticated version markers (format.md §2.1, security review N3): an older
+            // vault's format and features are tagged once, as its first write would.
+            let start = opened
+            if let tagged = try? await Task.detached(priority: .userInitiated, operation: { () throws -> Vault in
+                try CloudVault.coordinatedWrite(coordinate) { () throws -> Vault in
+                    var v = start
+                    try v.upgradeMarkers()
+                    return v
+                }
+            }).value {
+                try ensureCurrent(gen)
+                opened = tagged
+            }
+        }
         vault = opened
         unlockIdentities = identities
         recipientsAlert = opened.recipientsStatus.problem.map { RecipientsAlert(problem: $0, entries: opened.recipients) }
