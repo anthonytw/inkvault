@@ -335,6 +335,27 @@ final class MediaExportTests: XCTestCase {
         XCTAssertEqual(result.recordingsOmitted, 0)
         XCTAssertTrue(result.failures.isEmpty)
     }
+
+    /// What a media export left out reaches the app's sheets: the share
+    /// export's `warnings` and the bulk result's `warningLines`, one per file.
+    func testShareAndBulkMediaExportsReportWhatWasLeftOut() throws {
+        let summary = NoteSummary(id: noteID, title: "Physics", tags: [], notebook: nil, deleted: false, pages: 4, strokes: 0,
+                                  modified: nil, problem: nil)
+        let source = MissingSource(inner: MemoryBlobSource([audio, gif]))
+        let shared = try ShareExport.run([(summary, note())], options: ShareOptions(format: .media), into: scratch(),
+                                         vaultSource: "test", blobs: { _ in source })
+        XCTAssertEqual(shared.exported, 1)
+        XCTAssertEqual(shared.warnings.filter { $0.hasPrefix("aaaaaaaa: ") && $0.contains("not available") }.count, 2,
+                       "\(shared.warnings)")
+
+        let job = BulkExportJob(noteId: noteID, title: "Physics", folder: [], stem: "Physics-aaaaaaaa")
+        let session = try BulkExportSession(destination: .folder(scratch()), options: BulkExportOptions(format: .media), jobs: [job])
+        _ = try session.export(job, state: note(), version: "v1", blobs: source)
+        let result = try session.finish(cancelled: false)
+        XCTAssertEqual(result.exported.count, 1)
+        XCTAssertEqual(result.warningLines.filter { $0.hasPrefix("Physics (aaaaaaaa): ") && $0.contains("not available") }.count, 2,
+                       "\(result.warningLines)")
+    }
 }
 
 /// A source whose clips and PDFs are "not downloaded".

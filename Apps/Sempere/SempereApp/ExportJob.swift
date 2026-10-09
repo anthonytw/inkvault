@@ -31,6 +31,9 @@ final class ExportJob {
         var mediaFiles = 0
         /// Media export: notes without recordings, videos, images or PDFs.
         var withoutMedia = 0
+        /// Media export: files left out (not downloaded, unreadable transcript)
+        /// or written with their metadata, one line each.
+        var warnings: [String] = []
     }
 
     private(set) var state = State.idle
@@ -78,7 +81,8 @@ final class ExportJob {
                                          recordingsAttached: result.recordingsAttached,
                                          recordingsOmitted: result.recordingsOmitted,
                                          videosAttached: result.videosAttached, mediaFiles: result.mediaFiles,
-                                         withoutMedia: result.withoutMedia))
+                                         withoutMedia: result.withoutMedia,
+                                         warnings: options.format == .media ? result.warnings : []))
             } catch is CancellationError {
             } catch {
                 next = .failed("\(error)")

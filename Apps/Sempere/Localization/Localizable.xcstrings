@@ -6523,6 +6523,18 @@
         }
       }
     },
+    "Left out or kept as stored" : {
+      "comment" : "Export sheets: section listing media files left out of a media export (not downloaded, unreadable) or written with their metadata",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Omitidos o tal como se guardaron"
+          }
+        }
+      }
+    },
     "Left to Right" : {
       "comment" : "Writing direction",
       "extractionState" : "manual",

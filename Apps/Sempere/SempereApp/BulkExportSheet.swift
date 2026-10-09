@@ -171,6 +171,11 @@ struct BulkExportSheet: View {
                 ForEach(result.failureLines, id: \.self) { Text($0).font(.caption).foregroundStyle(.orange) }
             }
         }
+        if options.format == .media, !result.warningLines.isEmpty {
+            Section("Left out or kept as stored") {
+                ForEach(result.warningLines, id: \.self) { Text($0).font(.caption).foregroundStyle(.orange) }
+            }
+        }
         if case .zip = destinationKind(result), !result.exported.isEmpty, !result.cancelled {
             Section {
                 Button("Share…", systemImage: "square.and.arrow.up") { deliver(result, save: false) }

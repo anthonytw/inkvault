@@ -1568,7 +1568,7 @@ Physics-Week-3-0d1c6a1e/
   Physics-Week-3-Recording-1-Lecture.m4a     the audio as stored
   Physics-Week-3-Recording-1-Lecture.txt     its transcript, "[m:ss] text" lines
   Physics-Week-3-Video-1.mp4                 location metadata removed (--keep-image-metadata keeps it)
-  Physics-Week-3-Image-1.jpg                 JPEG/PNG metadata removed (likewise)
+  Physics-Week-3-Image-1.jpg                 JPEG/PNG metadata removed (likewise; other images as stored)
   Physics-Week-3-PDF-1.pdf                   the PDF behind the note's PDF pages, as stored
   media.json
 ```
@@ -1577,9 +1577,10 @@ Physics-Week-3-0d1c6a1e/
 (recording, video, image, pdf), "title" (a recording's), "pages" (1-based note pages it appears
 on), "duration", "started" (a recording's, RFC 3339), "transcript" (the .txt), "type", "size"}]}`.
 Recordings come first in their order, then clips, images and PDFs in page order. A blob that is
-missing or not downloaded, a transcript that cannot be read, and an image whose metadata cannot be
-removed are left out with a warning; a blob that fails verification fails the note (exit 1,
-nothing of it left behind). A note without media writes nothing and warns "no recordings, videos,
+missing or not downloaded, a transcript that cannot be read, and a JPEG or PNG that cannot be parsed
+to remove its metadata are left out with a warning; other images (a HEIC kept as taken) and JPEG/PNG
+over 64 MiB are written as stored, metadata included, with a warning; a blob that fails
+verification fails the note (exit 1, nothing of it left behind). A note without media writes nothing and warns "no recordings, videos,
 images or PDFs to export" (exit 0). With `--json`, `files` lists the files written, `media.json`
 last. `--no-paper`, `--breaks`, `--merge`, `--images` and `--recordings` do not apply (exit 2).
 With `--all` it is a bulk export (below): `--layout`, `--zip` and resuming apply, and notes whose

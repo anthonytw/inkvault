@@ -84,8 +84,10 @@ struct ExportCommand: ParsableCommand {
             media writes each note's recordings (and their transcripts as .txt), video clips, images and
             PDFs as files into a folder <name>/ under --out, decrypted and verified, named
             <title>-Recording-1-<recording title>.m4a, <title>-Image-2.jpg, ..., with a media.json manifest
-            (file, kind, title, pages, duration, start, transcript, type, size). Image and clip metadata is
-            removed unless --keep-image-metadata. With --all, notes without media are skipped.
+            (file, kind, title, pages, duration, start, transcript, type, size). Clips' location metadata and
+            JPEG/PNG images' metadata are removed unless --keep-image-metadata; other images (a HEIC kept
+            as taken) and JPEG/PNG over 64 MiB are written as stored, with a warning. With --all, notes
+            without media are skipped.
             """
     )
 

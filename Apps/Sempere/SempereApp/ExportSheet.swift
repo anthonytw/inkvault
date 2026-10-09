@@ -164,6 +164,11 @@ struct ExportSheet: View {
                 ForEach(outcome.failures, id: \.self) { Text($0).font(.caption).foregroundStyle(.orange) }
             }
         }
+        if !outcome.warnings.isEmpty {
+            Section("Left out or kept as stored") {
+                ForEach(outcome.warnings, id: \.self) { Text($0).font(.caption).foregroundStyle(.orange) }
+            }
+        }
         Section {
             Button("Share…", systemImage: "square.and.arrow.up") { deliver(outcome, save: false) }
                 .background(PresentationAnchor(box: anchor))

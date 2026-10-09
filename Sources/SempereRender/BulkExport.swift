@@ -314,6 +314,15 @@ public struct BulkExportResult: Sendable, Equatable {
             return "\(title) (\(o.job.noteId.uuidString.lowercased().prefix(8))): \(why)"
         }
     }
+
+    /// "Physics (0d1c6a1e): warning" per warning of an exported note (a file
+    /// left out, an image written with its metadata), for a final report.
+    public var warningLines: [String] {
+        exported.flatMap { o in
+            let title = o.job.title.isEmpty ? "Untitled" : o.job.title
+            return o.report.warnings.map { "\(title) (\(o.job.noteId.uuidString.lowercased().prefix(8))): \($0)" }
+        }
+    }
 }
 
 /// Why a bulk export stopped as a whole (one note's failure never does).
