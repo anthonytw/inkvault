@@ -243,10 +243,10 @@ final class AppModel {
     /// waiting to be imported as new notes (`AppModel+OpenedFiles`). App
     /// state, not the vault's: they wait while a vault is opened or unlocked.
     var openedPDFs: [OpenedPDF] = []
-    /// A Notability import is running (`AppModel+NotabilityImport`).
-    var isImportingNotability = false
-    /// What the last Notability import did, until the alert is dismissed.
-    var notabilitySummary: NotabilityImportSummary?
+    /// An import from another app is running (`AppModel+Import`).
+    var isImporting = false
+    /// What the last import did, until the alert is dismissed.
+    var importSummary: ImportSummary?
     /// The "Export Notes…" sheet's request (`AppModel+BulkExport`).
     var bulkExportRequest: BulkExportRequest?
     var sortOrder = NoteSort.modified
