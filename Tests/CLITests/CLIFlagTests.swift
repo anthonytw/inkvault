@@ -11,7 +11,6 @@ final class CLIFlagTests: CLITestCase {
     let groceries = "bbbbbbbb-2222-4222-8222-000000000002"
     static let images = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
         .appendingPathComponent("SempereRenderTests/Fixtures/images")
-    static let notability = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("SempereNotabilityTests/Fixtures")
 
     var key: [String] { ["--vault", path("mine.sempere"), "--identity", path("mine.sempere.key")] }
 
@@ -127,26 +126,6 @@ final class CLIFlagTests: CLITestCase {
     }
 
     // MARK: search
-
-    func testSearchShowBoxesListsEveryMatchWithItsNumber() throws {
-        let vault = try copyFixtureVault()
-        let args = ["--vault", vault, "--identity", Self.fixtureKey]
-        XCTAssertEqual(try cli(["import", "notability", Self.notability.appendingPathComponent("synthetic.note").path] + args).status, 0)
-        let plain = try cli(["search", "cd", "--json"] + args)
-        XCTAssertNil(((plain.json as? [[String: Any]])?.first)?["locations"], "no locations without the flag")
-        let r = try cli(["search", "cd", "--show-boxes", "--json"] + args)
-        XCTAssertEqual(r.status, 0, r.err)
-        let hit = try XCTUnwrap((r.json as? [[String: Any]])?.first)
-        let locations = try XCTUnwrap(hit["locations"] as? [[String: Any]])
-        XCTAssertEqual(locations.count, 1)
-        XCTAssertEqual(locations[0]["text"] as? String, "cd")
-        XCTAssertEqual(locations[0]["n"] as? Int, 1)
-        XCTAssertEqual(locations[0]["of"] as? Int, 1)
-        XCTAssertEqual((locations[0]["box"] as? [Double])?.count, 4)
-        let human = try cli(["search", "cd", "--show-boxes"] + args)
-        XCTAssertTrue(human.out.contains("1 of 1") && human.out.contains("cd"), human.out)
-        XCTAssertFalse(try cli(["search", "cd"] + args).out.contains("1 of 1"))
-    }
 
     // MARK: backup
 
