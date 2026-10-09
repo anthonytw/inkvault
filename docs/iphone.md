@@ -54,7 +54,7 @@ Read-first:
   the next page and right to the previous (`PhoneReading.swipeTurnsPages`; off while annotating or
   zoomed, where a swipe draws or pans).
 - **Search hits** are highlighted on the page and stepped through exactly as on the iPad (the
-  same canvas code; `PhonePagesStackTests`).
+  same canvas code; `PhonePageSwipeStackTests`).
 - **The rest** is in the overflow menu: Rename, Export (PDF, PNG, text), Version History, Keep Screen
   On, Tags, Paper, and the object-eraser size while annotating. The title in the bar renames the
   note on tap or long press.
