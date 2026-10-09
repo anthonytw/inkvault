@@ -12320,6 +12320,17 @@
         }
       }
     },
+    "Repair it with `sempere vault markers repair` on a computer that has opened this vault before, or restore vault.json from a backup." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Repáralo con `sempere vault markers repair` en un ordenador que ya haya abierto esta bóveda, o restaura vault.json de una copia de seguridad."
+          }
+        }
+      }
+    },
     "Repair the device list?" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -12350,17 +12361,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Reparar…"
-          }
-        }
-      }
-    },
-    "Repair it with `sempere vault markers repair` on a computer that has opened this vault before, or restore vault.json from a backup." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Repáralo con `sempere vault markers repair` en un ordenador que ya haya abierto esta bóveda, o restaura vault.json de una copia de seguridad."
           }
         }
       }
