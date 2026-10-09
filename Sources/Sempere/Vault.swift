@@ -510,6 +510,10 @@ public struct Vault: Sendable {
         /// device cannot decrypt them: never adopted, so they do not keep
         /// the journal.
         public var inboxSkipped: [String] = []
+        /// `settings.age` (format.md §13) when it was left as it is because it
+        /// cannot be decrypted or verified here: it does not keep the journal,
+        /// and the next settings write replaces it.
+        public var settingsSkipped: [String] = []
 
         public init() {}
 
@@ -522,6 +526,7 @@ public struct Vault: Sendable {
             blobMethod = o.blobMethod ?? blobMethod
             failures.merge(o.failures) { $1 }
             inboxSkipped += o.inboxSkipped
+            settingsSkipped += o.settingsSkipped
         }
     }
 
@@ -1006,6 +1011,7 @@ public struct Vault: Sendable {
             try rewrapBlobs(note: note, recipients: recips, method: blobs, report: &report, stopAfter: stopAfter)
         }
         try rewrapInbox(recipients: recips, report: &report, stopAfter: stopAfter)
+        try rewrapSharedSettings(recipients: recips, report: &report, stopAfter: stopAfter)
         return report
     }
 
