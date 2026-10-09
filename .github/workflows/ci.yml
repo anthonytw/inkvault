@@ -76,7 +76,7 @@ jobs:
           # App Store release checks (scripts/release-check.sh, docs/release/app-store.md): the
           # project, plists and privacy manifests under Apps/, the Sources/ the app links (the
           # required-reason API scan) and the privacy policy pages. Linux, seconds.
-          release=$(has '^(Apps/|Sources/(Age|Sempere|SempereRender|SemperePDF|SempereSpeech|CZlib)/|scripts/(test-)?release-check\.sh$|docs/privacy/|docs/appstore/privacy-policy\.md$|\.github/workflows/ci\.yml$)')
+          release=$(has '^(Apps/|Sources/(Age|Sempere|SempereRender|SemperePDF|SempereSpeech|CZlib)/|scripts/(test-)?release-check\.sh$|scripts/(test-)?changelog-section\.sh$|docs/privacy/|docs/appstore/privacy-policy\.md$|\.github/workflows/ci\.yml$)')
           echo "webgolden=$webgolden" >> "$GITHUB_OUTPUT"
           echo "release=$release" >> "$GITHUB_OUTPUT"
           echo "package=$package app=$app web=$web webgolden=$webgolden release=$release"
@@ -276,6 +276,10 @@ jobs:
         timeout-minutes: 40
         shell: bash
         run: mkdir -p build && scripts/app.sh test 2>&1 | tee build/app-test.log
+      # The packages are resolved now: scan SwiftMath's sources (networking, required-reason APIs,
+      # its privacy manifest) and check the checkout is the pinned revision (GA-42).
+      - name: Third-party package privacy (SwiftMath)
+        run: scripts/release-check.sh --checkouts .build/xcode/SourcePackages/checkouts
       # The iPhone suites on an iPhone simulator: the build products are the iPad run's,
       # so this adds a boot and a few seconds of tests.
       - name: Test the iPhone layouts on an iPhone simulator
@@ -373,6 +377,10 @@ jobs:
         run: scripts/release-check.sh --list
       - name: Tests of the release checks
         run: scripts/test-release-check.sh
+      # release.yml's changelog guard (no TODO(user), a dated heading); not run on CHANGELOG.md
+      # itself, whose next section may still wait for the maintainer.
+      - name: Tests of the changelog section guard
+        run: scripts/test-changelog-section.sh
 
   web:
     name: Web viewer (lint, typecheck, tests, build)
@@ -439,7 +447,7 @@ jobs:
       - name: Install Chromium for Playwright
         working-directory: web
         run: npx playwright install --with-deps chromium
-      - name: Browser smoke scripts (cache and config.json, listing, attachments, video, passkey, passphrase keys and transcript search)
+      - name: Browser smoke scripts (cache and config.json, listing, attachments, video, passkey, interface language, passphrase keys and transcript search)
         working-directory: web
         run: scripts/smoke-all.sh
 

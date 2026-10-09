@@ -4,10 +4,11 @@ A read-only viewer for Sempere vaults that runs entirely in the browser
 (`web/`, TypeScript + Vite, no backend). It opens a vault folder of encrypted
 files, decrypts them in the page with the key the user pastes, merges the
 revisions into notes, and draws them. It never writes to the vault or to any
-server. It keeps two things in the browser: a cache of the vault's
-encrypted files, exactly as downloaded ("Opening fast" below), and, only
+server. It keeps three things in the browser: a cache of the vault's
+encrypted files, exactly as downloaded ("Opening fast" below); only
 when asked, a key encrypted under a passkey ("Remembering the key with a
-passkey"); nothing decrypted and never the key in the clear.
+passkey"); and the interface language if one was chosen ("Languages");
+nothing decrypted and never the key in the clear.
 
 What it does:
 
@@ -39,6 +40,8 @@ What it does:
   arrow keys, `+` `-` `0` `1`). Paper (every kind of §5.4.2, page-level paper,
   unknown kinds drawn blank) and ink are drawn by a port of `SempereRender`, so
   a page in the viewer is the SVG that `sempere export --format svg` writes.
+- **Speak your language**: the interface is in English or Spanish, chosen from the browser's
+  language list with an override in the page ("Languages" below).
 - **Attachments** (§8, "Attachments" below): images, text boxes and PDF pages
   in their layers under the ink, placeholders for what cannot be drawn, and
   the note's recordings with a player and their transcripts.
@@ -59,15 +62,42 @@ How (`web/src/vault/passkey.ts`):
    salt. Authenticators that evaluate PRF only on an assertion get one more
    prompt (`get`) right after.
 2. The 32-byte PRF output goes through HKDF-SHA-256 (empty salt, info
-   `sempere-viewer/1 passkey key-wrap` ‖ 0 ‖ vault id ‖ 0 ‖ credential id) to
+   `sempere-viewer/2 passkey key-wrap` ‖ 0 ‖ L(vault id) ‖ L(location) ‖
+   L(credential id), where L(x) is x's length as 32-bit big-endian then x) to
    an AES-256-GCM key, which encrypts the identity text with a random 96-bit
-   nonce and additional data `sempere-viewer/1` ‖ 0 ‖ vault id ‖ 0 ‖ credential
-   id. The AES key is a non-extractable `CryptoKey`; neither it nor the PRF
-   output is kept.
+   nonce and additional data `sempere-viewer/2` ‖ 0 ‖ L(vault id) ‖
+   L(location) ‖ L(credential id). The AES key is a non-extractable
+   `CryptoKey`; neither it nor the PRF output is kept.
 3. IndexedDB (database `sempere-viewer`, store `passkey-keys`, keyed by vault
-   id) holds `{version: 1, vaultId, credentialId, salt, iv, ciphertext,
-   created}`: nothing the key can be recovered from without the passkey. The
-   vault id and the date are readable by whoever reads that storage.
+   id, one record per vault) holds `{version: 2, vaultId, location,
+   credentialId, salt, iv, ciphertext, created}`: nothing the key can be
+   recovered from without the passkey. The vault id, the location and the
+   date are readable by whoever reads that storage. The database is created
+   by the first remembered key: looking for one on the unlock screen leaves
+   none behind.
+
+**The location.** `vault.json` is not authenticated until a key has opened
+it, so any server can serve one with the id of a vault you remembered (and a
+secret of its own, encrypted to your public key). A record is therefore bound
+to where the vault was opened, not only to its id: the vault's normalised URL
+(`HTTPSource.label`: no query, fragment or credentials, a trailing slash; a
+different host, port or path is a different location), or `local:` for any
+folder opened from this computer (picked by the user; its name is no
+identity). The location is bound into the HKDF info and the AAD, so a record
+edited to name another location does not decrypt. The passkey is offered only
+at the record's own location: elsewhere the unlock screen says "Remembered for
+another address", names it, and offers no passkey (paste the key; remembering
+it there replaces the record). The same vault served at two addresses keeps
+one record, for the address where it was last remembered.
+
+Records written before the location existed (`version: 1`: info
+`sempere-viewer/1 passkey key-wrap` ‖ 0 ‖ vault id ‖ 0 ‖ credential id, AAD
+`sempere-viewer/1` ‖ 0 ‖ vault id ‖ 0 ‖ credential id) still open. The card
+names the current address and says the key will be tied to it; once the
+remembered key has unlocked the vault there, the record is sealed again as
+version 2 for that location (same passkey, salt and date, a fresh nonce, no
+second prompt). A version 1 record whose key does not open the vault at that
+address stays as it was.
 
 Next time, the unlock screen shows "Unlock with passkey": one prompt with the
 stored credential id and salt (user verification required; the viewer also
@@ -75,9 +105,10 @@ checks the UV flag of the authenticator data), PRF, HKDF, AES-GCM decrypt, and
 the identity goes to typage's `Decrypter` in memory as if it had been pasted.
 A record that does not decrypt (another passkey, an altered or moved record)
 or a key the vault no longer lists is an error that says to forget it and
-paste the key. "Forget this key" deletes the record; where the browser has the
-WebAuthn Signal API it also tells the passkey provider the credential is gone
-(`signalUnknownCredential`), otherwise delete the passkey ("Sempere: <vault>")
+paste the key. "Forget this key" deletes the record, and remembering the
+vault's key again replaces it; either way, where the browser has the
+WebAuthn Signal API the viewer tells the passkey provider the old credential is
+gone (`signalUnknownCredential`), otherwise delete the passkey ("Sempere: <vault>")
 in your passkey manager. Lock still reloads the page and keeps the record.
 
 **No PRF, no remembering.** If the browser reports no PRF
@@ -135,6 +166,48 @@ The worker is a file of the viewer, created through a second Trusted Types
 policy, `sempere-key-worker`, which admits exactly its URL (as
 `sempere-pdf-worker` does for pdf.js), so the CSP keeps `worker-src 'self'`
 and `require-trusted-types-for 'script'`.
+
+## Languages
+
+The viewer's interface is localized like the app's (`docs/localization.md`): English (`en`) is the
+development language and **Spanish (`es`) is complete**. Only the interface is translated:
+
+- **Vault data is shown as written**: note titles, notebook and tag names (the `/` hierarchy of
+  §5.4), recording titles, transcripts and page text are never translated or altered. Only how the
+  viewer *displays* an empty title ("Untitled") is localized.
+- **The language** is the first supported one of `navigator.languages`, in the user's order (`es-MX`
+  is `es`; a browser that lists none gets English), or the choice made with the **Language** selector
+  ("Automatic", "English", "Español", each language in its own name). It is on the open and unlock
+  screens and in the top bar. The choice is kept in this browser (`localStorage`, key
+  `sempere-viewer-language`; nothing secret, and nothing depends on it: where storage is blocked it
+  lasts until the page closes). It sets `<html lang>` and the page title, and dates, numbers and sizes
+  follow it (`Intl`).
+- **Changing the language redraws the screen** in the new one. The open note stays open and the search
+  box keeps its text (the list is read again from the browser's cache); a URL typed on the open screen is kept; a key pasted on the
+  unlock screen is not (it is never stored), so choose the language first.
+- **Messages from deep inside the libraries** (a network failure, a parser's complaint about a
+  damaged file) stay English, as the CLI's do. The errors a person is likely to meet (wrong key,
+  wrong passphrase, a classic X25519 key, passkey refusals, a vault from a newer format) have their
+  own sentence in each language (`src/ui/errors.ts`); where the English message carries detail the
+  code does not, it follows the sentence in parentheses.
+- **Words that must stay**: "Sempere", "WebDAV", file names, `AGE-SECRET-KEY-PQ-1…`, command names
+  (`sempere vault index`) and the `1:1` button.
+
+How (`web/src/i18n/`): `catalog.ts` holds every string, keyed by its English text (the app's way:
+`{name}` marks a value); a count is an entry with `en` and `es` plural forms (English one/other,
+Spanish one/many/other, `many` being for millions: "1 000 000 de notas") and is read with `tn(key,
+count)`. `t(key, values)` and `tn` take **typed keys**, so a missing entry is a compile error. Never
+build a sentence from translated pieces (word order differs), and give each count its own entry.
+`test/i18n.test.ts` fails when a key lacks Spanish or a plural form, when a placeholder differs
+between languages, when a Spanish text breaks the glossary ("bóveda", "cuaderno", "etiqueta", "frase
+de contraseña", "llave de acceso" for a passkey, never "llave" for a vault key), when a `t` key is
+unknown or unused, and when `src/ui` shows a literal English string without `t`.
+`scripts/smoke-language.mjs` (Chromium) checks the choice, the override, a Spanish vault session and
+the switch with a vault open.
+
+To add a language, add its code to `locales` and `languageNames`, a column to every entry of
+`catalog.ts` (and its plural categories to `Plural`), a glossary section to `docs/localization.md`,
+and extend `i18n.test.ts`.
 
 ## Searching transcripts
 
@@ -497,9 +570,14 @@ the site's data in the browser deletes both.
   account still needs the record. Someone with both (the sync account and a
   copy of this browser's storage) has the key; a device-bound passkey
   (security key, or a provider that does not sync) avoids that.
-- *Content of the vault or the server* cannot reach any of this: the passkey
-  code never runs on vault data, and the record is keyed by the vault id the
-  user's unlock already accepted.
+- *Content of the vault or the server* cannot read any of this: the passkey
+  code never runs on vault data. A server chooses which record the unlock
+  screen looks up, though (the vault id in `vault.json`, read before any
+  unlock), so records are bound to the vault's location (above): a hostile
+  address that claims the id of a vault you remembered elsewhere (a link to
+  `?vault=https://elsewhere/`, say) is not offered the passkey. At the same
+  address the server is trusted as for a pasted key: a key it opens is still
+  only in this tab's memory, and the vault it serves is what you see.
 
 Forgetting deletes the record; JavaScript cannot guarantee that the browser
 wipes deleted storage from disk at once.
@@ -712,6 +790,8 @@ node scripts/make-search-fixture.ts   # rewrite test/fixtures/search.sempere (th
 # passkey: Chromium's virtual authenticator (CTAP2, UV, PRF), and one without PRF
 node scripts/smoke-passkey.mjs ../Tests/SempereTests/Fixtures/sample.sempere ../Tests/SempereTests/Fixtures/sample.key
 node scripts/smoke-video.mjs test/fixtures/render.sempere ../Tests/SempereTests/Fixtures/sample.key
+# languages: the browser's language list, the override, a Spanish vault session, the switch with a vault open (CI's web job)
+node scripts/smoke-language.mjs test/fixtures/render.sempere ../Tests/SempereTests/Fixtures/sample.key
 # config.json modes, the cache (second visit fetches no unchanged file) and the summaries, with timings
 # (run `sempere vault summaries` and `sempere vault index` on a copy of the vault first; LATENCY_MS=40 adds latency):
 node scripts/smoke-cache.mjs COPY_OF_VAULT KEY_FILE

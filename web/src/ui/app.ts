@@ -20,6 +20,7 @@ import { NoteBlobs } from "../vault/blobs.ts";
 import { canPickDirectory, fromDrop, fromFileList, pickDirectory } from "./pickers.ts";
 import { clearCacheButton, fileCache } from "./caching.ts";
 import { passkeyVault, rememberOption, rememberScreen, rememberedCard } from "./passkey.ts";
+import { vaultLocation } from "../vault/passkey.ts";
 import { type PhraseHit } from "../format/phrasesearch.ts";
 import { foldTerm, occurrences, prepare, swiftCompare, trimTerm } from "../format/occurrences.ts";
 import { readBlob } from "../vault/blobs.ts";
@@ -28,18 +29,24 @@ import { formatDuration } from "./recordings.ts";
 import { KeyFileError, looksArmored, looksWrapped, maxKeyFileBytes, wrappedBytes } from "../vault/keyfile.ts";
 import { unwrapKeyInWorker } from "./keyunwrap.ts";
 import { PassphraseField, keyFileMessage, storedKeyCard } from "./passphrase.ts";
+import { explain } from "./errors.ts";
+import { languagePicker } from "./language.ts";
+import { t, tn } from "../i18n/index.ts";
 
 type Filter =
   | { kind: "all" } | { kind: "favorites" } | { kind: "deleted" } | { kind: "problems" }
   | { kind: "notebook"; path: string } | { kind: "tag"; key: string; label: string };
 
+/** An error as the user sees it: a sentence in the interface language where the error is known, else its own text. */
 function message(e: unknown): string {
-  return e instanceof Error ? e.message : String(e);
+  return explain(e);
 }
 
 export class App {
   private source?: VaultSource;
   private manifest?: VaultManifest;
+  /** Where the vault was opened (`vaultLocation`): what a remembered key is bound to. */
+  private location = "";
   private vault?: UnlockedVault;
   private notes = new Map<string, NoteSummary>();
   private loading: ListingProgress & { listed: boolean } = { checked: 0, total: 0, read: 0, toRead: 0, listed: false };
@@ -59,8 +66,8 @@ export class App {
   private readonly cache = new Map<string, LoadedNote>();
   private generation = 0;
 
-  private readonly sidebar = h("nav", { class: "sidebar", attrs: { "aria-label": "Notebooks and tags" } });
-  private readonly list = h("section", { class: "note-list", attrs: { "aria-label": "Notes" } });
+  private readonly sidebar = h("nav", { class: "sidebar", attrs: { "aria-label": t("Notebooks and tags") } });
+  private readonly list = h("section", { class: "note-list", attrs: { "aria-label": t("Notes") } });
   private readonly detail = h("main", { class: "detail" });
   private readonly status = h("span", { class: "status", attrs: { role: "status" } });
 
@@ -81,8 +88,8 @@ export class App {
   /** A deployment whose config cannot be read: nothing else is offered (fail closed). */
   private showFatal(error: string): void {
     clear(this.root);
-    this.root.append(h("div", { class: "welcome" }, h("h1", { text: "Sempere viewer" }),
-      h("p", { class: "error", text: error, attrs: { role: "alert" } })));
+    this.root.append(h("div", { class: "welcome" }, h("h1", { text: t("Sempere viewer") }),
+      h("p", { class: "error", text: error, attrs: { role: "alert" } }), languagePicker(() => this.showFatal(error))));
   }
 
   /** True when the deployment allows only its own vault. */
@@ -92,14 +99,14 @@ export class App {
 
   // MARK: - Open
 
-  private showOpen(error?: string): void {
-    if (this.locked) return this.showFatal(error ?? "This viewer opens only its configured vault.");
+  private showOpen(error?: string, draftUrl?: string): void {
+    if (this.locked) return this.showFatal(error ?? t("This viewer opens only its configured vault."));
     const params = new URLSearchParams(location.search);
     const url = h("input", { attrs: { type: "url", placeholder: "https://example.org/Notes.sempere/", autocomplete: "url", spellcheck: "false" } });
-    url.value = this.config?.vault ?? params.get("vault") ?? "";
-    const mode = h("select", { attrs: { "aria-label": "Listing" } },
-      h("option", { text: "Index file or WebDAV", attrs: { value: "auto" } }),
-      h("option", { text: "Index file (sempere-index.json)", attrs: { value: "index" } }),
+    url.value = draftUrl ?? this.config?.vault ?? params.get("vault") ?? "";
+    const mode = h("select", { attrs: { "aria-label": t("Listing") } },
+      h("option", { text: t("Index file or WebDAV"), attrs: { value: "auto" } }),
+      h("option", { text: t("Index file (sempere-index.json)"), attrs: { value: "index" } }),
       h("option", { text: "WebDAV", attrs: { value: "webdav" } }));
     const openURL = (e: Event) => {
       e.preventDefault();
@@ -119,7 +126,7 @@ export class App {
       }
     });
     const pickButton = h("button", {
-      text: "Open a vault folder…", attrs: { type: "button" },
+      text: t("Open a vault folder…"), attrs: { type: "button" },
       on: {
         click: () => {
           if (!canPickDirectory()) {
@@ -132,7 +139,7 @@ export class App {
         },
       },
     });
-    const drop = h("div", { class: "drop", text: "or drop the vault folder (*.sempere) here" });
+    const drop = h("div", { class: "drop", text: t("or drop the vault folder (*.sempere) here") });
     drop.addEventListener("dragover", (e) => {
       e.preventDefault();
       drop.classList.add("over");
@@ -146,18 +153,19 @@ export class App {
     });
     clear(this.root);
     this.root.append(h("div", { class: "welcome" },
-      h("h1", { text: "Sempere viewer" }),
-      h("p", { class: "lede", text: "Read an encrypted Sempere vault in this browser. Notes are decrypted here; the key never leaves this tab, and nothing is written anywhere." }),
+      h("h1", { text: t("Sempere viewer") }),
+      h("p", { class: "lede", text: t("Read an encrypted Sempere vault in this browser. Notes are decrypted here; the key never leaves this tab, and nothing is written anywhere.") }),
       error ? h("p", { class: "error", text: error, attrs: { role: "alert" } }) : null,
       h("form", { class: "card", on: { submit: openURL } },
-        h("h2", { text: "From a web server" }),
-        h("label", { text: "Vault URL" }, url),
-        h("label", { text: "Listing" }, mode),
-        h("button", { text: "Open", attrs: { type: "submit" } }),
-        h("p", { class: "hint", text: "A static server needs sempere-index.json (sempere vault index); a WebDAV share needs nothing. The URL must be allowed by this page's connect-src (docs/web-viewer.md)." })),
+        h("h2", { text: t("From a web server") }),
+        h("label", { text: t("Vault URL") }, url),
+        h("label", { text: t("Listing") }, mode),
+        h("button", { text: t("Open"), attrs: { type: "submit" } }),
+        h("p", { class: "hint", text: t("A static server needs sempere-index.json (sempere vault index); a WebDAV share needs nothing. The URL must be allowed by this page's connect-src (docs/web-viewer.md).") })),
       h("div", { class: "card" },
-        h("h2", { text: "From this computer" }), pickButton, dirInput, drop),
-      h("p", { class: "hint" }, clearCacheButton())));
+        h("h2", { text: t("From this computer") }), pickButton, dirInput, drop),
+      h("p", { class: "hint" }, clearCacheButton()),
+      languagePicker(() => this.showOpen(error, url.value))));
   }
 
   private async openSource(src: VaultSource): Promise<void> {
@@ -166,9 +174,10 @@ export class App {
     try {
       manifest = parseManifest(await src.read("vault.json", limits.manifestBytes));
     } catch (e) {
-      this.showOpen(e instanceof SourceError && e.notFound ? `${src.label} has no vault.json: is it a Sempere vault?` : message(e));
+      this.showOpen(e instanceof SourceError && e.notFound ? t("{label} has no vault.json: is it a Sempere vault?", { label: src.label }) : message(e));
       return;
     }
+    this.location = vaultLocation(src);
     // Encrypted revisions and blobs fetched over HTTP are kept in the browser (write-once files).
     this.source = src instanceof HTTPSource ? new CachingSource(src, await fileCache(), `${src.label}\n${manifest.vaultId}`) : src;
     this.manifest = manifest;
@@ -181,9 +190,9 @@ export class App {
     const m = this.manifest, src = this.source;
     if (!m || !src) return this.showOpen();
     const key = h("textarea", {
-      attrs: { rows: "4", placeholder: "AGE-SECRET-KEY-PQ-1…", autocomplete: "off", autocapitalize: "off", spellcheck: "false", "aria-label": "Key" },
+      attrs: { rows: "4", placeholder: "AGE-SECRET-KEY-PQ-1…", autocomplete: "off", autocapitalize: "off", spellcheck: "false", "aria-label": t("Key") },
     });
-    const button = h("button", { text: "Unlock", attrs: { type: "submit" } });
+    const button = h("button", { text: t("Unlock"), attrs: { type: "submit" } });
     const unlock = async (text: string): Promise<string> => {
       const identity = parseIdentity(text);
       const journal = await readOptional(src, "rewrap-journal.json", limits.manifestBytes);
@@ -191,14 +200,14 @@ export class App {
       return identity;
     };
     const failed = (err: unknown) =>
-      this.showUnlock(err instanceof VaultError || err instanceof SourceError ? err.message
-        : err instanceof KeyFileError ? keyFileMessage(err) : `Unlocking failed: ${message(err)}`);
+      this.showUnlock(err instanceof VaultError || err instanceof SourceError ? explain(err)
+        : err instanceof KeyFileError ? keyFileMessage(err) : t("Unlocking failed: {detail}", { detail: message(err) }));
     // The identity unlocked the vault: remember it with a passkey if asked (never the passphrase), then open.
     const opened = (identity: string, remember: boolean) => {
       const pv = passkeyVault();
       if (remember && pv) {
         clear(this.root);
-        this.root.append(rememberScreen(pv, identity, m.vaultId, src.label, () => this.showMain()));
+        this.root.append(rememberScreen(pv, identity, m.vaultId, this.location, src.label, () => this.showMain()));
       } else {
         this.showMain();
       }
@@ -228,13 +237,13 @@ export class App {
       const f = fileInput.files?.[0];
       fileInput.value = "";
       if (!f) return;
-      if (f.size > maxKeyFileBytes) return this.showUnlock(`${f.name} is not a key file (larger than 64 KiB).`);
+      if (f.size > maxKeyFileBytes) return this.showUnlock(t("{name} is not a key file (larger than 64 KiB).", { name: f.name }));
       void f.arrayBuffer().then((buf) => {
         const bytes = new Uint8Array(buf);
         if (looksWrapped(bytes)) {
           chosen = { name: f.name, file: wrappedBytes(bytes) };
           key.value = "";
-          fileName.textContent = ` ${f.name} (locked with a passphrase)`;
+          fileName.textContent = ` ${t("{name} (locked with a passphrase)", { name: f.name })}`;
           passphrase.show(chosen.file);
           passphrase.focus();
         } else {
@@ -246,17 +255,18 @@ export class App {
       }).catch((err: unknown) => failed(err));
     });
     const chooseFile = h("button", {
-      text: "Choose a key file…", class: "secondary", attrs: { type: "button" }, on: { click: () => fileInput.click() },
+      text: t("Choose a key file…"), class: "secondary", attrs: { type: "button" }, on: { click: () => fileInput.click() },
     });
     const submit = async (e: Event) => {
       e.preventDefault();
       button.disabled = true;
-      button.textContent = "Unlocking…";
+      button.textContent = t("Unlocking…");
       try {
         // A damaged armored paste throws here, with the hint to check the kit's lines.
         const locked = chosen?.file ?? (looksArmored(key.value) ? wrappedBytes(key.value) : undefined);
         let text: string;
         if (locked) {
+          if (passphrase.isEmpty()) return this.showUnlock(t("Enter the passphrase."));
           const pass = passphrase.take();
           key.value = "";
           text = await unwrapKeyInWorker(locked, pass);
@@ -270,9 +280,11 @@ export class App {
       }
     };
     const pv = passkeyVault();
-    const remembered = pv ? rememberedCard(pv, m.vaultId,
-      (text) => unlock(text).then(() => this.showMain(), (err: unknown) =>
-        failed(err instanceof VaultError ? `The remembered key no longer opens this vault (${err.message}). Forget it and paste the key.` : err)),
+    const remembered = pv ? rememberedCard(pv, m.vaultId, this.location,
+      (text) => unlock(text).then(() => this.showMain(), (err: unknown) => {
+        failed(err instanceof VaultError ? t("The remembered key no longer opens this vault ({detail}). Forget it and paste the key.", { detail: explain(err) }) : err);
+        throw err;
+      }),
       (msg) => this.showUnlock(msg), () => this.showUnlock()) : null;
     const stored = storedKeyCard(src, m, async (identity, rememberIt) => {
       try {
@@ -283,20 +295,21 @@ export class App {
     }, (msg) => this.showUnlock(msg));
     clear(this.root);
     this.root.append(h("div", { class: "welcome" },
-      h("h1", { text: "Unlock vault" }),
-      h("p", { class: "lede" }, "Vault ", h("code", { text: src.label }), ` · ${m.recipients.length} key${m.recipients.length === 1 ? "" : "s"}`),
+      h("h1", { text: t("Unlock vault") }),
+      h("p", { class: "lede" }, `${t("Vault")} `, h("code", { text: src.label }), ` · ${tn("{count} keys", m.recipients.length)}`),
       error ? h("p", { class: "error", text: error, attrs: { role: "alert" } }) : null,
       remembered,
       stored,
       h("form", { class: "card", on: { submit: (e) => void submit(e) } },
-        h("label", { text: "Paste your key (the AGE-SECRET-KEY-PQ-1… line, the whole key file, or a recovery kit's passphrase-locked copy)" }, key),
+        h("label", { text: t("Paste your key (the AGE-SECRET-KEY-PQ-1… line, the whole key file, or a recovery kit's passphrase-locked copy)") }, key),
         h("div", { class: "row" }, chooseFile, fileName, fileInput),
         passphrase.element,
         remember.element,
         h("div", { class: "row" }, button,
-          this.locked ? null : h("button", { text: "Back", attrs: { type: "button" }, class: "secondary", on: { click: () => this.showOpen() } })),
-        h("p", { class: "hint", text: "The key is kept in this tab's memory only: never sent, and stored only if you ask for a passkey (then encrypted under it). A passphrase is used once and never stored. Closing the tab or Lock forgets the key." })),
-      h("p", { class: "hint" }, clearCacheButton())));
+          this.locked ? null : h("button", { text: t("Back"), attrs: { type: "button" }, class: "secondary", on: { click: () => this.showOpen() } })),
+        h("p", { class: "hint", text: t("The key is kept in this tab's memory only: never sent, and stored only if you ask for a passkey (then encrypted under it). A passphrase is used once and never stored. Closing the tab or Lock forgets the key.") })),
+      h("p", { class: "hint" }, clearCacheButton()),
+      languagePicker(() => this.showUnlock(error))));
     key.focus();
   }
 
@@ -305,7 +318,9 @@ export class App {
   private showMain(): void {
     const src = this.source;
     if (!src) return;
-    const searchBox = h("input", { attrs: { type: "search", placeholder: "Search titles, tags and handwriting", "aria-label": "Search" } });
+    const searchBox = h("input", { attrs: { type: "search", placeholder: t("Search titles, tags and handwriting"), "aria-label": t("Search") } });
+    // Drawn again after a language change: the box shows the search the list is filtered by.
+    searchBox.value = this.query;
     const vault = this.vault;
     this.transcripts?.stop();
     this.transcripts = vault ? new TranscriptSearch(
@@ -329,14 +344,25 @@ export class App {
     this.root.append(h("div", { class: "app" },
       h("header", { class: "topbar" },
         h("strong", { text: "Sempere" }), h("span", { class: "vault-label", text: src.label, title: src.label }), this.status,
-        clearCacheButton(),
-        h("button", { text: "Lock", class: "secondary", attrs: { type: "button" }, title: "Forget the key and close the vault", on: { click: () => this.lock() } })),
+        clearCacheButton(), languagePicker(() => this.changedLanguage()),
+        h("button", { text: t("Lock"), class: "secondary", attrs: { type: "button" }, title: t("Forget the key and close the vault"), on: { click: () => this.lock() } })),
       ...recipientsWarning(this.vault?.recipientsStatus),
       h("div", { class: "columns" }, this.sidebar,
         h("div", { class: "list-column" }, h("div", { class: "search" }, searchBox, this.transcripts?.element), this.list),
         this.detail)));
-    this.detail.replaceChildren(h("p", { class: "empty", text: "Select a note." }));
+    this.detail.replaceChildren(h("p", { class: "empty", text: t("Select a note.") }));
     void this.loadAll();
+  }
+
+  /**
+   * The language changed while the vault is open: the main screen is drawn again in it (the notes
+   * and the key stay in memory; the list is read again from the browser's cache) and the note that
+   * was open is reopened.
+   */
+  private changedLanguage(): void {
+    const open = this.selected;
+    this.showMain();
+    if (open !== undefined && this.notes.has(open)) void this.open(open);
   }
 
   private lock(): void {
@@ -384,7 +410,7 @@ export class App {
         current: () => gen === this.generation,
       });
     } catch (e) {
-      if (gen === this.generation) this.status.textContent = `Cannot list notes: ${message(e)}`;
+      if (gen === this.generation) this.status.textContent = t("Cannot list notes: {detail}", { detail: message(e) });
       return;
     }
     if (gen !== this.generation) return;
@@ -397,14 +423,16 @@ export class App {
     const { checked, total, read, toRead, listed } = this.loading;
     const problems = [...this.notes.values()].filter((n) => n.error !== undefined || n.failures > 0).length;
     const count = listed ? total : this.notes.size;
-    this.status.textContent = listed
-      ? `${count} note${count === 1 ? "" : "s"}${problems ? ` · ${problems} with problems` : ""}`
-      : read < toRead ? `Decrypting ${read} of ${toRead} changed notes… (${checked} of ${total} checked)`
-        : total > 0 ? `Checking ${checked} of ${total} notes…` : "Listing notes…";
+    // Each count is its own sentence (plural forms differ by language), joined like a list.
+    const parts: string[] = listed
+      ? [tn("{count} notes", count), ...(problems ? [tn("{count} with problems", problems)] : [])]
+      : [read < toRead ? t("Decrypting {read} of {toRead} changed notes… ({checked} of {total} checked)", { read, toRead, checked, total })
+        : total > 0 ? t("Checking {checked} of {total} notes…", { checked, total }) : t("Listing notes…")];
     // Content of a newer format version (format.md §7.3): shown as far as understood.
     const newer = (this.manifest ? readOnlyReasons(this.manifest) : []).length > 0
       || [...this.notes.values()].some((n) => n.newer);
-    if (newer) this.status.textContent += " · written partly by a newer Sempere";
+    if (newer) parts.push(t("written partly by a newer Sempere"));
+    this.status.textContent = parts.join(" · ");
     this.status.title = this.manifest ? readOnlyReasons(this.manifest).join("; ") : "";
   }
 
@@ -455,11 +483,11 @@ export class App {
     const problems = all.filter((n) => n.error !== undefined || n.failures > 0).length;
     clear(this.sidebar);
     this.sidebar.append(
-      h("ul", {}, item("All notes", { kind: "all" }, live.length), item("Favorites", { kind: "favorites" }, live.filter((n) => n.favorite).length)),
-      h("h3", { text: "Notebooks" }), tree(notebookTree(live.map((n) => n.notebook))),
-      h("h3", { text: "Tags" }), h("ul", {}, ...tagList.map(([k, v]) => item(`#${v.label}`, { kind: "tag", key: k, label: v.label }, v.count))),
-      h("h3", { text: "Other" }),
-      h("ul", {}, item("Deleted", { kind: "deleted" }, all.length - live.length), problems ? item("Problems", { kind: "problems" }, problems) : null));
+      h("ul", {}, item(t("All notes"), { kind: "all" }, live.length), item(t("Favorites"), { kind: "favorites" }, live.filter((n) => n.favorite).length)),
+      h("h3", { text: t("Notebooks") }), tree(notebookTree(live.map((n) => n.notebook))),
+      h("h3", { text: t("Tags") }), h("ul", {}, ...tagList.map(([k, v]) => item(`#${v.label}`, { kind: "tag", key: k, label: v.label }, v.count))),
+      h("h3", { text: t("Other") }),
+      h("ul", {}, item(t("Deleted"), { kind: "deleted" }, all.length - live.length), problems ? item(t("Problems"), { kind: "problems" }, problems) : null));
   }
 
   /** Notes that are not deleted, for the transcript search. */
@@ -488,22 +516,22 @@ export class App {
     }
     clear(this.list);
     if (notes.length === 0) {
-      this.list.append(h("p", { class: "empty", text: !this.loading.listed ? "Loading…" : hits ? "No matches." : "No notes here." }));
+      this.list.append(h("p", { class: "empty", text: !this.loading.listed ? t("Loading…") : hits ? t("No matches.") : t("No notes here.") }));
       return;
     }
     this.list.append(h("ul", {}, ...notes.map((n) => {
       const hit = hits?.get(n.id);
       const meta = [canonicalNotebook(n.notebook), ...n.tags.map((t) => `#${t}`)].filter(Boolean).join("  ");
       const badges: string[] = [];
-      if (n.error !== undefined) badges.push("unreadable");
-      else if (n.failures > 0) badges.push(`${n.failures} unreadable revision${n.failures === 1 ? "" : "s"}`);
-      if (n.newer) badges.push("newer version");
+      if (n.error !== undefined) badges.push(t("unreadable"));
+      else if (n.failures > 0) badges.push(tn("{count} unreadable revisions", n.failures));
+      if (n.newer) badges.push(t("newer version"));
       return h("li", {}, h("button", {
         class: n.id === this.selected ? "note active" : "note", attrs: { type: "button" },
         on: { click: () => void this.open(n.id, hit?.page?.number) },
       },
-      h("span", { class: "title", text: n.title || "Untitled" }),
-      h("span", { class: "sub", text: [formatDate(n.modified), `${n.pageCount} page${n.pageCount === 1 ? "" : "s"}`].filter(Boolean).join(" · ") }),
+      h("span", { class: "title", text: n.title || t("Untitled") }),
+      h("span", { class: "sub", text: [formatDate(n.modified), tn("{count} pages", n.pageCount)].filter(Boolean).join(" · ") }),
       meta ? h("span", { class: "sub", text: meta }) : null,
       hit?.snippet ? this.snippet(hit) : null,
       badges.length ? h("span", { class: "badge", text: badges.join(" · ") }) : null),
@@ -515,7 +543,7 @@ export class App {
     const sn = hit.snippet;
     const el = h("span", { class: "snippet" });
     if (!sn) return el;
-    if (hit.page) el.append(h("span", { class: "page-ref", text: `p. ${hit.page.number}: ` }));
+    if (hit.page) el.append(h("span", { class: "page-ref", text: t("p. {number}: ", { number: hit.page.number }) }));
     let at = 0;
     for (const [a, b] of sn.matches) {
       if (a < at) continue;
@@ -531,24 +559,24 @@ export class App {
     if (!hits || hits.length === 0) return null;
     const term = foldTerm(trimTerm(this.query));
     const shown = hits.slice(0, maxHitsShown);
-    return h("ul", { class: "spoken-hits", attrs: { "aria-label": "Matches in recording transcripts" } },
+    return h("ul", { class: "spoken-hits", attrs: { "aria-label": t("Matches in recording transcripts") } },
       ...shown.map((hit) => {
         const text = h("span", { class: "snippet" });
-        const t = prepare(hit.snippet);
+        const folded = prepare(hit.snippet);
         let at = 0;
-        for (const [a, b] of occurrences(t, term)) {
-          const from = t.offsets[a] ?? 0, to = t.offsets[b] ?? 0;
+        for (const [a, b] of occurrences(folded, term)) {
+          const from = folded.offsets[a] ?? 0, to = folded.offsets[b] ?? 0;
           text.append(hit.snippet.slice(at, from), h("mark", { text: hit.snippet.slice(from, to) }));
           at = to;
         }
         text.append(hit.snippet.slice(at));
-        const where = `${hit.recordingTitle?.trim() || "Recording"} ${formatDuration(hit.start ?? 0)}`;
+        const where = `${hit.recordingTitle?.trim() || t("Recording")} ${formatDuration(hit.start ?? 0)}`;
         return h("li", {}, h("button", {
-          class: "spoken-hit", attrs: { type: "button" }, title: `Play ${where}`,
+          class: "spoken-hit", attrs: { type: "button" }, title: t("Play {where}", { where }),
           on: { click: () => void this.open(id, undefined, { recording: hit.recordingId ?? "", start: hit.start ?? 0 }) },
         }, h("span", { class: "page-ref", text: `🎙 ${where}: ` }), text));
       }),
-      hits.length > shown.length ? h("li", { class: "sub", text: `${hits.length - shown.length} more in transcripts` }) : null);
+      hits.length > shown.length ? h("li", { class: "sub", text: tn("{count} more in transcripts", hits.length - shown.length) }) : null);
   }
 
   private async open(id: string, page?: number, at?: { recording: string; start: number }): Promise<void> {
@@ -563,7 +591,7 @@ export class App {
     this.recordings = undefined;
     this.videos?.destroy();
     this.videos = undefined;
-    this.detail.replaceChildren(h("p", { class: "empty", text: "Decrypting…" }));
+    this.detail.replaceChildren(h("p", { class: "empty", text: t("Decrypting…") }));
     let note = this.cache.get(id);
     if (!note) {
       try {
@@ -588,24 +616,24 @@ export class App {
     const warnings: HTMLElement[] = [];
     if (note.failures.length) {
       warnings.push(h("details", { class: "warning" },
-        h("summary", { text: `${note.failures.length} of ${note.revisionCount} revisions could not be read; the note is shown without them.` }),
+        h("summary", { text: t("{failed} of {total} revisions could not be read; the note is shown without them.", { failed: note.failures.length, total: note.revisionCount }) }),
         h("ul", {}, ...note.failures.map((f) => h("li", {}, h("code", { text: f.file }), ` ${f.message}`)))));
     }
     if (!state) {
-      this.detail.replaceChildren(h("div", { class: "note-header" }, h("h2", { text: "This note cannot be opened" }),
-        h("p", { class: "error", text: note.error ?? "unknown error" })), ...warnings);
+      this.detail.replaceChildren(h("div", { class: "note-header" }, h("h2", { text: t("This note cannot be opened") }),
+        h("p", { class: "error", text: note.error ?? t("unknown error") })), ...warnings);
       return;
     }
     if (note.newer) {
       warnings.push(h("p", { class: "warning", text:
-        `Parts of this note were written by a newer version of Sempere (${newerSummary(note.newer)}); it is shown as far as this viewer understands it.` }));
+        t("Parts of this note were written by a newer version of Sempere ({summary}); it is shown as far as this viewer understands it.", { summary: newerSummary(note.newer) }) }));
     }
-    if (state.deleted) warnings.push(h("p", { class: "warning", text: "This note is deleted (it stays in the vault until restored in the app)." }));
-    if (hasUnknownPaper(state)) warnings.push(h("p", { class: "warning", text: "Some paper was made by a newer app; it is shown as blank paper." }));
+    if (state.deleted) warnings.push(h("p", { class: "warning", text: t("This note is deleted (it stays in the vault until restored in the app).") }));
+    if (hasUnknownPaper(state)) warnings.push(h("p", { class: "warning", text: t("Some paper was made by a newer app; it is shown as blank paper.") }));
     const m = state.meta;
     const notebook = canonicalNotebook(m.notebook);
-    const meta = [notebook ? `Notebook: ${notebook.replaceAll("/", " › ")}` : "", `Created ${formatDate(m.created)}`,
-      `${state.pages.length} page${state.pages.length === 1 ? "" : "s"}`].filter(Boolean).join(" · ");
+    const meta = [notebook ? t("Notebook: {name}", { name: notebook.replaceAll("/", " › ") }) : "", t("Created {date}", { date: formatDate(m.created) }),
+      tn("{count} pages", state.pages.length)].filter(Boolean).join(" · ");
     const blobs = this.source && this.vault ? new NoteBlobs(this.source, this.vault, note.id) : undefined;
     const videos = new VideosPanel(state, blobs);
     this.videos = videos;
@@ -614,7 +642,7 @@ export class App {
     this.view = new NoteView(state, blobs, (id) => void videos.play(id), (id) => recordings.play(id));
     this.detail.replaceChildren(
       h("div", { class: "note-header" },
-        h("h2", { text: m.title || "Untitled" }), h("p", { class: "sub", text: meta }),
+        h("h2", { text: m.title || t("Untitled") }), h("p", { class: "sub", text: meta }),
         m.tags.length ? h("p", { class: "tags" }, ...m.tags.map((t) => h("span", { class: "tag", text: `#${t}` }))) : null,
         ...warnings, this.view.problemsEl, this.recordings.root, videos.root),
       this.view.root);

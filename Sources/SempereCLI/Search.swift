@@ -1,6 +1,7 @@
 import ArgumentParser
 import Foundation
 import Sempere
+import SempereRender
 
 struct SearchHit: Encodable {
     var noteId: String
@@ -41,6 +42,8 @@ struct SearchHit: Encodable {
         var text: String
         /// `[x, y, w, h]` in page points.
         var box: [Double]
+        /// The text box the match is in (a `text` hit's); absent for recognised handwriting.
+        var itemId: String?
     }
 
     /// Where the hit is, for the table: `p3`, `p3 text` or `rec 12:03`.
@@ -61,30 +64,12 @@ struct SearchHit: Encodable {
     }
 }
 
-enum RecognitionSearch {
-    /// Occurrences of `term` in `text`, ignoring case.
-    static func ranges(of term: String, in text: String) -> [Range<String.Index>] {
-        var out: [Range<String.Index>] = []
-        var from = text.startIndex
-        while from < text.endIndex, let r = text.range(of: term, options: [.caseInsensitive, .diacriticInsensitive],
-                                                       range: from..<text.endIndex) {
-            out.append(r)
-            from = r.upperBound > r.lowerBound ? r.upperBound : text.index(after: r.lowerBound)
-        }
-        return out
-    }
-
-    /// A one-line excerpt around `range`, with `…` where it was cut.
-    static func snippet(_ text: String, around range: Range<String.Index>, context: Int = 30) -> String {
-        let start = text.index(range.lowerBound, offsetBy: -context, limitedBy: text.startIndex) ?? text.startIndex
-        let end = text.index(range.upperBound, offsetBy: context, limitedBy: text.endIndex) ?? text.endIndex
-        let body = text[start..<end].split(whereSeparator: \.isNewline).joined(separator: " ")
-            .trimmingCharacters(in: .whitespaces)
-        return (start > text.startIndex ? "…" : "") + body + (end < text.endIndex ? "…" : "")
-    }
-}
-
 struct SearchCommand: ParsableCommand {
+    /// Where the words fall inside text boxes, laid out by the CLI's shaper (`--show-boxes`).
+    static let textBoxes: TextBoxMatcher = { words, item in
+        TextMatchBoxes.boxes(of: words, in: item, shaper: cliTextShaper)
+    }
+
     static let configuration = CommandConfiguration(
         commandName: "search",
         abstract: "Search the recognised handwriting, typed text, equations, PDF page text and (with --transcripts) transcripts of all notes.",
@@ -138,7 +123,7 @@ struct SearchCommand: ParsableCommand {
             guard !state.deleted else { continue }
             title = state.meta.title
             let noteId = id.uuidString.lowercased()
-            let located = showBoxes ? SearchMatches.matches(needle, in: state.pages) : []
+            let located = showBoxes ? SearchMatches.matches(needle, in: state.pages, textBoxes: Self.textBoxes) : []
             for (index, page) in state.pages.enumerated() {
                 let pageId = page.id.uuidString.lowercased()
                 if let rec = page.recognition {
@@ -148,7 +133,7 @@ struct SearchCommand: ParsableCommand {
                             tokens.contains { w.text.range(of: $0, options: [.caseInsensitive, .diacriticInsensitive]) != nil }
                         }
                         let locations: [SearchHit.Location]? = showBoxes
-                            ? located.enumerated().filter { $0.element.pageId == page.id }.map {
+                            ? located.enumerated().filter { $0.element.pageId == page.id && $0.element.item == nil }.map {
                                 .init(n: $0.offset + 1, of: located.count, text: $0.element.text,
                                       box: [$0.element.box.x, $0.element.box.y, $0.element.box.w, $0.element.box.h])
                             } : nil
@@ -185,11 +170,20 @@ struct SearchCommand: ParsableCommand {
                     guard let text = item.text?.string else { continue }
                     let found = RecognitionSearch.ranges(of: needle, in: text)
                     guard let first = found.first else { continue }
-                    hits.append(SearchHit(noteId: noteId, title: title, notebook: state.meta.notebook, page: index + 1,
-                                          pageId: pageId, snippet: RecognitionSearch.snippet(text, around: first),
-                                          matches: found.count, source: "text", engine: nil, words: [],
-                                          itemId: item.id.uuidString.lowercased(),
-                                          box: [item.frame.x, item.frame.y, item.frame.w, item.frame.h]))
+                    var hit = SearchHit(noteId: noteId, title: title, notebook: state.meta.notebook, page: index + 1,
+                                        pageId: pageId, snippet: RecognitionSearch.snippet(text, around: first),
+                                        matches: found.count, source: "text", engine: nil, words: [],
+                                        itemId: item.id.uuidString.lowercased(),
+                                        box: [item.frame.x, item.frame.y, item.frame.w, item.frame.h])
+                    if showBoxes {
+                        // The words inside the box (laid out like an export), numbered among all the note's matches.
+                        hit.locations = located.enumerated().filter { $0.element.item == item.id }.map {
+                            .init(n: $0.offset + 1, of: located.count, text: $0.element.text,
+                                  box: [$0.element.box.x, $0.element.box.y, $0.element.box.w, $0.element.box.h],
+                                  itemId: item.id.uuidString.lowercased())
+                        }
+                    }
+                    hits.append(hit)
                 }
             }
             if transcripts {
@@ -206,14 +200,13 @@ struct SearchCommand: ParsableCommand {
                         printStderr("warning: cannot read the transcript of recording \(recording.id.uuidString.lowercased()) in note \(noteId): \(CLIError.from(error).message)")
                         continue
                     }
-                    for segment in transcript.segments {
-                        let found = RecognitionSearch.ranges(of: needle, in: segment.text)
-                        guard let first = found.first else { continue }
+                    for t in TranscriptSearch.hits(of: needle, in: transcript, recording: recording.id,
+                                                   title: recording.title) {
                         hits.append(SearchHit(noteId: noteId, title: title, notebook: state.meta.notebook, page: nil, pageId: nil,
-                                              snippet: RecognitionSearch.snippet(segment.text, around: first), matches: found.count,
-                                              source: "transcript", engine: transcript.engine, words: [],
+                                              snippet: t.snippet, matches: t.matches,
+                                              source: "transcript", engine: t.engine, words: [],
                                               recordingId: recording.id.uuidString.lowercased(), recordingTitle: recording.title,
-                                              start: segment.start, end: segment.end))
+                                              start: t.start, end: t.end))
                     }
                 }
             }

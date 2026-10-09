@@ -9,7 +9,6 @@ struct NoteCanvasView: View {
     @Environment(\.scenePhase) private var scenePhase
     @AppStorage(ColumnLayout.key) private var storedColumns = "all"
     @Environment(WindowUI.self) private var ui
-    @State private var showingHistory = false
     @AppStorage(KeepScreenOn.key) private var keepScreenOn = KeepScreenOn.defaultValue
 
     var body: some View {
@@ -53,9 +52,6 @@ struct NoteCanvasView: View {
                 ContentUnavailableView("No Note Selected", systemImage: "square.and.pencil")
             }
         }
-        .sheet(isPresented: $showingHistory) {
-            if let id = model.selectedNoteID { HistoryView(noteID: id) }
-        }
         .toolbar {
             if let note = model.selectedNote {
                 // The title itself: tap it, or press and hold it, to rename the note.
@@ -88,7 +84,7 @@ struct NoteCanvasView: View {
                         .help("Save this version of the note under a name; saved versions are never thinned")
                 }
                 ToolbarItem(placement: .secondaryAction) {
-                    Button("Version History…", systemImage: "clock.arrow.circlepath") { showingHistory = true }
+                    Button("Version History…", systemImage: "clock.arrow.circlepath") { ui.historyNoteID = note.id }
                         .help("Browse earlier versions of the note and restore one")
                 }
                 ToolbarItem(placement: .secondaryAction) {
@@ -250,7 +246,8 @@ struct EditorView: View {
             withAnimation { remoteNoticeFor = new }
         }
         .inspector(isPresented: Binding(get: { stripVisible && !editor.isPageless }, set: { stripVisible = $0 })) {
-            PageStripView(editor: editor)
+            // On a phone the inspector is a sheet: picking a page closes it.
+            PageStripView(editor: editor, onPicked: { if Platform.isPhone { stripVisible = false } })
                 .inspectorColumnWidth(min: 150, ideal: 180, max: 260)
         }
         .modifier(EditorInsert(editor: editor, state: insert, ui: ui))
@@ -287,6 +284,15 @@ struct EditorView: View {
             showingTranscript = nil
             remoteNoticeFor = 0
         }
+        // Tools > Text and Select (Mac menu): the toolbar toggles of the same name.
+        .onChange(of: ui.toolRequest) { _, request in
+            guard let request else { return }
+            ui.toolRequest = nil
+            switch request {
+            case .text: if !editor.isReadOnly, editor.currentPage != nil { addingText.toggle() }
+            case .select: if showsItemSelection { selectingItems.toggle() }
+            }
+        }
         .onChange(of: selectingItems) { if selectingItems { addingText = false } }
         .onChange(of: addingText) { if addingText { selectingItems = false } }
         .sheet(item: $showingTranscript) { TranscriptView(editor: editor, recording: $0) }
@@ -307,7 +313,7 @@ struct EditorView: View {
 
     private var phoneItems: PhoneToolbar.Items {
         PhoneToolbar.items(readOnly: editor.isReadOnly, annotating: annotating, pageCount: editor.pages.count,
-                           hasPage: editor.currentPage != nil)
+                           hasPage: editor.currentPage != nil, pageEntries: !phonePageEntries.isEmpty)
     }
 
     /// The iPhone's toolbar: one pencil button for light annotation, page
@@ -338,12 +344,16 @@ struct EditorView: View {
                 }
             }
         }
+        // The page actions (layout, add, duplicate, delete, undo, PDF at this page, thumbnails)
+        // are in this menu whether or not the pencil is on; while annotating it also turns pages,
+        // since the bottom bar gives way to the palette then.
         if phoneItems.pagesMenu {
             ToolbarItem(placement: .secondaryAction) {
                 Menu("Pages", systemImage: "doc.on.doc") { pageButtons }
-                    .help("Go to another page, or add one")
+                    .help("Go to another page, add, duplicate or delete one, or show the thumbnails")
             }
-        } else if phoneItems.pageBar {
+        }
+        if phoneItems.pageBar {
             ToolbarItemGroup(placement: .bottomBar) {
                 Button("Previous Page", systemImage: "chevron.left") { editor.selectPage(editor.pageIndex - 1) }
                     .disabled(editor.pageIndex == 0)
@@ -429,18 +439,64 @@ struct EditorView: View {
             .monospacedDigit()
     }
 
+    /// What the iPhone's Pages menu offers besides turning pages.
+    private var phonePageEntries: [PhonePageMenu.Entry] {
+        PhonePageMenu.entries(readOnly: editor.isReadOnly, pageless: editor.isPageless,
+                              pageCount: editor.pages.count, hasDeletedPages: !editor.deletedPages.isEmpty)
+    }
+
     /// The iPhone's Pages menu (titles shown).
     @ViewBuilder
     // help-lint: titled
     private var pageButtons: some View {
-        Button("Previous Page", systemImage: "chevron.up") { editor.selectPage(editor.pageIndex - 1) }
-            .disabled(editor.pageIndex == 0)
-        Button("Next Page", systemImage: "chevron.down") { editor.selectPage(editor.pageIndex + 1) }
-            .disabled(editor.pageIndex + 1 >= editor.pages.count)
-        if !editor.isReadOnly {
-            Button("Add Page", systemImage: "doc.badge.plus") { editor.addPage() }
+        if editor.pages.count > 1 {
+            Button("Previous Page", systemImage: "chevron.up") { editor.selectPage(editor.pageIndex - 1) }
+                .disabled(editor.pageIndex == 0)
+            Button("Next Page", systemImage: "chevron.down") { editor.selectPage(editor.pageIndex + 1) }
+                .disabled(editor.pageIndex + 1 >= editor.pages.count)
+        }
+        ForEach(phonePageEntries, id: \.self) { entry in
+            phonePageButton(entry)
         }
         Text(editor.pages.isEmpty ? "No pages" : "Page \(editor.pageIndex + 1) of \(editor.pages.count)")
+    }
+
+    @ViewBuilder
+    // help-lint: titled
+    private func phonePageButton(_ entry: PhonePageMenu.Entry) -> some View {
+        switch entry {
+        case .addAfter:
+            Button("Add Page After This One", systemImage: "doc.badge.plus") { editor.addPageAfterCurrent() }
+        case .addAtEnd:
+            Button("Add Page at End", systemImage: "arrow.down.to.line") { editor.addPage() }
+        case .insertPDF:
+            Button(InsertOptions.pdfPagesTitle(pageless: false, pageIndex: editor.pageIndex, pageCount: editor.pages.count),
+                   systemImage: "doc.richtext") {
+                insert.fileImport = .pdf
+                insert.pickingFile = true
+            }
+        case .duplicate:
+            Button("Duplicate Page", systemImage: "plus.square.on.square") {
+                if let page = editor.currentPage { editor.duplicatePage(page.id) }
+            }
+            .disabled(editor.currentPage == nil)
+        case .delete:
+            Button("Delete Page", systemImage: "trash", role: .destructive) {
+                if let page = editor.currentPage { editor.deletePage(page.id) }
+            }
+            .disabled(!editor.canDeletePage || editor.currentPage == nil)
+        case .undoDelete:
+            Button("Undo Delete Page", systemImage: "arrow.uturn.backward") { editor.undoDeletePage() }
+        case .thumbnails:
+            Button(LocalizedStringKey(stripVisible ? "Hide Pages" : "Show Pages"), systemImage: "sidebar.right") {
+                stripVisible.toggle()
+            }
+        case .layout:
+            Button(LocalizedStringKey(editor.isPageless ? "Switch to Paged Layout" : "Switch to Pageless Layout"),
+                   systemImage: editor.isPageless ? "doc.on.doc" : "scroll") {
+                Task { await editor.setLayout(pageless: !editor.isPageless) }
+            }
+        }
     }
 
     private var eraserSizeMenu: some View {

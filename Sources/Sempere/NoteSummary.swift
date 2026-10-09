@@ -38,6 +38,8 @@ public struct NoteSummary: Hashable, Sendable, Codable {
     public var textItems: Int = 0
     /// Number of audio recordings (format.md §8.3).
     public var recordings: Int = 0
+    /// The recordings that have a transcript, for transcript search (`TranscriptSearch`).
+    public var transcribed: [TranscribedRecording] = []
     /// The blobs the current state references (items' `blob`, recordings'
     /// `blob` and `transcript`), one per content hash, sorted by `sha256`.
     /// Older revisions may reference more (`Vault.blobInventory`).
@@ -224,6 +226,9 @@ extension Vault {
             s.items = items.count
             s.textItems = items.filter { $0.kind == .text }.count
             s.recordings = state.recordings.count
+            s.transcribed = state.recordings.compactMap { r in
+                r.transcript.map { TranscribedRecording(recording: r.id, title: r.title, blob: $0) }
+            }
             s.blobs = state.blobReferences
             s.lang = state.meta.lang
             s.markersBehindText = state.meta.markersBehindText

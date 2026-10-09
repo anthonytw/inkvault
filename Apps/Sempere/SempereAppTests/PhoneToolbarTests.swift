@@ -81,13 +81,18 @@ struct PhoneToolbarTests {
         #expect(some.selectToggle)
     }
 
-    /// Every combination: the page controls are in exactly one place (or none).
-    @Test func pageControlsAreNeverInBothPlaces() {
+    @Test func pageEntriesKeepThePagesMenuWhileReading() {
+        let reading = PhoneToolbar.items(readOnly: false, annotating: false, pageCount: 3, hasPage: true, pageEntries: true)
+        #expect(reading.pagesMenu && reading.pageBar, "the menu holds the page actions, the bar turns pages")
+    }
+
+    /// Every combination: the page bar is only for reading, the aids follow Annotate.
+    @Test func pageBarIsOnlyForReading() {
         for readOnly in [false, true] {
             for annotating in [false, true] {
                 for count in 0...3 {
                     let items = PhoneToolbar.items(readOnly: readOnly, annotating: annotating, pageCount: count, hasPage: count > 0)
-                    #expect(!(items.pagesMenu && items.pageBar), "\(readOnly) \(annotating) \(count)")
+                    #expect(!(annotating && items.pageBar), "\(readOnly) \(annotating) \(count)")
                     #expect(!items.writingTools || items.writes)
                     #expect(!items.selectToggle || items.writingTools)
                 }

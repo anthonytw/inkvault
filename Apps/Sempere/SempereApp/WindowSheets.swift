@@ -30,9 +30,15 @@ struct WindowSheets: ViewModifier {
                 SwiftUI.Color.clear.fileImporter(isPresented: $ui.importingNotability, allowedContentTypes: AppModel.notabilityTypes,
                                                  allowsMultipleSelection: true) { result in
                     guard case .success(let urls) = result, !urls.isEmpty else { return }
-                    let notebook = model.sidebarNotebook
-                    Task { await model.report { try await model.importNotability(urls, notebook: notebook) } }
+                    // The options come next (`NotabilityImportOptionsSheet`); nothing is read before they are chosen.
+                    ui.notabilityPick = NotabilityPick(urls: urls, notebook: model.sidebarNotebook)
                 }
+            }
+            .sheet(item: $ui.notabilityPick) { pick in
+                NotabilityImportOptionsSheet(pick: pick)
+            }
+            .sheet(isPresented: Binding(get: { ui.notabilityReport != nil }, set: { if !$0 { ui.notabilityReport = nil } })) {
+                if let details = ui.notabilityReport { NotabilityReportView(details: details) }
             }
             .overlay {
                 if model.isImportingNotability {
@@ -43,6 +49,12 @@ struct WindowSheets: ViewModifier {
             }
             .alert(model.notabilitySummary?.title ?? "", isPresented: Binding(get: { model.notabilitySummary != nil && isFront },
                                                                             set: { if !$0 { model.notabilitySummary = nil } })) {
+                if let details = model.notabilitySummary?.details, !details.isEmpty {
+                    Button("Show Report") {
+                        ui.notabilityReport = details
+                        model.notabilitySummary = nil
+                    }
+                }
                 Button("OK", role: .cancel) { model.notabilitySummary = nil }
             } message: {
                 Text(model.notabilitySummary?.message ?? "")
@@ -107,6 +119,10 @@ struct WindowSheets: ViewModifier {
             }
             .sheet(isPresented: Binding(get: { ui.tagsNoteID != nil }, set: { if !$0 { ui.tagsNoteID = nil } })) {
                 if let id = ui.tagsNoteID { TagEditorView(noteID: id) }
+            }
+            // Version History: the toolbar's button, Note > Version History… and the note window's.
+            .sheet(isPresented: Binding(get: { ui.historyNoteID != nil }, set: { if !$0 { ui.historyNoteID = nil } })) {
+                if let id = ui.historyNoteID { HistoryView(noteID: id) }
             }
             // The export sheet opens in the window that asked for it (a Mac may have several).
             .sheet(item: Binding(get: { ExportRequest.shown(model.exportRequest, in: ui.id, canvasWindow: model.canvasWindow) },

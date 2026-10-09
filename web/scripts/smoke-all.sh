@@ -30,5 +30,6 @@ run smoke-cache.mjs "$work/sample.sempere" "$key"
 run smoke-attachments.mjs test/fixtures/render.sempere "$key" "$shots"
 run smoke-video.mjs test/fixtures/render.sempere "$key" "$shots"
 run smoke-passkey.mjs "$fixtures/sample.sempere" "$key"
+run smoke-language.mjs test/fixtures/render.sempere "$key"
 run smoke-search-keys.mjs
 echo "all browser smoke scripts passed"

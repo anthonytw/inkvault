@@ -157,9 +157,11 @@ struct MenuHandlerTests {
         #expect(run(.renameNote) == .init())
         #expect(run(.editTags) == .init())
         #expect(run(.saveVersion) == .init())
+        #expect(run(.versionHistory) == .init())
         #expect(ui.renameNoteID == Self.lecture)
         #expect(ui.tagsNoteID == Self.lecture)
         #expect(ui.saveVersionNoteID == Self.lecture)
+        #expect(ui.historyNoteID == Self.lecture)
         model.close()
     }
 

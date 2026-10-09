@@ -76,10 +76,48 @@ enum PhoneReading {
     }
 }
 
+extension PhoneReading {
+    /// Turning pages with a horizontal swipe (a paged note on an iPhone, while reading): only
+    /// when the page fits the width (a zoomed page pans sideways instead), fingers are not
+    /// drawing, and there is another page to turn to.
+    static func swipeTurnsPages(isPhone: Bool, drawingSuspended: Bool, zoomed: Bool, pageCount: Int) -> Bool {
+        isPhone && drawingSuspended && !zoomed && pageCount > 1
+    }
+
+    /// The page a swipe turns to, or nil at the ends. A swipe to the left (the finger moves
+    /// left, as when turning a page of a book) goes forward; to the right, back.
+    static func pageAfterSwipe(from index: Int, towardsLeft: Bool, pageCount: Int) -> Int? {
+        let target = towardsLeft ? index + 1 : index - 1
+        return (0..<pageCount).contains(target) && (0..<pageCount).contains(index) ? target : nil
+    }
+}
+
+/// The page actions the iPhone's overflow menu offers (GA-15), in order: everything the
+/// iPad's toolbar puts in its page controls, so a phone can fix up a note without the
+/// iPad. Plain values; `EditorView` draws them.
+enum PhonePageMenu {
+    enum Entry: Hashable, Sendable {
+        case addAfter, addAtEnd, insertPDF, duplicate, delete, undoDelete
+        /// Show or hide the thumbnails (a sheet on a phone: `inspector` adapts to compact width).
+        case thumbnails
+        /// Paged to pageless, or back.
+        case layout
+    }
+
+    static func entries(readOnly: Bool, pageless: Bool, pageCount: Int, hasDeletedPages: Bool) -> [Entry] {
+        if pageless { return readOnly ? [] : [.layout] }
+        if readOnly { return pageCount > 1 ? [.thumbnails] : [] }
+        var entries: [Entry] = [.addAfter, .addAtEnd, .insertPDF, .duplicate, .delete]
+        if hasDeletedPages { entries.append(.undoDelete) }
+        entries += [.thumbnails, .layout]
+        return entries
+    }
+}
+
 /// Which controls the iPhone's note toolbar offers (`EditorView.phoneToolbar`): the
 /// Annotate toggle and the overflow menu's writing entries only for a note that can be
 /// written, the drawing aids only while annotating, and the page controls in the bottom
-/// bar while reading or in the overflow menu while annotating.
+/// bar while reading and in the overflow menu (always, when it has entries; while annotating).
 enum PhoneToolbar {
     struct Items: Equatable {
         /// Annotate, Paper, Insert and the recordings entries.
@@ -94,13 +132,16 @@ enum PhoneToolbar {
         var pageBar = false
     }
 
-    static func items(readOnly: Bool, annotating: Bool, pageCount: Int, hasPage: Bool) -> Items {
+    /// `pageEntries`: the Pages menu has entries besides turning pages (`PhonePageMenu.entries`),
+    /// which keep it in the overflow menu whether or not the pencil is on.
+    static func items(readOnly: Bool, annotating: Bool, pageCount: Int, hasPage: Bool,
+                      pageEntries: Bool = false) -> Items {
         var items = Items()
         items.writes = !readOnly
         items.writingTools = !readOnly && annotating
         items.selectToggle = items.writingTools && hasPage
-        items.pagesMenu = annotating && (pageCount > 1 || !readOnly)
-        items.pageBar = !items.pagesMenu && pageCount > 1
+        items.pagesMenu = annotating && (pageCount > 1 || !readOnly) || pageEntries
+        items.pageBar = !annotating && pageCount > 1
         return items
     }
 }

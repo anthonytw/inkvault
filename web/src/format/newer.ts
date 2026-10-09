@@ -2,6 +2,8 @@
 // not show of revisions a newer version wrote. Mirrors Swift
 // `SempereFormat.major(of:)` and `NewerContent` (Sources/Sempere/NewerContent.swift).
 
+import { t, tn } from "../i18n/index.ts";
+
 /** The major version this viewer reads. */
 export const formatMajor = 1;
 /** The extensions (format.md §2) this viewer knows. */
@@ -77,16 +79,16 @@ export function mergeNewer(into: NewerContent, from: NewerContent): void {
 export function newerSummary(n: NewerContent): string {
   const parts: string[] = [];
   if (n.revisions > 0) {
-    const f = [...Object.keys(n.formats).sort(), ...Object.keys(n.features).sort().map((x) => `feature ${x}`)].join(", ");
-    parts.push(`${n.revisions} newer revision${n.revisions === 1 ? "" : "s"}${f ? ` (${f})` : ""}`);
+    const f = [...Object.keys(n.formats).sort(), ...Object.keys(n.features).sort().map((x) => t("feature {name}", { name: x }))].join(", ");
+    parts.push(`${tn("{count} newer revisions", n.revisions)}${f ? ` (${f})` : ""}`);
   }
-  if (n.unreadable > 0) parts.push(`${n.unreadable} unreadable newer revision${n.unreadable === 1 ? "" : "s"}`);
+  if (n.unreadable > 0) parts.push(tn("{count} unreadable newer revisions", n.unreadable));
   const ops = Object.values(n.skippedOps).reduce((a, b) => a + b, 0);
   if (ops > 0) {
     const names = Object.keys(n.skippedOps).sort().map((k) => `${k} ×${n.skippedOps[k]}`).join(", ");
-    parts.push(`${ops} op${ops === 1 ? "" : "s"} skipped (${names})`);
+    parts.push(`${tn("{count} ops skipped", ops)} (${names})`);
   }
-  if (n.skippedElements > 0) parts.push(`${n.skippedElements} snapshot element${n.skippedElements === 1 ? "" : "s"} skipped`);
+  if (n.skippedElements > 0) parts.push(tn("{count} snapshot elements skipped", n.skippedElements));
   return parts.join(", ");
 }
 
@@ -109,8 +111,8 @@ export function revisionMarkersNewer(o: Record<string, unknown>): boolean {
 /** Why a vault is read-only from its manifest (§7.2 markers 1, 2); empty when not. */
 export function manifestReadOnlyReasons(format: string, features: string[]): string[] {
   const out: string[] = [];
-  if (isNewerFormat(format)) out.push(`the vault uses format ${format}, newer than this viewer's sempere/${formatMajor}`);
+  if (isNewerFormat(format)) out.push(t("the vault uses format {format}, newer than this viewer's sempere/{major}", { format, major: formatMajor }));
   const unknown = [...new Set(features.filter((f) => !knownFeatures.has(f)))].sort();
-  if (unknown.length) out.push(`the vault uses format extensions this viewer does not know: ${unknown.join(", ")}`);
+  if (unknown.length) out.push(t("the vault uses format extensions this viewer does not know: {features}", { features: unknown.join(", ") }));
   return out;
 }

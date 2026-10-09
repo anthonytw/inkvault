@@ -18,6 +18,9 @@ struct RootView: View {
     @Environment(\.scenePhase) private var scenePhase
     @AppStorage(KeepScreenOn.key) private var keepScreenOn = KeepScreenOn.defaultValue
     @AppStorage(ToolPalette.visibleKey) private var paletteVisible = true
+    // Read by the menus' titles (Use Full Palette, Hide Pages): the router is rebuilt when they change.
+    @AppStorage(ToolPalette.compactKey) private var paletteCompact = false
+    @AppStorage(PageStrip.visibleKey) private var pageStripVisible = false
     @Environment(\.openWindow) private var openWindow
     @State private var ui = WindowUI()
     /// The library window's selection, restored with the scene (Mac only).
@@ -298,6 +301,8 @@ struct RootView: View {
         EditorCommands.fill(&context, from: shown)
         let exportIDs = model.exportTargetIDs
         WindowCommands.fill(&context, model: model, exportIDs: exportIDs)
+        context.paletteCompact = paletteCompact
+        context.pageStripVisible = pageStripVisible
         return CommandRouter(context: context, recents: library.recents.map { RecentItem(id: $0.id, name: $0.name) },
                              paletteVisible: paletteVisible, exportIDs: exportIDs, windowID: ui.id,
                              perform: { command in perform(command, editor: shown, exportIDs: exportIDs) },

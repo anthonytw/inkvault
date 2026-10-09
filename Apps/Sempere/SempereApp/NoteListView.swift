@@ -511,22 +511,90 @@ private struct SearchResultsList: View {
     @AppModelEnvironment private var model
 
     var body: some View {
-        List {
-            ForEach(model.searchResults) { hit in
-                if let note = model.note(for: hit) {
-                    Button { model.openSearchHit(hit) } label: { SearchRow(hit: hit, note: note) }
-                        .buttonStyle(.plain)
-                        .listRowBackground(model.selectedNoteID == note.id ? SwiftUI.Color.accentColor.opacity(0.15) : nil)
+        VStack(spacing: 0) {
+            Toggle("Search Recording Transcripts", isOn: Binding(get: { model.searchTranscripts },
+                                                                 set: { model.setSearchTranscripts($0) }))
+                .font(.subheadline)
+                .padding(.horizontal, 16).padding(.vertical, 8)
+                .accessibilityIdentifier("searchTranscriptsToggle")
+            if model.searchTranscripts {
+                Text("Reads and decrypts every transcript of the notes searched, on this device.")
+                    .font(.caption).foregroundStyle(.secondary)
+                    .padding(.horizontal, 16).padding(.bottom, 6)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            if model.searchTranscripts, model.transcriptSearchProblems > 0, !model.isSearching {
+                Text("\(model.transcriptSearchProblems) transcripts could not be read")
+                    .font(.caption).foregroundStyle(.orange)
+                    .padding(.horizontal, 16).padding(.bottom, 6)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            List {
+                ForEach(model.searchResults) { hit in
+                    if let note = model.note(for: hit) {
+                        Button { model.openSearchHit(hit) } label: { SearchRow(hit: hit, note: note) }
+                            .buttonStyle(.plain)
+                            .listRowBackground(model.selectedNoteID == note.id ? SwiftUI.Color.accentColor.opacity(0.15) : nil)
+                    }
+                }
+                if model.searchTranscripts, !model.transcriptHits.isEmpty {
+                    Section("In Recordings") {
+                        ForEach(model.transcriptHits) { hit in
+                            if let note = model.notes.first(where: { $0.id == hit.note }) {
+                                Button { model.openTranscriptHit(hit) } label: { TranscriptHitRow(hit: hit, note: note, query: model.searchText) }
+                                    .buttonStyle(.plain)
+                            }
+                        }
+                    }
+                }
+            }
+            .overlay {
+                let empty = model.searchResults.isEmpty && (!model.searchTranscripts || model.transcriptHits.isEmpty)
+                if model.isSearching && empty {
+                    ProgressView()
+                } else if !model.isSearching && empty {
+                    ContentUnavailableView.search(text: model.searchText)
                 }
             }
         }
-        .overlay {
-            if model.isSearching && model.searchResults.isEmpty {
-                ProgressView()
-            } else if !model.isSearching && model.searchResults.isEmpty {
-                ContentUnavailableView.search(text: model.searchText)
+    }
+}
+
+/// A transcript segment that matched: the note, the recording and the time in it.
+private struct TranscriptHitRow: View {
+    let hit: TranscriptSearchHit
+    let note: NoteSummary
+    let query: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(spacing: 6) {
+                Text(NoteTitle.display(note.title)).font(.headline)
+                Label(hit.timeText, systemImage: "waveform")
+                    .font(.caption.weight(.semibold)).monospacedDigit()
+                    .padding(.horizontal, 6).padding(.vertical, 1)
+                    .background(.quaternary, in: Capsule())
+            }
+            Text(Self.highlighted(hit.snippet, query: query)).font(.callout).foregroundStyle(.secondary).lineLimit(3)
+            if let title = hit.recordingTitle, !title.isEmpty {
+                Text(verbatim: title).font(.caption).foregroundStyle(.secondary)
             }
         }
+        .contentShape(Rectangle())
+    }
+
+    /// The snippet with the phrase in bold (the CLI's rules: the whole query, ignoring case and accents).
+    static func highlighted(_ snippet: String, query: String) -> AttributedString {
+        var text = AttributedString(snippet)
+        let needle = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !needle.isEmpty else { return text }
+        for range in RecognitionSearch.ranges(of: needle, in: snippet) {
+            if let r = Range(range, in: text) {
+                text[r].font = .callout.bold()
+                text[r].foregroundColor = .primary
+            }
+        }
+        return text
     }
 }
 

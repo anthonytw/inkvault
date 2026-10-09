@@ -7,18 +7,21 @@
 import { type VaultManifest } from "../vault/vault.ts";
 import { KeyFileError, keyFileName, maxKeyFileBytes, workFactor, wrappedBytes } from "../vault/keyfile.ts";
 import { type VaultSource, readOptional } from "../vault/source.ts";
+import { t } from "../i18n/index.ts";
 import { h } from "./dom.ts";
+import { explain } from "./errors.ts";
 import { unwrapKeyInWorker } from "./keyunwrap.ts";
 import { rememberOption } from "./passkey.ts";
 
 export function keyFileMessage(e: unknown): string {
-  if (e instanceof KeyFileError) return e.message.charAt(0).toUpperCase() + e.message.slice(1) + ".";
-  return `Unlocking failed: ${e instanceof Error ? e.message : String(e)}`;
+  if (e instanceof KeyFileError) return explain(e);
+  return t("Unlocking failed: {detail}", { detail: explain(e) });
 }
 
 /** How long scrypt may take, said before it starts. */
 export function workNote(logN: number): string {
-  return logN <= 16 ? "" : ` Deriving the key from the passphrase takes a few seconds${logN >= 19 ? " and up to 1 GiB of memory" : ""}.`;
+  if (logN <= 16) return "";
+  return ` ${logN >= 19 ? t("Deriving the key from the passphrase takes a few seconds and up to 1 GiB of memory.") : t("Deriving the key from the passphrase takes a few seconds.")}`;
 }
 
 /** A stored key file of one of the vault's recipients. */
@@ -63,31 +66,32 @@ export function storedKeyCard(src: VaultSource, m: VaultManifest,
     const [first] = keys;
     if (!first) return;
     const pass = h("input", {
-      attrs: { type: "password", autocomplete: "current-password", spellcheck: "false", "aria-label": "Passphrase" },
+      attrs: { type: "password", autocomplete: "current-password", spellcheck: "false", "aria-label": t("Passphrase") },
     });
-    const select = h("select", { attrs: { "aria-label": "Key" } },
+    const select = h("select", { attrs: { "aria-label": t("Key") } },
       ...keys.map((k, i) => h("option", { text: k.label, attrs: { value: String(i) } })));
     const remember = rememberOption();
-    const button = h("button", { text: "Unlock", attrs: { type: "submit" } });
+    const button = h("button", { text: t("Unlock"), attrs: { type: "submit" } });
     const logN = workFactor(first.file);
     card.addEventListener("submit", (e) => {
       e.preventDefault();
       const key = keys[Number(select.value)] ?? first;
       const passphrase = pass.value;
+      if (passphrase.length === 0) return failed(t("Enter the passphrase."));
       pass.value = "";
       button.disabled = true;
-      button.textContent = "Unlocking…";
+      button.textContent = t("Unlocking…");
       unwrapKeyInWorker(key.file, passphrase)
         .then((identity) => unlock(identity, remember.checked()))
         .catch((err: unknown) => failed(keyFileMessage(err)));
     });
     card.append(
-      h("h2", { text: "Unlock with your passphrase" }),
-      ...(keys.length > 1 ? [h("label", { text: "Key" }, select)] : []),
-      h("label", { text: "Passphrase of the vault's stored key" }, pass),
+      h("h2", { text: t("Unlock with your passphrase") }),
+      ...(keys.length > 1 ? [h("label", { text: t("Key") }, select)] : []),
+      h("label", { text: t("Passphrase of the vault's stored key") }, pass),
       remember.element,
       h("div", { class: "row" }, button),
-      h("p", { class: "hint", text: `The vault keeps this key locked with your passphrase (${keys.map((k) => k.path).join(", ")}). The passphrase is used once, in this tab, and never stored or sent.${workNote(logN)}` }));
+      h("p", { class: "hint", text: `${t("The vault keeps this key locked with your passphrase ({paths}). The passphrase is used once, in this tab, and never stored or sent.", { paths: keys.map((k) => k.path).join(", ") })}${workNote(logN)}` }));
     card.removeAttribute("hidden");
     pass.focus();
   });
@@ -102,12 +106,12 @@ export function storedKeyCard(src: VaultSource, m: VaultManifest,
 export class PassphraseField {
   readonly element: HTMLElement;
   private readonly input = h("input", {
-    attrs: { type: "password", autocomplete: "off", spellcheck: "false", "aria-label": "Passphrase of the key" },
+    attrs: { type: "password", autocomplete: "off", spellcheck: "false", "aria-label": t("Passphrase of the key") },
   });
   private readonly note = h("p", { class: "hint" });
 
   constructor() {
-    this.element = h("label", { attrs: { hidden: "" } }, "Passphrase of the locked key", this.input, this.note);
+    this.element = h("label", { attrs: { hidden: "" } }, t("Passphrase of the locked key"), this.input, this.note);
   }
 
   /** Shows the field for `file` (a wrapped key), or hides it (undefined). */
@@ -119,10 +123,14 @@ export class PassphraseField {
     }
     try {
       const logN = workFactor(file);
-      this.note.textContent = `This key is locked with a passphrase.${workNote(logN)}`;
+      this.note.textContent = `${t("This key is locked with a passphrase.")}${workNote(logN)}`;
     } catch (e) {
       this.note.textContent = keyFileMessage(e);
     }
+  }
+
+  isEmpty(): boolean {
+    return this.input.value.length === 0;
   }
 
   /** The passphrase, read once: the field is cleared. */

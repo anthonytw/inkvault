@@ -46,6 +46,7 @@ enum LibraryCommands {
         case .renameNote: ui.renameNoteID = selected
         case .editTags: ui.tagsNoteID = selected
         case .saveVersion: ui.saveVersionNoteID = selected
+        case .versionHistory: ui.historyNoteID = selected
         case .deleteNote:
             if let selected { Task { await model.report { try await model.deleteNote(selected) } } }
         case .restoreNote:
