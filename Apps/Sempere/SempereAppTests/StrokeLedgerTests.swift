@@ -247,7 +247,10 @@ struct StrokeLedgerTests {
         #expect(change.added.first?.parent == whole.id)
     }
 
-    @Test func movingAStrokeReplacesItWithoutParent() throws {
+    /// A lasso move replaces the stroke (format.md §5.6.1): the moved copy
+    /// names it as `parent` (rule 4), so a concurrent edit of it elsewhere
+    /// does not leave both.
+    @Test func movingAStrokeReplacesItWithParent() throws {
         let stored = [TS.stroke()]
         var l = Self.ledger(stored)
         var moved = StrokeConversion.pkStroke(stored[0])
@@ -255,7 +258,7 @@ struct StrokeLedgerTests {
         let change = l.update(TS.items([moved]))
         #expect(change.removed.map(\.id) == [stored[0].id])
         let added = try #require(change.added.first)
-        #expect(added.parent == nil)
+        #expect(added.parent == stored[0].id)
         #expect(added.transform == Transform(a: 1, b: 0, c: 0, d: 1, tx: 300, ty: 300))
     }
 }
