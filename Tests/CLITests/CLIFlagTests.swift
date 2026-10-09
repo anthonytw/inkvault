@@ -221,4 +221,27 @@ final class CLIFlagTests: CLITestCase {
         let again = try cli(["blobs", "repair", physics] + key)
         XCTAssertEqual(again.status, 0, again.err)
     }
+
+    // MARK: fixture vault with items (GA-63)
+
+    func testItemsFixtureThroughTheCLI() throws {
+        let vault = path("items.sempere")
+        try FileManager.default.copyItem(at: Self.fixtures.appendingPathComponent("items.sempere"), to: URL(fileURLWithPath: vault))
+        let args = ["--vault", vault, "--identity", Self.fixtureKey]
+        let items = try XCTUnwrap(try cli(["items", "list", "Fixture items", "--json"] + args).json as? [[String: Any]])
+        XCTAssertEqual(items.compactMap { $0["kind"] as? String }, ["text", "image", "math"])
+        XCTAssertEqual(try cli(["blobs", "verify", "-q"] + args).status, 0)
+        XCTAssertEqual(try cli(["vault", "verify", "-q"] + args).status, 0)
+        let svg = path("items.svg")
+        let r = try cli(["export", "Fixture items", "--format", "svg", "--pdf-renderer", "none", "--out", svg, "-q"] + args)
+        XCTAssertEqual(r.status, 0, r.err)
+        var file = URL(fileURLWithPath: svg)
+        if (try? file.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true {
+            file = file.appendingPathComponent(try XCTUnwrap(try FileManager.default.contentsOfDirectory(atPath: svg).sorted().first))
+        }
+        let text = String(decoding: try Data(contentsOf: file), as: UTF8.self)
+        XCTAssertTrue(text.contains("Fixture text box") && text.contains("<image"), "the text box and the image are drawn")
+        let found = try XCTUnwrap(try cli(["search", "Fixture text", "--json"] + args).json as? [[String: Any]])
+        XCTAssertEqual(found.first?["source"] as? String, "text")
+    }
 }
