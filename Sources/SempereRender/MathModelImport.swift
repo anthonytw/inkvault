@@ -96,7 +96,9 @@ public enum MathModelImport {
         catch { throw Failure.noManifest }
         let manifest = try MathModelManifest.parse(data)
         for f in manifest.files {
-            let from = source.appendingPathComponent(f.path)
+            // The file a link points to, never the link: the store holds copies (a Hugging Face
+            // snapshot links every file to a blob), and the picked folder's access ends after this.
+            let from = source.appendingPathComponent(f.path).resolvingSymlinksInPath()
             guard fm.fileExists(atPath: from.path) else { throw Failure.missingEntry(f.path) }
             let to = staging.appendingPathComponent(f.path)
             try fm.createDirectory(at: to.deletingLastPathComponent(), withIntermediateDirectories: true)

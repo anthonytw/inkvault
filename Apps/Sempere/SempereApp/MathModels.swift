@@ -137,6 +137,11 @@ final class MathModels {
     /// Deletes a model added from Files.
     func remove(_ model: InstalledMathModel) {
         if loaded?.id == model.id { loaded = nil }
+        if selectedID == model.id {
+            // Back to "the first installed", which is what reading falls back to (and Settings shows in use).
+            selectedID = nil
+            defaults.removeObject(forKey: MathRecognitionPreference.modelKey)
+        }
         try? MathModelStore.remove(id: model.id, root: root)
         try? FileManager.default.removeItem(at: root.appendingPathComponent(".compiled/\(model.manifestSHA256)"))
         refresh()

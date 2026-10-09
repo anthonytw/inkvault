@@ -246,6 +246,9 @@ struct MathConversionTests {
         #expect(models.selectedID == "second")
         models.remove(second)
         #expect(models.added.map(\.id) == ["fake"])
+        // The model in use was removed: the choice goes back to the first installed, which reading uses.
+        #expect(models.selectedID == nil)
+        #expect(defaults.string(forKey: MathRecognitionPreference.modelKey) == nil)
         #expect(MathModelStore.installedModels(root: root).map(\.id) == ["fake"])
         // A fresh instance sees the same.
         #expect(MathModels(root: root, catalog: [], localFolder: nil, defaults: defaults).added.map(\.id) == ["fake"])
