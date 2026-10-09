@@ -24,6 +24,8 @@ struct MenuHandlerTests {
         func zoomToFit() { fits += 1 }
         func zoomToActualSize() { actuals += 1 }
         func toggleRuler() { rulers += 1 }
+        var itemCommands: [MenuCommand] = []
+        func perform(itemCommand: MenuCommand) -> Bool { itemCommands.append(itemCommand); return true }
     }
 
     static func recent(_ name: String) -> RecentVault {
