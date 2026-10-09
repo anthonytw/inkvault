@@ -44,7 +44,7 @@ GA-22, GA-24, GA-25, GA-26.
 | Vault | Per-note blob store, rewrap policy, GC, repair (B2) | ✅ |
 | Vault | Attachment merge (A1): items and recordings in merge, snapshots, history/restore, summaries | ✅ #66 |
 | Vault | Video items (G2, `format.md` §8.2.7): `VideoProbe` (pure-Swift MP4/MOV reader, fuzzed), location metadata blanked in place, clips streamed into blobs (never in memory), `poster` register | ✅ #93 |
-| Vault | Concurrent replacements of one stroke (`format.md` §5.6.1): two devices slicing, moving or recolouring the same stroke keep the later edit, not both sets of pieces; property-tested (any order, compaction, snapshots), snapshots keep `replaces` / `lineage` / `superseded`; web viewer ported (shared vectors); app links moved and recoloured strokes to their originals | 🚧 #126 |
+| Vault | Concurrent replacements of one stroke (`format.md` §5.6.1): two devices slicing, moving or recolouring the same stroke keep the later edit, not both sets of pieces; property-tested (any order, compaction, snapshots), snapshots keep `replaces` / `lineage` / `superseded`; web viewer ported (shared vectors); app links moved and recoloured strokes to their originals | ✅ #126 |
 | Vault | Read-only access to newer format versions (`format.md` §7): vaults and revisions of a later `format` open read-only, unknown ops, fields and snapshot elements are skipped and reported, every write refused; CLI exit 7, app banner, web viewer | ✅ #94 |
 | Render | PDF, SVG, PNG export of ink and paper | ✅ |
 | Render | Pageless pages cut at gaps in the ink; paged notes one PDF page per page (`format.md` §5.4.3) | ✅ #52 |
@@ -90,7 +90,7 @@ The CLI gets every feature first, or at the latest with the app (`CLAUDE.md`
 | --- | --- | --- |
 | keys, vault init/info/recipients/verify, notes, history/restore, compact, snapshot | ✅ | ✅ |
 | `notes layout paged\|pageless`, `export --breaks gaps\|fixed` | ✅ #52 | ✅ #52 |
-| `notes dedupe (ID… \| --all) [--dry-run]`: strokes left over by concurrent edits of one stroke (`format.md` §5.6.1), check and repair | 🚧 #126 | 🚧 #126 |
+| `notes dedupe (ID… \| --all) [--dry-run]`: strokes left over by concurrent edits of one stroke (`format.md` §5.6.1), check and repair | ✅ #126 | ✅ #126 |
 | import notability, search (recognised text) | ✅ | ✅ |
 | `notes checkpoint [--name]`, `notes history --sessions` (checkpoints and editing sessions, `--json`), `compact --thin-older-than 30d [--dry-run]` | ✅ #74 | ✅ #74 |
 | `compact --thin-all [--dry-run]` (thin everything except checkpoints), imports written as checkpoints, thinning from indexed revision metadata | ✅ #88 | ✅ #88 |
@@ -212,6 +212,8 @@ The CLI gets every feature first, or at the latest with the app (`CLAUDE.md`
 | Capture | C8: stale `completeUnlessOpen` comments in `QuickCapture.swift` (GA-34, S) | 📋 |
 | Release | Privacy policy (both copies), App Store answers and `DESIGN.md` say "no network" while the app holds a model downloader; add a `release-check.sh` rule for `URLSession` in `Apps/`; replace the CHANGELOG `TODO(user)` date; SwiftMath privacy manifest and version pin (GA-40 to GA-42, M) | 📋 |
 | Tests | `writeEpoch`, `summaryEpochs`, `DerivedLists`, `validateVault`, `backgroundTimeExpired`, quick-capture intents and Live Activity, menu handlers and scene restore, key export, PDF-drag purge (GA-54 to GA-57, GA-59, M); settings confirmations (GA-64, S) | 📋 |
+| Export | HTML and SVG export (`ShareFormat.html` is never offered), `--clean` and `--breaks` in the app; today CLI-only (GA-19, S) | 📋 |
+| Release | App Store review notes and listing draft claim highlighted words on the page; check against the iPhone, which has none yet (GA-43, S) | 📋 |
 | Tests | Pseudo-language layout test (double-length, right to left, Spanish) in CI, at iPhone width and on Catalyst (GA-51, S–M) | 📋 |
 | Device | Hand tests of the "not yet tried on the iPad" rows, in particular background sync, remote merge, page scrolling and sidebar drops (GA-72, M) | 📋 (needs the maintainer) |
 
@@ -243,11 +245,12 @@ behaviour and testing on a real Mac.
 | Drag a note to the Finder as PDF | ✅ #46, #85 (`docs/mac.md`); file promise served off the main thread after build 6; Finder drop needs a hand test |
 | Bulk export from the app | ✅ #42 (multi-selection export, `ShareExport`); File ▸ Export Notes… (selection, notebook or vault; PDF, PDF + attachments, PNG; folder (resumable) or zip), shared with `sempere export --all` (`BulkExportSession`): ✅ #109 (not yet tried on a Mac) |
 | Key management window (recipients, add/remove device key, paper kit) | ✅ #46 (`docs/mac.md`); save/create key actions ✅ #99 |
-| Drawing with mouse/trackpad (any input, object eraser takes the pointer, tool-sized cursor, ruler) | ✅ #46 (`docs/mac.md`); mouse stroke smoothing (Settings → General: Off / Light / Strong) 🚧 #123 |
+| Drawing with mouse/trackpad (any input, object eraser takes the pointer, tool-sized cursor, ruler) | ✅ #46 (`docs/mac.md`); mouse stroke smoothing (Settings → General: Off / Light / Strong) ✅ #123 |
 | Mac App Store build (same bundle, universal purchase) | ✅ #113: project checked (one bundle id, sandbox, entitlements allow-list in `scripts/release-check.sh`), steps in `docs/release/app-store.md` §6; the submission is 📋 |
 | Mac App Store screenshots (Catalyst, 2880 × 1800, best effort) | ✅ #53 |
 | Keyboard shortcuts for item actions (duplicate, front, delete) and for recording (GA-13, S) | 📋 |
 | Menu parity: Version History, page duplicate / delete / undo delete, Add Page After This One, layout toggle, Show Pages, Text and Select tools, eraser size and Compact Palette as Note / Tools / View entries (GA-14, M) | 📋 |
+| CI: run the Mac Catalyst app suites on PRs, not only on `main` and dispatch (GA-62, S; a decision on macOS runner time) | 📋 (needs the maintainer) |
 | Menu-bar item for quick capture (today only Shortcuts and Siri) (GA-23, M) | 📋 |
 
 ## iPhone and web
