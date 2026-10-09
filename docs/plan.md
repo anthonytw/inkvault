@@ -44,8 +44,10 @@ is still open 💡); compaction UI (✅ #74 thinning setting and "Thin Now");
 `Sources/SempereRender`, `docs/cli.md`); page backgrounds (PDF and image attachments: in the reference
 Notability backup 26 of 130 notes are annotated PDFs and 4 hold images, all
 imported today as ink on blank paper; now designed with text boxes and audio,
-see "Attachments" below); stroke
-dedupe after concurrent slicing; ~~post-quantum recipient type~~ (done:
+see "Attachments" below); ~~stroke
+dedupe after concurrent slicing~~ (done in 🚧 #126: `format.md` §5.6.1, the later of two
+concurrent replacements of a stroke wins; `sempere notes dedupe` checks and repairs vaults
+written before); ~~post-quantum recipient type~~ (done:
 MLKEM768-X25519, `docs/post-quantum.md`); ~~read-only
 access to vaults of a newer format version~~ (done in #94: `format.md` §7,
 `Vault.readOnlyReasons`, CLI exit 7, app banner, web viewer).

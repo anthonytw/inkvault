@@ -134,14 +134,18 @@ public struct Stroke: Hashable, Sendable, Codable, Identifiable {
     /// §8.3.3). Set by `addStroke`, never changed; pieces sliced from the
     /// stroke copy it.
     public var rec: RecordingLink?
+    /// Snapshot only: the revision that added the stroke also removed its
+    /// `parent`, so the stroke replaces it (format.md §5.6.1). Ignored inside
+    /// ops, where readers derive it from the op list.
+    public var replaces: Bool
 
     public init(id: UUID = UUID(), ink: Ink, points: [StrokePoint], transform: Transform? = nil, parent: UUID? = nil,
-                origin: String? = nil, rec: RecordingLink? = nil) {
+                origin: String? = nil, rec: RecordingLink? = nil, replaces: Bool = false) {
         self.id = id; self.ink = ink; self.points = points; self.transform = transform; self.parent = parent
-        self.origin = origin; self.rec = rec
+        self.origin = origin; self.rec = rec; self.replaces = replaces
     }
 
-    enum CodingKeys: String, CodingKey { case id, ink, points, transform, parent, origin, rec }
+    enum CodingKeys: String, CodingKey { case id, ink, points, transform, parent, origin, rec, replaces }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -152,6 +156,7 @@ public struct Stroke: Hashable, Sendable, Codable, Identifiable {
         parent = try c.decodeIfPresent(LowercaseUUID.self, forKey: .parent)?.uuid
         origin = try c.decodeIfPresent(String.self, forKey: .origin)
         rec = try c.decodeIfPresent(RecordingLink.self, forKey: .rec)
+        replaces = try c.decodeIfPresent(Bool.self, forKey: .replaces) ?? false
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -163,6 +168,7 @@ public struct Stroke: Hashable, Sendable, Codable, Identifiable {
         if let parent { try c.encode(LowercaseUUID(parent), forKey: .parent) }
         if let origin { try c.encode(origin, forKey: .origin) }
         if let rec { try c.encode(rec, forKey: .rec) }
+        if replaces { try c.encode(true, forKey: .replaces) }
     }
 }
 
@@ -823,14 +829,50 @@ public struct Tombstones: Hashable, Sendable, Codable {
     public var items: [UUID]
     /// Every removed recording id; never pruned.
     public var recordings: [UUID]
+    /// Removed strokes that replaced their parent and that a later merge
+    /// still needs (format.md §5.6.1): ancestors of held replacements, and
+    /// winning replacements of which nothing is held.
+    public var lineage: [Lineage]
+    /// Every stroke superseded by a concurrent replacement (§5.6.1); never pruned.
+    public var superseded: [UUID]
 
-    public init(strokes: [UUID] = [], pages: [UUID] = [], items: [UUID] = [], recordings: [UUID] = []) {
-        self.strokes = strokes; self.pages = pages; self.items = items; self.recordings = recordings
+    /// A removed stroke, the stroke it replaced and the
+    /// `"<hlc>-<device>-<seq>"` of the revision that added it (format.md §5.6.1).
+    public struct Lineage: Hashable, Sendable, Codable {
+        public var stroke: UUID
+        public var parent: UUID
+        public var by: String
+
+        public init(stroke: UUID, parent: UUID, by: String) { self.stroke = stroke; self.parent = parent; self.by = by }
+
+        enum CodingKeys: String, CodingKey { case stroke, parent, by }
+
+        public init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            stroke = try c.decode(LowercaseUUID.self, forKey: .stroke).uuid
+            parent = try c.decode(LowercaseUUID.self, forKey: .parent).uuid
+            by = try c.decode(String.self, forKey: .by)
+        }
+
+        public func encode(to encoder: Encoder) throws {
+            var c = encoder.container(keyedBy: CodingKeys.self)
+            try c.encode(LowercaseUUID(stroke), forKey: .stroke)
+            try c.encode(LowercaseUUID(parent), forKey: .parent)
+            try c.encode(by, forKey: .by)
+        }
     }
 
-    public var isEmpty: Bool { strokes.isEmpty && pages.isEmpty && items.isEmpty && recordings.isEmpty }
+    public init(strokes: [UUID] = [], pages: [UUID] = [], items: [UUID] = [], recordings: [UUID] = [],
+                lineage: [Lineage] = [], superseded: [UUID] = []) {
+        self.strokes = strokes; self.pages = pages; self.items = items; self.recordings = recordings
+        self.lineage = lineage; self.superseded = superseded
+    }
 
-    enum CodingKeys: String, CodingKey { case strokes, pages, items, recordings }
+    public var isEmpty: Bool {
+        strokes.isEmpty && pages.isEmpty && items.isEmpty && recordings.isEmpty && lineage.isEmpty && superseded.isEmpty
+    }
+
+    enum CodingKeys: String, CodingKey { case strokes, pages, items, recordings, lineage, superseded }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -838,16 +880,20 @@ public struct Tombstones: Hashable, Sendable, Codable {
         pages = try c.decodeIfPresent([LowercaseUUID].self, forKey: .pages)?.map(\.uuid) ?? []
         items = try c.decodeIfPresent([LowercaseUUID].self, forKey: .items)?.map(\.uuid) ?? []
         recordings = try c.decodeIfPresent([LowercaseUUID].self, forKey: .recordings)?.map(\.uuid) ?? []
+        lineage = try c.decodeIfPresent([Lineage].self, forKey: .lineage) ?? []
+        superseded = try c.decodeIfPresent([LowercaseUUID].self, forKey: .superseded)?.map(\.uuid) ?? []
     }
 
     /// `strokes` and `pages` are always written (as before attachments);
-    /// `items` and `recordings` only when not empty.
+    /// the others only when not empty.
     public func encode(to encoder: Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encode(strokes.map(LowercaseUUID.init), forKey: .strokes)
         try c.encode(pages.map(LowercaseUUID.init), forKey: .pages)
         if !items.isEmpty { try c.encode(items.map(LowercaseUUID.init), forKey: .items) }
         if !recordings.isEmpty { try c.encode(recordings.map(LowercaseUUID.init), forKey: .recordings) }
+        if !lineage.isEmpty { try c.encode(lineage, forKey: .lineage) }
+        if !superseded.isEmpty { try c.encode(superseded.map(LowercaseUUID.init), forKey: .superseded) }
     }
 }
 

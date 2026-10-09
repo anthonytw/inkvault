@@ -188,6 +188,7 @@ The code mirrors the Swift reader and is tested against it (see "Tests").
 | bounded gunzip (`DecompressionStream`), strict UTF-8, JSON | `web/src/vault/gzip.ts` | `Gzip.decompress` |
 | revision decoding with Swift's `Codable` rules; name and content must agree (§5) | `web/src/format/model.ts`, `ids.ts`, `rfc3339.ts`, `attachments.ts` | `Model.swift`, `Revision.swift`, `Attachments.swift` |
 | merge: snapshots, uncovered deltas, LWW registers, tombstones, orphans, tag OR-set with legacy baseline, items and recordings | `web/src/format/reducer.ts`, `tags.ts`, `registers.ts` | `NoteReducer`, `AttachmentRegisters` |
+| concurrent replacements of a stroke (`format.md` §5.6.1), checked against Swift by `Tests/SempereTests/Fixtures/concurrent-replacement-vectors.json` | `web/src/format/lineage.ts` | `StrokeLineage` |
 | B-spline sampling, ribbons, monoline, paper ruling, page extent | `web/src/render/` | `SempereRender` |
 | blobs: keyed name, streaming age decryption, `INKB` framing, padding, SHA-256 (§8.1) | `web/src/vault/blobs.ts` | `BlobStore`, `Blob.swift` |
 | item order, frames, rotation, crops, orientation, placeholders (§8.2.3, §8.5.1–§8.5.2) | `web/src/render/items.ts`, `itemsvg.ts` | `Items.swift`, `PageComposer` |

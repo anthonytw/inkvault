@@ -781,7 +781,18 @@ covered by `included`; once it is covered, the tombstone may be dropped.
 removed page is a no-op rather than an orphan (§5.3). `items` and
 `recordings` (*new: attachments*) list every removed item and recording id
 and are never pruned either, for the same reason (`setItem`,
-`setRecording`). All fields are omitted when empty.
+`setRecording`). `lineage` and `superseded` (*new: concurrent
+replacements*, §5.6.1) keep what that rule needs once compaction has deleted
+the deltas: `superseded` lists every stroke id the writer knows to be
+superseded, never pruned; `lineage` is
+`[{"stroke": uuid, "parent": uuid, "by": "<hlc>-<device>-<seq>"}, ...]`,
+sorted by `stroke`: removed, not superseded strokes that replaced `parent`
+in the revision `by` (their group), namely every one that is an ancestor,
+over replacements, of a stroke the snapshot holds, and for each replaced
+stroke whose winning group has no stroke held or listed, one stroke of that
+group (the smallest id). An entry whose `by` does not parse is ignored.
+All fields are omitted when empty (writers before attachments
+always wrote `strokes` and `pages`).
 
 #### 5.4.1 Tags: per-tag merge (observed-remove set, add wins)
 
@@ -1233,6 +1244,68 @@ snapshot holding it, at op index equal to its position.
   undoes an erase, or restores from history, must mint a new id and may set
   `parent` to the old one.
 - `origin` appears only in snapshots (§5.5).
+- `replaces` (optional, `true` or absent) appears only in snapshots: the
+  revision that added the stroke also removed its `parent` (§5.6.1). Ignored
+  inside ops, where readers derive it from the op list.
+
+#### 5.6.1 Replacements and concurrent replacements
+
+A stroke cannot be edited in place, so every edit of one (the pixel eraser
+slicing it, a lasso move, resize or recolour, a split moving it to another
+sheet, §5.4.3) is a **replacement**: one revision removes stroke `P`
+(`removeStroke`) and adds its successors, each with `parent` = `P`. A stroke
+`X` *replaces* its parent iff the revision that adds `X` also holds a
+`removeStroke` of `X.parent`. Every other stroke with a `parent` (undo of an
+erase, a restore from history, the undo of a page delete, a join, §5.4.3,
+§5.7) is a **re-creation** and is never affected by this section.
+
+Two devices that replace the same stroke without seeing each other's edit
+both remove it, and the union of their successors would show both edits at
+once: two sets of pieces drawn over each other, each bringing back ink the
+other erased, or a moved copy next to pieces left in place. Readers instead
+keep one replacement, last writer wins:
+
+1. The **group** of a replacing stroke is the `(hlc, device, seq)` of the
+   revision that added it (its `origin` without the op index, §5.5). The
+   groups of `P` are those of every stroke known to replace `P`, live or
+   since removed.
+2. If `P` has two or more groups, every stroke of the groups other than the
+   greatest (compared as `(hlc, device, seq)`) is **superseded**.
+3. A stroke that replaces a superseded stroke is superseded too
+   (transitively): what the losing device did later to its own pieces goes
+   with them. Re-creations do not inherit it.
+4. Superseded strokes are treated as removed: not drawn, not in a snapshot's
+   `state` (so, once a snapshot covers their add, removed by coverage, §5.3),
+   listed in its stroke `tombstones` while their add is not covered, and in
+   `tombstones.superseded` (§5.4).
+
+The winning group stays the winner when its strokes are later erased, so
+erasing the surviving pieces never brings the other device's back. Because a
+removed id is never added again, a group's membership never shrinks while its
+revision is present, and more revisions only add groups: a stroke once
+superseded stays superseded, so the result is the same for every order and
+every subset that contains the same revisions (§5.3).
+
+Evidence for rules 1 to 3 is every stroke of every snapshot (`origin`,
+`parent`, `replaces`), every `addStroke` of every delta present, covered or
+not, and each snapshot's `tombstones.lineage` (strokes that replace their
+`parent`, in group `by`) and `tombstones.superseded`. A snapshot writer sets
+`replaces` on each stroke it holds that replaces its parent and writes both
+records (§5.4), so deleting the deltas a snapshot covers (§5.3) never changes
+the note, now or when more revisions arrive: every group that can still win
+is held or listed, every link from a held stroke up to a replaced one is
+listed, and every loser is listed as superseded. Snapshots written by readers
+that predate this rule hold neither (below).
+
+Not covered: a re-creation concurrent with a replacement of the same stroke
+(one device undoes an erase while another slices the stroke) keeps both, as do
+two concurrent re-creations (two joins, two restores). Snapshots written by
+readers that predate this rule hold both groups and no `replaces`; once the
+deltas are compacted the duplicates stay. `sempere notes dedupe` (docs/cli.md)
+lists such strokes and writes the removals that resolve them.
+
+Readers that predate this rule draw both groups; they agree again once a
+snapshot covers the conflicting revisions or `notes dedupe` has run.
 
 ### 5.7 History and restore
 

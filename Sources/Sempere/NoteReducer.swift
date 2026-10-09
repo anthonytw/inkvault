@@ -93,6 +93,10 @@ public enum NoteReducer {
         /// Everything the state reflects in full: every snapshot's `included`,
         /// the snapshots themselves, and every applied delta that is not an orphan.
         var included: Included
+        /// Strokes otherwise live that a concurrent replacement superseded (§5.6.1).
+        var superseded: [StrokeRef] = []
+        /// The stroke forest the merge used.
+        var lineage = StrokeLineage(snapshots: [], deltas: [])
     }
 
     static func resolve(_ revs: [Revision]) -> Resolution {
@@ -364,10 +368,18 @@ public enum NoteReducer {
             !removedPages.contains(e.item.id) && !removedByCoverage(e.origin, e.item.id, snapPageIds)
         }.map(\.item.id))
 
+        // Concurrent replacements of one stroke (§5.6.1): the losers count as removed.
+        let lineage = StrokeLineage(snapshots: snapshots, deltas: deltas)
+        let superseded = lineage.superseded()
+        var supersededLive: [StrokeRef] = []
         var byPage: [UUID: [Evidence<Stroke>]] = [:]
         for e in strokes.values {
             guard let page = e.page, livePages.contains(page), !removedStrokes.contains(e.item.id),
                   !removedByCoverage(e.origin, e.item.id, snapStrokeIds) else { continue }
+            if superseded.contains(e.item.id) {
+                supersededLive.append(StrokeRef(page: page, stroke: e.item.id))
+                continue
+            }
             byPage[page, default: []].append(e)
         }
 
@@ -412,7 +424,12 @@ public enum NoteReducer {
             let rec = recognition[id]
             let pp = pagePaper[id]
             outPages.append(Page(id: id, order: reg.value,
-                                 strokes: list.map { var s = $0.item; s.origin = emitted($0.origin); return s },
+                                 strokes: list.map { e in
+                                     var s = e.item
+                                     s.origin = emitted(e.origin)
+                                     s.replaces = s.parent != nil && lineage.replaces(s.id)
+                                     return s
+                                 },
                                  orderClock: reg.key.stamp.description, origin: emitted(e.origin),
                                  recognition: rec?.value, recognitionClock: rec?.key.stamp.description,
                                  parent: e.item.parent,
@@ -445,11 +462,14 @@ public enum NoteReducer {
                 addOrigins[st.id, default: []].append(Origin(d.name, op: i))
             }
         }
-        let keptStrokes = removedStrokes.filter { id in
+        let keptStrokes = removedStrokes.union(superseded).filter { id in
             !(addOrigins[id] ?? []).contains { included.covers(device: $0.device, seq: $0.seq) }
         }
+        let held = Set(outPages.flatMap { $0.strokes.map(\.id) })
         let tomb = Tombstones(strokes: sortedIds(keptStrokes), pages: sortedIds(removedPages),
-                              items: sortedIds(removedItems), recordings: sortedIds(removedRecordings))
+                              items: sortedIds(removedItems), recordings: sortedIds(removedRecordings),
+                              lineage: lineage.records(held: held, superseded: superseded),
+                              superseded: sortedIds(superseded))
 
         var state = NoteState(meta: defaults.meta, pages: outPages,
                               tombstones: tomb.isEmpty ? nil : tomb, recordings: outRecordings)
@@ -469,7 +489,7 @@ public enum NoteReducer {
         }
         state.tagSet = tags.resolve(legacy: legacy)
         state.meta.tags = state.tagSet?.tags ?? []
-        return Resolution(state: state, included: included)
+        return Resolution(state: state, included: included, superseded: supersededLive, lineage: lineage)
     }
 
     private static func sortedIds(_ ids: Set<UUID>) -> [UUID] {

@@ -45,6 +45,8 @@ export interface Stroke {
   parent?: string;
   origin?: string;
   rec?: RecordingLink;
+  /** Snapshot only: the adding revision also removed `parent` (format.md §5.6.1). */
+  replaces?: boolean;
 }
 
 export interface RecognitionWord {
@@ -169,6 +171,17 @@ export interface Tombstones {
   pages: string[];
   items: string[];
   recordings: string[];
+  /** Removed strokes that replaced `parent` in revision `by` (format.md §5.4, §5.6.1). */
+  lineage: LineageRecord[];
+  /** Strokes superseded by a concurrent replacement (§5.6.1). */
+  superseded: string[];
+}
+
+export interface LineageRecord {
+  stroke: string;
+  parent: string;
+  /** `"<hlc>-<device>-<seq>"` */
+  by: string;
 }
 
 export interface NoteState {
@@ -347,6 +360,7 @@ export function decodeStroke(v: unknown, path: string): Stroke {
   if (origin !== undefined) s.origin = origin;
   const rec = optWith(o, "rec", path, recordingLink);
   if (rec) s.rec = rec;
+  if (optWith(o, "replaces", path, bool)) s.replaces = true;
   return s;
 }
 
@@ -503,7 +517,14 @@ function decodeTombstones(v: unknown, path: string): Tombstones {
     pages: optWith(o, "pages", path, uuids) ?? [],
     items: optWith(o, "items", path, uuids) ?? [],
     recordings: optWith(o, "recordings", path, uuids) ?? [],
+    lineage: optWith(o, "lineage", path, (a, p) => arrayOf(a, p, lineageRecord)) ?? [],
+    superseded: optWith(o, "superseded", path, uuids) ?? [],
   };
+}
+
+function lineageRecord(v: unknown, path: string): LineageRecord {
+  const o = obj(v, path);
+  return { stroke: reqWith(o, "stroke", path, uuid), parent: reqWith(o, "parent", path, uuid), by: reqWith(o, "by", path, str) };
 }
 
 function decodeClocks(v: unknown, path: string): Record<string, string> {
@@ -717,6 +738,7 @@ function encodeStroke(s: Stroke): JSONObject {
   if (s.parent !== undefined) o.parent = s.parent;
   if (s.origin !== undefined) o.origin = s.origin;
   if (s.rec) o.rec = { id: s.rec.id, at: round3(s.rec.at) };
+  if (s.replaces) o.replaces = true;
   return o;
 }
 
@@ -773,10 +795,13 @@ export function encodeState(s: NoteState, formatDate: (ms: number) => string): J
   const o: JSONObject = { deleted: s.deleted, meta, pages: s.pages.map(encodePage) };
   if (s.clocks && Object.keys(s.clocks).length > 0) o.clocks = s.clocks;
   const t = s.tombstones;
-  if (t && (t.strokes.length || t.pages.length || t.items.length || t.recordings.length)) {
+  if (t && (t.strokes.length || t.pages.length || t.items.length || t.recordings.length || t.lineage.length
+    || t.superseded.length)) {
     const to: JSONObject = { strokes: t.strokes, pages: t.pages };
     if (t.items.length) to.items = t.items;
     if (t.recordings.length) to.recordings = t.recordings;
+    if (t.lineage.length) to.lineage = t.lineage.map((l) => ({ stroke: l.stroke, parent: l.parent, by: l.by }));
+    if (t.superseded.length) to.superseded = t.superseded;
     o.tombstones = to;
   }
   if (s.tagSet) {

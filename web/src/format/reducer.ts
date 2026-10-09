@@ -12,6 +12,7 @@ import {
   type MetaChange, type NoteMeta, type NoteState, type Page, type Paper, type Recognition, type Revision,
   type Stroke, type TagInstance, type TagRemoval, type TagSet, defaultPaper, revisionName,
 } from "./model.ts";
+import { StrokeLineage } from "./lineage.ts";
 import { normalizedTag, tagKey } from "./tags.ts";
 import type { JSONObject } from "./json.ts";
 import {
@@ -539,10 +540,13 @@ function resolveParts(snapshots: Snap[], deltas: Revision[], earliestWall: numbe
     if (!removedPages.has(e.item.id) && !removedByCoverage(e.origin, e.item.id, snapPageIds)) livePages.add(e.item.id);
   }
 
+  // Concurrent replacements of one stroke (§5.6.1): the losers count as removed.
+  const lineage = new StrokeLineage(snapshots, deltas.map((d) => ({ name: revisionName(d), rev: d })));
+  const superseded = lineage.superseded();
   const byPage = new Map<string, Evidence<Stroke>[]>();
   for (const e of strokes.values()) {
     if (e.page === undefined || !livePages.has(e.page) || removedStrokes.has(e.item.id)
-      || removedByCoverage(e.origin, e.item.id, snapStrokeIds)) continue;
+      || removedByCoverage(e.origin, e.item.id, snapStrokeIds) || superseded.has(e.item.id)) continue;
     const list = byPage.get(e.page) ?? [];
     list.push(e);
     byPage.set(e.page, list);
@@ -591,6 +595,8 @@ function resolveParts(snapshots: Snap[], deltas: Revision[], earliestWall: numbe
         const o = emitted(x.origin);
         if (o === undefined) delete s.origin;
         else s.origin = o;
+        if (s.parent !== undefined && lineage.replaces(s.id)) s.replaces = true;
+        else delete s.replaces;
         return s;
       }),
       orderClock: stampString(reg.key.stamp),
@@ -638,14 +644,18 @@ function resolveParts(snapshots: Snap[], deltas: Revision[], earliestWall: numbe
       if (op.op === "addStroke") pushOrigin(op.stroke.id, originOf(name, i));
     });
   }
-  const keptStrokes = [...removedStrokes].filter((id) =>
+  const keptStrokes = [...new Set([...removedStrokes, ...superseded])].filter((id) =>
     !(addOrigins.get(id) ?? []).some((o) => included.covers(o.device, o.seq)));
+  const held = new Set(outPages.flatMap((p) => p.strokes.map((s) => s.id)));
+  const lineageRecords = lineage.records(held, superseded);
 
   const state: NoteState = { deleted: false, meta: defaultMeta(), pages: outPages, recordings: outRecordings };
-  if (keptStrokes.length > 0 || removedPages.size > 0 || removedItems.size > 0 || removedRecordings.size > 0) {
+  if (keptStrokes.length > 0 || removedPages.size > 0 || removedItems.size > 0 || removedRecordings.size > 0
+    || lineageRecords.length > 0 || superseded.size > 0) {
     state.tombstones = {
       strokes: keptStrokes.sort(cmpStr), pages: [...removedPages].sort(cmpStr),
       items: [...removedItems].sort(cmpStr), recordings: [...removedRecordings].sort(cmpStr),
+      lineage: lineageRecords, superseded: [...superseded].sort(cmpStr),
     };
   }
   state.meta.created = created ?? 0;

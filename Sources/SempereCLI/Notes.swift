@@ -8,7 +8,7 @@ struct NotesCommand: ParsableCommand {
         abstract: "List, find, create and edit notes, switch page layout, show their history and restore earlier revisions.",
         subcommands: [NotesList.self, NotesShow.self, NotesNew.self, NotesRename.self, NotesTag.self, NotesMove.self,
                       NotesPaper.self, NotesLanguage.self, NotesMarkers.self, NotesLayout.self, NotesSearch.self, NotesDelete.self, NotesUndelete.self, NotesHistory.self,
-                      NotesRestore.self, NotesCheckpoint.self]
+                      NotesRestore.self, NotesCheckpoint.self, NotesDedupe.self]
     )
 }
 

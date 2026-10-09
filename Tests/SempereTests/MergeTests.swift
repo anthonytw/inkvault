@@ -224,7 +224,8 @@ final class MergeTests: XCTestCase {
         XCTAssertEqual(out.pages[0].strokes[1].origin, Origin(d.name, op: 0).description)
     }
 
-    func testConcurrentSlicingKeepsBothPieceSets() throws {
+    /// format.md §5.6.1; more cases in `ConcurrentSliceTests`.
+    func testConcurrentSlicingKeepsOnePieceSet() throws {
         var log = LogBuilder()
         let x = stroke()
         let a1 = stroke(parent: x.id), a2 = stroke(parent: x.id)
@@ -235,9 +236,11 @@ final class MergeTests: XCTestCase {
         let sliceB = log.delta(devB, 100, [.removeStroke(page: p1, strokeId: x.id),
                                            .addStroke(page: p1, stroke: b1), .addStroke(page: p1, stroke: b2)])
         let state = try NoteReducer.reconstruct([sliceB, d0, sliceA])
-        XCTAssertEqual(state.strokeIds, [[a1.id, a2.id, b1.id, b2.id]])
-        XCTAssertTrue(state.pages[0].strokes.allSatisfy { $0.parent == x.id })
-        XCTAssertNil(state.tombstones)
+        // Same hlc: B's greater device id wins; A's pieces are superseded.
+        XCTAssertEqual(state.strokeIds, [[b1.id, b2.id]])
+        XCTAssertTrue(state.pages[0].strokes.allSatisfy { $0.parent == x.id && $0.replaces })
+        XCTAssertEqual(state.tombstones.map { Set($0.superseded) }, [a1.id, a2.id])
+        XCTAssertEqual(state.tombstones?.strokes, [])
     }
 
     func testTombstonePreventsResurrectionAfterOutOfOrderArrival() throws {
