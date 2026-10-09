@@ -97,7 +97,8 @@ final class WebDAVSession {
     @discardableResult
     func pushNow() async -> SyncReport? {
         guard unlocked else { return nil }
-        if let running { _ = await running.value }
+        // A run in flight may predate the change asked for: wait for it, then run anew.
+        while let running { _ = await running.value }
         return await runOnce()
     }
 
@@ -108,7 +109,10 @@ final class WebDAVSession {
         let task = Task { () -> SyncReport? in
             isPushing = true
             schedule.started(at: now())
-            defer { isPushing = false }
+            defer {
+                isPushing = false
+                running = nil   // cleared by the run itself, so a waiter never takes a finished run for a current one
+            }
             do {
                 let report = try await push()
                 let found = WebDAVSyncProblem.from(report: report)
@@ -134,9 +138,7 @@ final class WebDAVSession {
             }
         }
         running = task
-        let result = await task.value
-        running = nil
-        return result
+        return await task.value
     }
 
     private func recount() async {

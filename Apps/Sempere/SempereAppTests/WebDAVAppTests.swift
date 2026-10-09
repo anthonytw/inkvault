@@ -191,7 +191,7 @@ struct WebDAVAppTests {
         try await s.model.openWebDAV(id, library: s.library)
         try await s.model.unlock(identityText: s.key)
         let session = try #require(s.model.webdav)
-        #expect(await TS.waitUntil { session.problems == [.offline] })
+        #expect(await TS.waitUntil { session.problems == [.offline] && !session.isPushing })
         #expect(session.headline.hasPrefix("Offline."))
         #expect(!session.needsAttention)
         #expect(session.schedule.failures >= 1)
