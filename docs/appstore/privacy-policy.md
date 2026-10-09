@@ -62,8 +62,8 @@ your key, nobody can decrypt your notes.**
 ## Network connections
 
 Sempere connects only to a WebDAV server you set up yourself, and only if you open a vault there
-(Open from WebDAV): it then uploads your already encrypted vault files to that server's address
-over HTTPS, with the user name and password you entered (the password stays in your device's
+(Open from WebDAV): it then downloads the vault from that server's address, and uploads your
+already encrypted vault files to it, over HTTPS, with the user name and password you entered (the password stays in your device's
 Keychain). Nothing is sent to us or to anyone else. Otherwise your notes reach iCloud Drive or
 another storage provider only through the system's Files and iCloud services, which copy the
 encrypted files you saved there; the speech model download above is the system's too.
