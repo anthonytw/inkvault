@@ -18,7 +18,11 @@ The section for a version is the body of its GitHub Release (`docs/releasing.md`
   `$minReaderVersion` keep older and newer apps compatible (older apps pause rather than write).
   CLI: `sempere settings list|get|set|reset|edit|validate|schema` (`--type` for a type block); the
   schema is `docs/settings.schema.json`. Backups copy the file and `sempere sync webdav` merges it.
-
+- Web viewer in Spanish: the interface is in English or Spanish, taken from the browser's language list
+  with a Language selector (Automatic, English, Español) that overrides it and is remembered in the
+  browser. Notes, notebook and tag names, recording titles and transcripts are shown as written; dates,
+  numbers and sizes follow the language; the usual errors (wrong key or passphrase, passkey refusals) are
+  worded in it. A test fails when a string lacks Spanish. `docs/web-viewer.md` "Languages".
 - Recordings in exports, finished (C4): "PDF + attachments" ends with an attachment list (kind, title,
   pages, duration, size of every recording, transcript and video clip), each row linked to its
   embedded file and to the page it is on; `sempere export --recordings list` adds the page alone.
