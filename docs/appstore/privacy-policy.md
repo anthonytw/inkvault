@@ -1,6 +1,6 @@
 # Sempere Privacy Policy
 
-*Effective: 2026-10-06. Last updated: 2026-10-08.*
+*Effective: 2026-10-06. Last updated: 2026-10-09.*
 
 This page is the Privacy Policy URL App Store Connect has today. The same text is served by
 GitHub Pages from [`docs/privacy/index.html`](../privacy/index.html), at
@@ -8,8 +8,8 @@ GitHub Pages from [`docs/privacy/index.html`](../privacy/index.html), at
 `scripts/release-check.sh` compares their "Last updated" dates.
 
 **Short version: Sempere does not collect, transmit or share any data about you. It has no
-servers, no accounts, no analytics and no advertising, and it makes no network connections of
-its own.**
+servers, no accounts, no analytics and no advertising. The only network connections it makes
+are to a WebDAV server that you set up yourself, if you choose to keep a vault there.**
 
 ## What Sempere is
 
@@ -29,7 +29,11 @@ Your notes, and everything you add to them (photos, video, PDFs, text, equations
 recordings and their transcripts), are saved only where you choose:
 
 - on your device, in the app's storage;
-- in a folder you pick in the Files app, such as iCloud Drive or another provider.
+- in a folder you pick in the Files app, such as iCloud Drive or another provider;
+- on a WebDAV server you run or rent and connect to in the app (Open from WebDAV). The app then
+  connects to that server's address, over HTTPS, with the user name and password you enter, to
+  upload your encrypted notes. The password is kept only in your device's Keychain. Nothing is
+  sent to us or to anyone else.
 
 Those storage services are run by you or by their providers (for example Apple, for iCloud
 Drive), under their own terms and privacy policies; we have no access to them. Notes are

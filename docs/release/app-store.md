@@ -121,9 +121,13 @@ then shows **Data Not Collected**.
 Apple's definition: data is "collected" when it is transmitted off the device in a way that lets
 the developer or its third-party partners access it for longer than needed to service the
 request in real time. Sempere has no server and no account, contains no analytics, advertising
-or crash-reporting SDK, and the app has no network code (`URLSession` appears nowhere in
-`Apps/` or in the package targets it links; WebDAV sync is CLI-only). What leaves the device
-goes only where the user puts it, encrypted with the user's key, which the developer never has:
+or crash-reporting SDK. Its network code is the WebDAV client (`SempereWebDAV`, used by
+`Apps/Sempere/SempereApp/WebDAVRemote.swift`), plus the math-model downloader
+(`MathModels.swift`), which never runs while `MathModelCatalog.entries` is empty. The WebDAV
+client connects only to a server the user enters,
+with the user's own credentials, and uploads the user's already encrypted vault files there;
+the developer runs no server and never receives anything. What leaves the device goes only
+where the user puts it, encrypted with the user's key, which the developer never has:
 
 | Apple data type | Why it is not collected |
 | --- | --- |
@@ -214,8 +218,8 @@ and a recording's start time; no key, no vault, no note; `docs/quick-capture.md`
 ID and the widget's App ID need the App Groups capability with that group in the developer
 portal (automatic signing registers it). Nothing else: the Keychain uses the app's default
 access group, folders come through the document picker, and there is no iCloud container
-(vaults are user-picked folders, `docs/HANDOFF.md`). The Mac build has the first five below
-and no App Group (the Catalyst build has no widgets); the six are exactly
+(vaults are user-picked folders, `docs/HANDOFF.md`). The Mac build has the first six below
+and no App Group (the Catalyst build has no widgets); the seven are exactly
 `release-check.sh`'s allow-list, and the App Group may only name that one group:
 
 | Entitlement | Why it is needed | What breaks without it |
@@ -225,11 +229,11 @@ and no App Group (the Catalyst build has no widgets); the six are exactly
 | `com.apple.security.files.bookmarks.app-scope` | Recent vaults are reopened from security-scoped bookmarks across launches (`VaultLibrary`). | Reopening the last vault after a relaunch without picking it again. |
 | `com.apple.security.print` | Printing the recovery kit (the key's paper copy). | The print panel; the sandbox refuses to print. |
 | `com.apple.security.device.audio-input` | Recording audio into notes and quick voice notes. | The microphone is silent under the sandbox. |
+| `com.apple.security.network.client` (Mac build only; iOS needs no entitlement) | WebDAV vaults: the app connects to the WebDAV server the user configures (`docs/io.md`, "WebDAV vaults in the app"). | Open from WebDAV and every push on a Mac: the sandbox refuses outgoing connections. |
 | `com.apple.security.application-groups` (iOS app and widget extension only) | The widgets and the control read the quick voice note status the app writes (`VoiceNoteStatusStore`). | The widgets show the plain record button whatever the state (no Stop, no "Set Up"). |
 
 Deliberately absent:
 
-- `network.client`: the app opens no connections. Speech model downloads are made by the system.
 - `device.camera`: the camera is offered on iPad and iPhone only (`InsertOptions.camera`).
 - iCloud containers.
 - `keychain-access-groups`: the default access group is enough.
@@ -276,7 +280,8 @@ for iPad and Mac.
 
 Permissions are asked only when a feature needs them: camera (photo/video into a note,
 iPad and iPhone), microphone (recording), speech recognition (on-device transcription),
-Face ID (remembered keys). Nothing is sent anywhere; the app makes no network connections.
+Face ID (remembered keys). Nothing is sent to the developer; the only connections the app makes
+are to a WebDAV server the user configures (Open from WebDAV), to upload the encrypted vault.
 
 Encryption: the open "age" format (ML-KEM-768 + X25519, ChaCha20-Poly1305, HKDF, scrypt)
 for the user's own data. Standard published algorithms, mass-market; the app is not
