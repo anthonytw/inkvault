@@ -819,6 +819,8 @@ node scripts/smoke-language.mjs test/fixtures/render.sempere ../Tests/SempereTes
 # config.json modes, the cache (second visit fetches no unchanged file) and the summaries, with timings
 # (run `sempere vault summaries` and `sempere vault index` on a copy of the vault first; LATENCY_MS=40 adds latency):
 node scripts/smoke-cache.mjs COPY_OF_VAULT KEY_FILE
+# all of them, as CI's `web-smoke` job runs them (needs the built CLI: it gives a copy of the sample vault summaries and an index):
+scripts/smoke-all.sh
 ```
 
 Tests (`web/test/`, vitest, Node 22):
