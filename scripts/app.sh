@@ -78,10 +78,12 @@ case "${1:-}" in
     status=0
     mkdir -p build/pseudo
     for mode in double rtl es; do
+      echo "PSEUDO-TIME $mode start $(date -u +%H:%M:%S)"
       TEST_RUNNER_SEMPERE_PSEUDO=$mode xcodebuild test -project "$project" -scheme SempereScreenshots \
         -derivedDataPath "$derived" -destination "platform=iOS Simulator,id=$sim" \
         -only-testing:SempereAppUITests/PseudoLanguageUITests -parallel-testing-enabled NO \
         -resultBundlePath "build/pseudo/$mode.xcresult" CODE_SIGNING_ALLOWED=NO || status=$?
+      echo "PSEUDO-TIME $mode end $(date -u +%H:%M:%S) status=$status"
     done
     exit $status
     ;;

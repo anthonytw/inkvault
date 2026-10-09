@@ -291,7 +291,7 @@ jobs:
       # layouts"); the build products are test-ui's, so this adds 18 launches of the demo vault.
       - name: Pseudo-language layout tests on the iPad simulator
         if: ${{ !cancelled() }}
-        timeout-minutes: 25
+        timeout-minutes: 45
         shell: bash
         run: mkdir -p build && scripts/app.sh pseudo 2>&1 | tee build/app-test-pseudo.log
       # A first launch on the Mac in every column layout, then every window and sheet
