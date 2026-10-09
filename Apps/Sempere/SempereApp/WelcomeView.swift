@@ -24,7 +24,7 @@ struct WelcomeView: View {
                     Button("Restore from Backup…", systemImage: "clock.arrow.circlepath") { restoring = true }
                     ICloudDriveHelpButton()
                 } footer: {
-                    Text("A vault is one .sempere item in Files: on this device, in iCloud Drive, or anywhere else. Choose the .sempere item itself (a plain folder works too). A vault on a WebDAV server of your own opens with Open from WebDAV.")
+                    Text("A vault is one .sempere item in Files: on this device, in iCloud Drive, or anywhere else. Choose the .sempere item itself (a plain folder works too).")
                 }
                 if !library.recents.isEmpty {
                     Section("Recent") {

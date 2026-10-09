@@ -27,7 +27,7 @@ struct WebDAVConnectSheet: View {
         NavigationStack {
             Form {
                 Section {
-                    TextField("Server Folder URL", text: $urlText, prompt: Text(verbatim: "https://dav.example.org/notes/"))
+                    TextField("Server Folder URL", text: $urlText, prompt: Text(verbatim: "https://dav.example.org/notes/"))  // l10n:ignore
                         .keyboardType(.URL)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
@@ -38,7 +38,8 @@ struct WebDAVConnectSheet: View {
                         .autocorrectionDisabled()
                         .disabled(editing != nil)
                         .accessibilityIdentifier("webdavUser")
-                    SecureField(editing == nil ? "Password" : "New Password (leave empty to keep it)", text: $password)
+                    SecureField(editing == nil ? LocalizedStringKey("Password") : LocalizedStringKey("New Password (leave empty to keep it)"),
+                                text: $password)
                         .accessibilityIdentifier("webdavPassword")
                 } footer: {
                     Text("A WebDAV folder (https://…) that holds a vault, or the folder above your vaults. The password is kept only in this device's Keychain. Sempere keeps a copy of the vault on this device and only uploads to the server: it never takes changes from it.")
