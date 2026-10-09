@@ -372,9 +372,6 @@ private struct NoteRow: View {
                 if let recognized {
                     Label(RecognitionResultsText.pagesRead(recognized.pagesRecognized, of: note.pages), systemImage: "text.viewfinder")
                 }
-                if let notebook = NotebookPath.canonical(note.notebook) {
-                    Label(NotebookPath.components(notebook).joined(separator: " › "), systemImage: "book.closed").labelStyle(.titleAndIcon)
-                }
                 if note.problem != nil {
                     Image(systemName: "exclamationmark.triangle")
                         .foregroundStyle(.orange)
@@ -383,6 +380,15 @@ private struct NoteRow: View {
             }
             .font(.caption)
             .foregroundStyle(.secondary)
+            // Its own line: beside the date and page count it was squeezed to a few points in
+            // right-to-left and double-length layouts (PseudoLanguageUITests); here it wraps instead.
+            if let notebook = NotebookPath.canonical(note.notebook) {
+                Label(NotebookPath.components(notebook).joined(separator: " › "), systemImage: "book.closed")
+                    .labelStyle(.titleAndIcon)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            }
             if !note.tags.isEmpty {
                 HStack(spacing: 4) {
                     // One chip per tag key: older notes may store two spellings.
