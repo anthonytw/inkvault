@@ -1,31 +1,36 @@
 # Settings sync through the vault
 
-Status: design accepted by the maintainer (2026-10-09); a first-release feature.
-Normative format text is in `format.md` §13. This file says why, what syncs, and how
-the app and the CLI behave.
+Status: design accepted by the maintainer (2026-10-09), with the file format he chose
+the same day: a VS Code-style `settings.json`, encrypted in the vault. A first-release
+feature. The normative format text is `format.md` §13; the file's JSON Schema is
+`docs/settings.schema.json`. This document says why, what syncs, and how the app and
+the CLI behave.
 
 ## 1. Goal
 
 A user with an iPad and a Mac sets the paper, the title format of new notes, the
 recording quality or the photo privacy option once, and every device that opens the
 same vault follows. The settings travel exactly like the notes: inside the vault,
-encrypted to the vault's keys, through whatever moves the vault (iCloud Drive, a
-Files provider, WebDAV, a backup and restore).
-
-Non-goals:
+encrypted to the vault's keys, through whatever moves the vault (iCloud Drive, a Files
+provider, WebDAV, a backup and restore).
 
 - **No Apple key-value storage.** `NSUbiquitousKeyValueStore` and iCloud key-value
-  storage are not end-to-end encrypted. Nothing about settings leaves the device
-  except inside the vault.
+  storage are not end-to-end encrypted. Nothing about settings leaves the device except
+  inside the vault.
 - **No silent divergence.** A synced setting edited on one device changes it on every
-  device. A device deviates only when the user says so, per setting.
-- **Settings, not state.** Every setting syncs, scoped by device type (section 5).
-  Device *state* never goes in the file: keys, Keychain items, Face ID or passkey
-  enrolment, quick-capture key material, caches, bookmarks, window layout.
+  device that uses it. A device deviates only when the user says so, per setting.
+- **Every setting syncs.** A setting that only some kinds of device use (mouse
+  smoothing on a Mac) is still in the file; the others ignore it. Where the same setting
+  should differ by kind of device, the file has a block per device type (section 2.2).
+- **Settings, not state.** Device *state* never goes in the file: keys, Keychain items,
+  Face ID or passkey enrolment, quick-capture key material, caches, bookmarks, window
+  layout (section 5.3).
 
-## 2. Where the settings live
+## 2. The file
 
-One file at the vault root, `settings.age` (`format.md` §13):
+### 2.1 Where and how it is stored
+
+One file at the vault root, `settings.age`:
 
 - age-encrypted to the vault's recipients, like every revision;
 - inside, the revision body framing of `format.md` §4 (`SMPR`, version, HMAC tag under
@@ -35,165 +40,195 @@ One file at the vault root, `settings.age` (`format.md` §13):
 - recoverable with stock tools, like a revision:
   `age -d -i key settings.age | tail -c +38 | gunzip | jq .`
 
+### 2.2 The JSON
+
 ```json
 {
-  "format": "sempere-settings/1",
-  "settings": {
-    "all/newNote.titleFormat":   { "value": "isoDateTime", "modified": 1760025600000, "device": "a1b2c3d4" },
-    "all/photos.removeMetadata": { "value": true,          "modified": 1760025600000, "device": "a1b2c3d4" },
-    "mac/mouseSmoothing":        { "value": "strong",      "modified": 1760027400000, "device": "0f0e0d0c" },
-    "all/history.thinAfterDays": {                         "modified": 1760029200000, "device": "0f0e0d0c" }
+  "$schemaVersion": 1,
+  "editor.defaultPaper": { "kind": "grid", "spacing": 20 },
+  "newNote.titleFormat": "isoDateTime",
+  "mouse.smoothing": "strong",
+  "photos.removeMetadata": true,
+  "[ipad]": {
+    "editor.keepScreenOn": true
+  },
+  "[mac]": {
+    "eraser.mode": "pixel"
+  },
+  "$meta": {
+    "editor.defaultPaper":   { "modified": 1760025600000, "type": "ipad" },
+    "newNote.titleFormat":   { "modified": 1760025600000, "type": "ipad" },
+    "mouse.smoothing":       { "modified": 1760027400000, "type": "mac" },
+    "photos.removeMetadata": { "modified": 1760025600000, "type": "ipad" },
+    "history.thinAfterDays": { "modified": 1760029200000, "type": "mac" },
+    "[ipad]": { "editor.keepScreenOn": { "modified": 1760025600000, "type": "ipad" } },
+    "[mac]":  { "eraser.mode":         { "modified": 1760027400000, "type": "mac" } }
   }
 }
 ```
 
-Each entry is one setting. Its key is `<scope>/<name>`: the scope is `all` (every
-device) or a device type, `mac`, `ipad` or `iphone`. The entry holds the `value` (any
-JSON value; absent means "reset to the default"), `modified` (Unix milliseconds) and
-`device` (the writer's 8-hex device id, `format.md` §5). It is one file, not one per device, as the maintainer asked; section 3
-explains why concurrent writers still converge.
+- **Settings are flat dotted keys at the top level**, unscoped:
+  `"editor.defaultPaper"`, `"mouse.smoothing"`. Each key is documented once (section 5)
+  with the device types that use it. A device reads the keys it knows and ignores the
+  rest: an iPad ignores `mouse.smoothing`, and keeps it in the file.
+- **Type blocks** `"[mac]"`, `"[ipad]"`, `"[iphone]"` (like VS Code's `"[python]"`) are
+  optional and only for the same key with a different value per device type. A key in
+  a type block wins over the top level on devices of that type.
+- **`"$meta"`** holds, per key (and per key inside each type block, under the block's
+  name), when it was last written (`modified`, Unix milliseconds) and by which kind of
+  device (`type`: `mac`, `ipad`, `iphone`; absent for the CLI). It drives the merge
+  (section 3) and is kept out of the way: the CLI hides it. A key listed in `$meta` but
+  absent from the settings is a **reset**: the setting was set back to its default.
+- **`"$schemaVersion"`** is an integer, `1` for this version (section 6).
+- Other members starting with `$` and keys this version does not know are kept as
+  they are.
 
-Why not a revision log like notes? Settings are a few dozen small registers that are
-overwritten, not a history worth keeping. A single file that each writer merges into is
-smaller, needs no compaction, and the per-key merge below gives the same convergence
-for registers that a log would.
+### 2.3 Resolution on a device
+
+For each setting it uses, a device takes the first of:
+
+1. its **local override** ("Only on This Device", section 4.3), which is never in the file;
+2. the key in **its type's block** (`[mac]` on a Mac);
+3. the key at the **top level**;
+4. the **built-in default**.
+
+A value of the wrong type or out of range for a known key (from a damaged file, a hand
+edit or another version) is skipped with a logged warning, and resolution goes on to the
+next step, so it ends at the default at worst. The rest of the file is used as usual: an
+invalid value never makes the whole file unreadable.
 
 ## 3. Merge: per key, last writer wins
 
-The merge is per key, never per file:
+The merge is per key, never per file. A *slot* is one key at the top level or one key
+inside one type block; each slot has its value (or none: a reset) and its `$meta` entry.
 
-- For each key, the entry with the greater `(modified, device, value)` wins: `modified`
-  compared as integers, then `device` as a string, then the canonical JSON encoding of
-  `value` (sorted object keys, an absent value lowest). This is a total order on
-  entries, so the merge of two files is the same whichever is read first (commutative),
-  however reads are grouped (associative), and merging a file with itself changes
-  nothing (idempotent). Every replica that has seen the same entries holds the same
-  settings.
-- **Keys nobody knows are kept.** An entry whose key this app version does not know
-  (written by a newer version, or a scope this device does not read) is merged by the
-  same rule and written back unchanged. The app ignores it; the CLI lists it as unknown.
-- **Writing a value** (an edit, a reset, a seed) gives the entry `modified =
-  max(now, m + 1)`, where `m` is the `modified` of the entry the writer currently holds
-  for that key. An edit therefore always beats the value its writer saw, even when that
-  device's clock is behind the clock of the device that wrote the old value. Two devices
-  that edit the same key without seeing each other's edit: the later clock wins (ties: the
-  greater device id), which is what "last writer wins" can mean without a coordinator.
-- **Resets are entries too** (no `value`): a reset is a value like any other for the
-  merge, so it is not undone by a device that still holds the old value.
+- For each slot, the side with the greater `(modified, type, value)` wins: `modified`
+  as an integer (a slot without a `$meta` entry, written by hand, counts as older than
+  any slot with one), then `type` as a string (absent lowest), then the canonical JSON
+  of the value (sorted object keys; a reset lowest). This is a total order, so the merge
+  of two files is the same whichever is read first (commutative), however reads are
+  grouped (associative), and merging a file with itself changes nothing (idempotent).
+  Every replica that has seen the same writes holds the same settings.
+- **Keys nobody knows are kept.** A key or a type block this version does not know
+  (written by a newer version, or a hand edit) is merged by the same rule and written
+  back unchanged. `$schemaVersion` merges to the larger of the two.
+- **Writing a slot** (an edit, a reset, a seed) gives it `modified = max(now, m + 1)`,
+  where `m` is the `modified` the writer currently holds for that slot. An edit therefore
+  always beats the value its writer saw, even when that device's clock is behind the
+  clock of the device that wrote the old value. Two devices that edit the same slot
+  without seeing each other's edit: the later clock wins (ties: the type, then the
+  value), which is what "last writer wins" can mean without a coordinator.
+- **Resets are writes too**: a reset is a slot like any other for the merge, so it is not
+  undone by a device that still holds the old value.
 
 **Concurrent writers and the file.** iCloud Drive, a Files provider or a WebDAV server
-keeps one copy of a mutable file: when two devices write `settings.age` at about the
-same time, one copy may replace the other. Each device keeps its own merged copy of the
-shared settings (section 4), so nothing is lost: whenever a device reads the file, it
-merges it with its copy, and if the result differs from the file (the file lacks an
-entry the device holds, or holds an older one), it writes the merged result back. So a
-change lost in a file-level race comes back the next time its device syncs, and the
-merge makes every device agree once each has read the others' entries. WebDAV sync
-merges the two copies itself when both sides changed (section 8).
+keeps one copy of a mutable file: when two devices write `settings.age` at about the same
+time, one copy may replace the other. Each device keeps its own merged copy of the
+shared settings (section 4.1), so nothing is lost: whenever a device reads the file, it
+merges it with its copy, and if the result differs from the file (the file lacks a slot
+the device holds, or holds an older one), it writes the merged result back. A change
+lost in a file-level race comes back the next time its device syncs, and every device
+agrees once each has read the others' writes. WebDAV sync merges the two copies itself
+when both sides changed (section 8).
 
 ## 4. On a device
 
 ### 4.1 Opt-in per device and per vault
 
 Settings ▸ **Sync Settings with This Vault** (off by default). It is per device and per
-vault: a device that opens two vaults syncs with the one(s) it was switched on for,
-and applies a vault's settings while that vault is open.
+vault: a device that opens two vaults syncs with the one(s) it was switched on for, and
+applies a vault's settings while that vault is open.
 
-A device reads and writes the keys of scope `all` and of its own type: a Mac (the Mac
-Catalyst app, or the iPad app on a Mac) is `mac`, an iPad `ipad`, an iPhone `iphone`.
-Two Macs share the `mac/…` settings (the user's two Macs, or a family member's Mac on
-the same vault); an iPad ignores them and keeps them in the file untouched. Devices are
-not told apart by name: every device of a type shares that type's settings. A device
-that must differ uses an override (section 4.3).
+A device knows its type: a Mac (the Mac Catalyst app, or the iPad app on a Mac) is
+`mac`, an iPad `ipad`, an iPhone `iphone`. All devices of a type share that type's block:
+the user's two Macs, or a family member's Mac on the same vault. Devices are not told
+apart by name (later, section 5.4); a single device differs through a local override.
 
-The device keeps, per vault, outside the vault (`UserDefaults` under the vault id,
-like the backup record): whether sync is on, the keys it has overridden, its merged copy
-of the shared settings, and the values it last applied (to tell its own edits from
-values it received).
+The device keeps, per vault, outside the vault (`UserDefaults` under the vault id, like
+the backup record): whether sync is on, its local overrides, its merged copy of the
+shared settings, and the values it last applied (to tell its own edits from values it
+received).
 
 ### 4.2 Turning it on
 
-- **The vault has no shared settings yet for this device** (no `settings.age`, or one
-  with no entry for any key this device reads, `all/…` or its own type's): this device's
-  current values become the shared set. Every setting it reads is written, with this
-  device's id. (The first Mac on a vault an iPad already syncs with finds the `all/…`
-  entries, so it takes the branch below for those; its `mac/…` settings are seeded from
-  its own values.)
-- **The vault already has shared settings for this device**: the app compares them with this device's
-  values. When they agree, sync turns on silently. Otherwise it shows each setting that
-  differs (the vault's value and this device's) and offers:
+- **The file has nothing for this device** (no `settings.age`, or no slot of any setting
+  this device uses, at the top level or in its block): this device's current values
+  become the shared set, written at the top level.
+- **The file has settings for this device**: the app compares what they resolve to with
+  this device's values. When they agree, sync turns on silently. Otherwise it shows each
+  setting that differs (the vault's value and this device's) and offers:
   - **Use the Vault's Settings** (the default): this device takes the shared values.
-  - **Replace the Vault's Settings with This Device's**: every synced setting is written
-    with this device's value (newer entries, so they win on every device).
+  - **Replace the Vault's Settings with This Device's**: every setting this device uses
+    is written with this device's value, where it resolves from (its type block when
+    the key is there, else the top level).
   - Cancel leaves sync off and changes nothing.
-- A setting the vault has no entry for (a type's first device, a setting added by a
-  later version) is seeded from this device's value without asking.
+- A setting the file has no slot for (a type's first device, a setting added by a later
+  version) is seeded at the top level from this device's value without asking.
 - Turning sync off keeps this device's current values and stops reading and writing the
-  file. Its overrides are forgotten, and turning it on again starts over with the step
-  above.
+  file. Its overrides are forgotten; turning it on again starts over with the step above.
 
 ### 4.3 Synced and overridden settings
 
-Each syncable setting on a device with sync on is either **Synced** or **Overridden**
-("This Device Only"):
+Each setting on a device with sync on is **synced** or **overridden** ("This Device
+Only"):
 
-- Editing a synced setting changes the shared value for every device. That is what
-  sync means; there is no silent local divergence.
-- To deviate, the user chooses **Only on This Device** for that row (its context menu,
-  or the control at the end of the row). The setting keeps its current value and becomes
-  overridden: later edits stay on this device, later shared values do not change it.
-  Overridden rows show a small **This Device** badge, which is also a menu with
-  **Use Synced Value**.
-- An override stays until the user chooses **Use Synced Value**: the setting then takes
-  the shared value (or, if the vault has none for it, this device's value becomes the
-  shared one). Setting an overridden row back to the same value as the shared one does
-  **not** relink it: the state is explicit, never inferred from equal values.
+- **Editing a synced setting changes the shared value** for every device that uses it:
+  the slot it resolves from (this type's block when the key is there, else the top
+  level). That is what sync means; there is no silent local divergence.
+- **Only on This Device** (a row's context menu, or the control at the end of the row):
+  the setting keeps its current value and becomes overridden. Later edits stay on this
+  device, later shared values do not change it. Overridden rows show a small **This
+  Device** badge, which is also a menu with **Use Synced Value**. The override lives only
+  on this device and needs no device name: it is never written to the file.
+- **Use Synced Value** ends the override: the setting takes the shared value (or, if the
+  vault has none for it, this device's value becomes the shared one). Setting an
+  overridden row back to the shared value does **not** relink it: the state is explicit,
+  never inferred from equal values. Only Use Synced Value clears it.
+- **Only on iPads** (Macs, iPhones: this device's type): writes the current value into
+  this type's block, so devices of this type keep it while the others follow the top
+  level. Such rows show the type as a badge, a menu with **Use on All Devices**, which
+  resets the block's slot so the top level applies again.
 
 Settings edited outside the Settings screen (the paper picker's "use as default", the
-layout choice of the new-note sheet) follow the same rule: a synced setting changes
-the shared value, an overridden one stays on this device. Overrides are chosen in
-Settings. An override lives only on its device (with the vault's sync state) and
-needs no device name: it is never written to the file.
+layout choice of the new-note sheet, the eraser in the editor) follow the same rules.
+Overrides are chosen in Settings.
 
 ### 4.4 When the app reads and writes the file
 
-- It reads `settings.age` when the vault is unlocked, when Settings opens, when the app
-  returns to the foreground, and on the vault's listing passes when the file's size or
-  date changed; in iCloud Drive it downloads the file first, like `vault.json`.
+- It reads `settings.age` when the vault is unlocked, when Settings opens and when the app
+  returns to the foreground; in iCloud Drive it downloads the file first, like `vault.json`.
 - It writes when a synced setting changed on this device (about a second after the last
   change, so dragging through a picker writes once), and when a read found the file
   behind this device's copy (section 3).
-- A value the app cannot use (a key it knows with a value of the wrong type or out of
-  range, from a damaged file or a newer version) is not applied: the setting keeps its
-  current value on this device, and the entry is kept in the file untouched.
 - Settings added by a later app version: the first device with that version and sync on
-  writes its current value as the shared one when the vault has no entry for it.
+  writes its current value as the shared one when the vault has no slot for it.
 
 ### 4.5 Read-only, legacy and untrusted vaults
 
-Writing `settings.age` is a vault write: it is refused where every write is
-(`format.md` §7.3 read-only vaults, §3.3.2 legacy vaults, §2.1 a tampered recipients
-list). The app then pauses settings sync and says why under the switch; edits made
-meanwhile are written once the vault is writable again (they are detected against the
-last applied values). Reading and applying need the vault unlocked.
+Writing `settings.age` is a vault write: it is refused where every write is (`format.md`
+§7.3 read-only vaults, §3.3.2 legacy vaults, §2.1 a tampered recipients list). The app
+then pauses settings sync and says why under the switch; edits made meanwhile are written
+once the vault is writable again (they are detected against the last applied values).
+Reading and applying need the vault unlocked.
 
-## 5. Which settings sync
+## 5. The settings
 
-Every setting syncs (maintainer, 2026-10-09). What differs is its **scope**: `all`, or
-per device type. A per-type setting exists once for each type it applies to
-(`mac/keepScreenOn`, `ipad/keepScreenOn`, …); a type it does not apply to has no key.
-The names are the ones in the file and in the CLI.
+Every setting syncs (maintainer, 2026-10-09). Each is one top-level key; **Types** says
+which devices use it. Any key may also appear in a type block.
 
-### 5.1 Scope `all`
+### 5.1 Used by every device
 
-| Name | Setting (Settings ▸ section ▸ row) | Values | Default |
+| Key | Setting (Settings ▸ section ▸ row) | Values | Default |
 | --- | --- | --- | --- |
 | `handwriting.recognize` | General ▸ Recognize Handwriting | `true`, `false` | `true` |
 | `newNote.titleFormat` | New Notes ▸ Title | `dateAndTime`, `dateOnly`, `isoDateTime`, `weekday`, `custom`, `blank` | `dateAndTime` |
 | `newNote.titlePattern` | New Notes ▸ Title ▸ Pattern (custom) | a pattern `notes new --title-format` accepts | `yyyy-MM-dd HH:mm` |
-| `newNote.paper` | New Notes ▸ Paper | a paper object (`format.md` §5.4.2) | ruled |
-| `newNote.layout` | New Notes ▸ Layout (also the new-note sheet) | `letter`, `a4`, `pagelessLetter`, `pagelessA4` | `letter` |
 | `newNote.voiceNotebook` | New Notes ▸ Voice Notes | a notebook path (`format.md` §5.4) | `Inbox` |
+| `editor.defaultPaper` | New Notes ▸ Paper | a paper object (`format.md` §5.4.2) | ruled |
+| `editor.defaultLayout` | New Notes ▸ Layout (also the new-note sheet) | `letter`, `a4`, `pagelessLetter`, `pagelessA4` | `letter` |
+| `editor.compactPalette` | Compact Palette (editor) | `true`, `false` | `false` |
+| `eraser.mode` | the eraser's mode, last chosen (editor) | `object`, `pixel` | `object` |
+| `eraser.objectRadius` | Object Eraser Size (editor) | 4, 8, 16, 32 | 8 |
 | `recording.codec` | Recording ▸ Format | `aac`, `he-aac`, `alac` | `aac` |
 | `recording.bitRate` | Recording ▸ Quality | 24000, 32000, 48000, 64000, 96000, 128000 | 64000 |
 | `recording.sampleRate` | Recording ▸ Sample Rate | 16000, 22050, 32000, 44100, 48000 | 48000 |
@@ -203,43 +238,34 @@ The names are the ones in the file and in the CLI.
 | `math.recognize` | Convert Handwriting to Math | `true`, `false` | `false` |
 | `photos.removeMetadata` | Photos ▸ Remove Location and Camera Data | `true`, `false` | `true` |
 | `history.thinAfterDays` | Version History ▸ Thin Autosaves Older Than | 7, 14, 30, 90, 365, 0 (never) | 30 |
-| `search.transcripts` | Search ▸ Search Recording Transcripts (the search field) | `true`, `false` | `false` |
+| `search.transcripts` | Search Recording Transcripts (the search field) | `true`, `false` | `false` |
 | `rewrap.onAdd` | Device Keys ▸ When Adding a Device | `header`, `reencrypt` | `header` |
 | `rewrap.onRemove` | Device Keys ▸ When Removing a Device or Upgrading | `header`, `reencrypt` | `reencrypt` |
+| `backup.reminderDays` | Backups ▸ Remind Me (once the device has a backup folder) | 0 (off), 1, 3, 7, 14, 30 | 0 |
 
-These are choices about the notes themselves (how new notes start, how recordings and
-photos are stored, how long autosaves are kept, how files are rewrapped) or about
-features the user expects everywhere. Recognition and transcription still run on each
-device: one without the language model does what it can, as today. The rewrap modes
-are policies of the vault; choosing the weaker removal mode still asks for confirmation
-on the device where it is chosen, and the other devices follow it.
+Recognition and transcription still run on each device: one without the language model
+does what it can, as today. The rewrap modes are policies of the vault; choosing the
+weaker removal mode still asks for confirmation on the device where it is chosen, and
+the other devices follow it.
 
-### 5.2 Per device type
+### 5.2 Used by some device types
 
-| Name | Setting | Types | Values | Default |
+| Key | Setting | Types | Values | Default |
 | --- | --- | --- | --- | --- |
-| `keepScreenOn` | General ▸ Keep Screen On | `ipad`, `iphone`, `mac` | `true`, `false` | `false` |
-| `mouseSmoothing` | General ▸ Smooth Mouse Strokes | `mac` | `off`, `light`, `strong` | `light` |
-| `eraser.mode` | the eraser's mode (object or pixel), last chosen | `ipad`, `iphone`, `mac` | `object`, `pixel` | `object` |
-| `eraser.objectRadius` | Object Eraser Size (editor) | `ipad`, `iphone`, `mac` | 4, 8, 16, 32 | 8 |
-| `palette.compact` | Compact Palette (editor) | `ipad`, `iphone`, `mac` | `true`, `false` | `false` |
+| `editor.keepScreenOn` | General ▸ Keep Screen On | `ipad`, `iphone` | `true`, `false` | `false` |
+| `mouse.smoothing` | General ▸ Smooth Mouse Strokes | `mac` | `off`, `light`, `strong` | `light` |
 | `quickCapture.notebook` | Quick Voice Notes ▸ Notebook | `ipad`, `iphone` | a notebook path | `Inbox` |
 | `quickCapture.transcribe` | Quick Voice Notes ▸ Transcribe Voice Notes | `ipad`, `iphone` | `true`, `false` | `true` |
-| `backup.reminderDays` | Backups ▸ Remind Me | `ipad`, `iphone`, `mac` | 0 (off), 1, 3, 7, 14, 30 | 0 |
 
-Pencil and pointer choices, the screen, the tool palette and quick capture depend on the
-kind of device; backups are usually made from one kind of device (the Mac). The
-quick-capture preferences apply when quick capture is on for the vault on that device;
+The quick-capture settings apply while quick capture is on for the vault on that device;
 switching it on or off is not a setting (it creates or deletes the device's capture key,
-which is state). The backup reminder applies once the device has a backup folder.
+which is state).
 
-The app icon and an unlock preference do not exist yet. When they come they are
-per-type settings: the icon (`ipad`, `iphone`, `mac`), and how the device prefers to
-unlock (`ipad`, `iphone`, `mac`). The remembered key itself stays device state.
+Not built yet, and settings when they come: the app icon (`appearance.icon`), Pencil
+options such as the double-tap action (`pencil.doubleTap`, `ipad`), and how a device
+prefers to unlock (`security.unlock`); the remembered key itself stays state.
 
 ### 5.3 Device state (never in the file)
-
-These are not settings; they describe one device, or hold secrets:
 
 | State | Why |
 | --- | --- |
@@ -249,50 +275,69 @@ These are not settings; they describe one device, or hold secrets:
 | Tool palette shown, page strip shown, column layout, sidebar selection, saved windows | what this device's windows show at the moment |
 | Last equation style in the math editor, recent searches, Recently Recognized | editor and search memory |
 | Downloaded math models and transcription language models | files on this device |
-| Cache size limits (drawing, attachment, render caches), last thinning run, attachment index | this device's disk and bookkeeping |
+| Cache size limits, last thinning run, attachment index | this device's disk and bookkeeping |
 | PencilKit's own saved tools (`PKPaletteNamedDefaults`) | PencilKit's state, partly reset by the app |
-| Sync Settings with This Vault, and the overrides | the sync switch itself |
+| Sync Settings with This Vault, and the local overrides | the sync switch itself |
 
-A new setting is added to the catalogue (`SharedSettingsCatalog` in
-`Sources/Sempere/SharedSettings.swift`) with its scope, values and default, and a row in
-the tables above.
+A new setting is added to the registry (`SharedSettingsCatalog` in
+`Sources/Sempere/SharedSettingsCatalog.swift`) with its types, values and default, a
+row in the tables above, and the regenerated schema (section 6).
 
-Later: telling devices of the same type apart by name ("my Mac" and "the family Mac"),
-so that a setting can be scoped to one named device. Until then the local override is
-the way for one device to differ (ROADMAP).
+### 5.4 Later
 
-## 6. The app
+Telling devices of the same type apart by name ("my Mac" and "the family Mac"), so that a
+setting can be scoped to one named device. Until then all devices of a type share its
+block, and the local override is the way for one device to differ (`docs/ROADMAP.md`).
 
-- Settings gains a first section, **Sync Settings with This Vault**: the switch, and
-  under it what it does, the vault it syncs with, and whether sync is paused (locked,
-  read-only, a tampered device list) or found a settings file it cannot read.
-- Rows of synced settings get a context menu (Only on This Device / Use Synced Value)
-  and, when overridden, the **This Device** badge (`.help` on the Mac).
-- Spanish strings for every new string (`Localizable.xcstrings`).
-- The logic is in `Sources/Sempere` (`SharedSettings`, `SharedSettingsCatalog`,
-  `SettingsSyncState`: merge, first enable, overrides, reconcile), tested on Linux. The
-  app only maps keys to its `UserDefaults` values (`SettingsSyncBridge`) and runs the
-  passes (`AppModel+SettingsSync`).
+## 6. Schema and versions
+
+- **JSON Schema.** `docs/settings.schema.json` describes the file. It is generated from
+  the registry (`SharedSettingsSchema`, also `sempere settings schema`), and a test fails
+  when the committed file differs. Readers validate with the registry the schema is made
+  from (the same rules); `sempere settings validate` reports every problem.
+- **`$schemaVersion`** counts changes to the keys' names and meanings. A change that
+  renames a key, remaps its values or splits it into several adds an ordered migration
+  `vN → vN+1` (`SharedSettingsMigrations`). Migrations run on read, on the in-memory copy;
+  the result is written back only when the device next saves. Each migration moves the
+  slot's `$meta` with it unchanged, so devices that migrate the same file get the same
+  result. Every migration has a test and a fixture of the version it starts from
+  (`Tests/SempereTests/Fixtures/settings/v<N>.json`). Version 1 has no migrations yet.
+- **A newer `$schemaVersion`** than the device knows: it does not migrate and does not
+  rewrite what it does not understand. It reads the keys it knows, and on save writes
+  only the slots it changed, keeping everything else (and the version number) verbatim.
+- **The vault format** is unchanged: no format bump and no `features` entry (that would
+  stop every older writer, `format.md` §2). `settings.age` is a compatible extension
+  (`format.md` §7.5), an unknown file to older readers.
 
 ## 7. The CLI
 
 ```
-sempere settings list  [--type all|mac|ipad|iphone] [--json]   shared settings (and unknown keys)
-sempere settings get   NAME [--type T] [--json]
-sempere settings set   NAME VALUE [--type T] [--json]
-sempere settings reset NAME [--type T] [--json]
+sempere settings list     [--type mac|ipad|iphone] [--all] [--json]
+sempere settings get      KEY [--type T] [--json]
+sempere settings set      KEY VALUE [--type T] [--json]
+sempere settings reset    KEY [--type T] [--json]
+sempere settings edit     [--json]
+sempere settings validate [--json]
+sempere settings schema
 ```
 
-`--type` picks the scope: `all` by default; `mac`, `ipad` or `iphone` for a per-type
-setting (`sempere settings set mouseSmoothing strong --type mac`). A name also accepts
-the full key (`mac/mouseSmoothing`). `list` without `--type` lists every scope.
-They read and write the vault's shared file only. **The CLI has no device overrides**:
-it is not a device that applies settings; it edits the shared set that devices with
-sync on follow (their overrides still win on those devices). `set` validates the value
-against the catalogue (`true`/`false`/`on`/`off` for switches, numbers, names; JSON for
-the paper) and refuses names it does not know, and a type a setting does not have. `reset` writes a reset entry. Writes use
-the machine's device id (`DeviceState`) and the merge rule above. Exit codes as for
-every command (`docs/cli.md`): 5 legacy vault, 6 untrusted recipients, 7 read-only.
+- `list` shows the top level, each known key with its value or default; `--type T`
+  shows what a device of type T resolves to (and where from); `--all` adds unknown keys
+  and type blocks. `get` prints one key's value (resolved for `--type`).
+- `set` and `reset` write the top level, or the type block with `--type`. `set`
+  validates the value against the registry (`true`/`false`/`on`/`off` for switches,
+  numbers, names; JSON or a kind name for the paper) and refuses keys it does not know.
+- `edit` opens `$EDITOR` (`$VISUAL` first, else `vi`) on the decrypted JSON without
+  `$meta`, in a private temporary file it deletes afterwards. On save it validates the
+  result, refuses an invalid file without writing anything, and records each changed key
+  in `$meta` before re-encrypting.
+- `validate` checks the file against the schema: unknown keys and blocks are
+  information, invalid values of known keys are errors (exit 1).
+- `$meta` is never shown. **The CLI has no device overrides**: it is not a device that
+  applies settings, it edits the shared file that devices with sync on follow (their
+  local overrides still win on them). Writes record no device type and follow the merge
+  rule above. Exit codes as for every command (`docs/cli.md`): 5 legacy vault, 6
+  untrusted recipients, 7 read-only.
 
 ## 8. The rest of the vault
 
@@ -301,49 +346,49 @@ every command (`docs/cli.md`): 5 legacy vault, 6 untrusted recipients, 7 read-on
   previous one). A file that cannot be read or verified is reported, left as it is, and
   does not keep the journal: the next settings write replaces it.
 - **Backups**: `sempere backup`, `restore` and the app's Backups copy `settings.age` like
-  `vault.json` (the latest copy; earlier ones in `versions/`).
-- **WebDAV sync**: `settings.age` is synced as a mutable file. When both sides changed
-  and the vault is unlocked, the sync merges them (section 3) and writes the result to
-  both sides; locked, it falls back to the `vault.json` rule (keep both, report a
-  conflict). Push-only mirrors upload the local copy.
+  `vault.json`.
+- **WebDAV sync**: `settings.age` is synced as a mutable file. When both sides changed and
+  the vault is unlocked, the sync merges them (section 3) and writes the result to both
+  sides; locked, it keeps both and reports a conflict, as for `vault.json`. Push-only
+  mirrors upload the local copy.
 - **iCloud Drive**: the app downloads `settings.age` before reading it.
 - **Web viewer**: ignores the file.
-- **Older apps and CLIs** ignore unknown files (`format.md` §1), so they keep working
-  with a vault that has `settings.age`. They do not rewrap it in a recipient change: the
-  file is then left encrypted to the previous keys and tagged under the previous secret,
-  newer readers report it as unreadable, and the next write from a device with sync on
-  replaces it from that device's copy. A device removed by such an older app can read
-  that stale copy (settings only, no note content) until it is replaced.
+- **Older apps and CLIs** ignore unknown files (`format.md` §1), so they keep working with
+  a vault that has `settings.age`. They do not rewrap it in a recipient change: the file
+  is then left encrypted to the previous keys and tagged under the previous secret, newer
+  readers report it as unreadable, and the next write from a device with sync on replaces
+  it from that device's copy. A device removed by such an older app can read that stale
+  copy (settings only, no note content) until it is replaced.
 
-## 9. Format and compatibility
+## 9. The app
 
-No vault format bump and no `features` entry: a `features` entry would stop every older
-writer (`format.md` §2), and nothing older readers do with notes changes. `settings.age`
-is a compatible extension (`format.md` §7.5): an unknown file to older readers. The file
-carries its own version, `sempere-settings/<major>`; a reader that finds a later major
-neither applies nor writes it (and the app says the vault's settings need a newer
-version), so a later version can change the file's meaning safely.
+- Settings gains a first section, **Sync Settings with This Vault**: the switch, and under
+  it what it does and whether sync is paused (locked, read-only, a tampered device list)
+  or found a settings file it cannot read.
+- Rows of settings get a context menu (Only on This Device, Only on iPads, Use Synced
+  Value, Use on All Devices) and, when overridden or type-specific, a badge (`.help` on
+  the Mac). Spanish strings for every new string.
+- The logic is in `Sources/Sempere` (`SharedSettings`, `SharedSettingsCatalog`,
+  `SharedSettingsMigrations`, `SettingsSyncState`: merge, resolution, first enable,
+  overrides, passes), tested on Linux. The app maps keys to its `UserDefaults` values
+  (`SettingsSyncBridge`) and runs the passes (`AppModel+SettingsSync`).
 
 ## 10. Tests
 
-- Core (`Tests/SempereTests/SharedSettingsTests.swift`): merge is commutative,
-  associative and idempotent (property test over random entries), the write rule beats
-  a skewed clock, resets win and lose by the same order, unknown keys and unknown entry
-  members survive a merge and a rewrite, limits and hostile files fail with typed errors
-  (and a fuzz target), the tag binds the file (another secret, a renamed file),
-  recipient changes rewrap the file (add, remove with rotation, a file that does not
-  verify is skipped), read-only and legacy vaults refuse writes.
-- Device logic (`SettingsSyncStateTests`): device types read only `all/…` and their own
-  type's keys and keep the others; first enable on an empty vault (seed) and on a
-  vault with settings (no differences, use the vault's, replace the vault's); override
-  lifecycle (override keeps the value, ignores remote changes, local edits stay local,
-  equal values do not relink, Use Synced Value relinks and applies); reconcile pushes
-  local edits, applies remote ones, seeds new keys, writes back a file behind its copy,
-  never applies an invalid value.
-- CLI (`Tests/CLITests/CLISettingsTests.swift`): list/get/set/reset with `--json`,
-  validation errors, unknown keys preserved, merge with a file written by another
-  device.
-- WebDAV: a both-sides change merges; locked falls back to a conflict copy.
-- Backup: the file is backed up and restored.
-- App (CI): the bridge round-trips every catalogue key through `UserDefaults`, and the
-  model's passes (enable, edit, remote change, override) against a temporary vault.
+- Core (`SharedSettingsTests`): merge is commutative, associative and idempotent
+  (property test over random slots, type blocks included), the write rule beats a skewed
+  clock, resets win and lose by the same order, unknown keys, blocks and `$` members
+  survive a merge and a rewrite, resolution order (override > block > top > default),
+  invalid values fall back with a warning, limits and hostile files fail with typed errors
+  (and a fuzz target), the tag binds the file, recipient changes rewrap the file, read-only
+  and legacy vaults refuse writes; the schema file matches the registry; the migration
+  machinery (renames, remaps, splits, a newer version left alone) and the v1 fixture.
+- Device logic (`SettingsSyncStateTests`): first enable on an empty vault (seed) and on a
+  vault with settings (agree, use the vault's, replace the vault's); override lifecycle;
+  type blocks (only on this type, use on all); passes push local edits to the slot they
+  resolve from, apply remote ones, seed new keys, write back a file behind its copy.
+- CLI (`CLISettingsTests`): list/get/set/reset/edit/validate/schema with `--json` and
+  `--type`, validation errors, unknown keys preserved, `$meta` hidden.
+- WebDAV (both sides changed: merged; locked: conflict copy) and backup (copied, restored).
+- App (CI): the bridge round-trips every key through `UserDefaults`, and the model's
+  passes against a temporary vault.
