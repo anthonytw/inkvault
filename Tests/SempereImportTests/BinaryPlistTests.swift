@@ -1,4 +1,5 @@
 import Foundation
+import ImportTestSupport
 import XCTest
 
 @testable import SempereImport
@@ -116,7 +117,10 @@ final class BinaryPlistTests: XCTestCase {
 
     /// Every truncation of a real archive parses or throws `ImportError`.
     func testEveryTruncationFailsCleanly() {
-        let full = SyntheticNote.metadata()
+        var b = KeyedArchiveBuilder()
+        let root = b.dict([("name", b.string("Ünïcode ✓")), ("list", b.array([b.string("a"), .int(2), b.data(Data([1, 2, 3]))])),
+                           ("when", b.date(Date(timeIntervalSinceReferenceDate: 1)))])
+        let full = b.archive(top: [("root", root)])
         for n in stride(from: 0, to: full.count, by: 7) {
             do { _ = try PlistValue.parse(full.prefix(n)) } catch is ImportError {} catch { XCTFail("\(n): \(error)") }
         }
