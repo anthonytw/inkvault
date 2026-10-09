@@ -34,6 +34,10 @@ public enum SharedSettingsError: Error, Hashable, Sendable {
     /// A slot cannot be written: its `modified` would pass the largest time
     /// the format allows.
     case clockExhausted(String)
+    /// The file's `$minReaderVersion` is later than this reader
+    /// (`SharedSettingsMigrations.current`): it must not be read, applied or
+    /// written (docs/settings-sync.md §6.2 rule 4).
+    case needsNewerReader(minReaderVersion: Int)
 }
 
 /// Where a slot is: one key at the top level (`block == nil`) or inside a type
@@ -117,15 +121,23 @@ public struct SharedSettings: Hashable, Sendable {
     /// `$schemaVersion` (format.md §13.4): of the file as read (after
     /// migrations, `SharedSettingsMigrations.current` unless it was newer).
     public var schemaVersion: Int
+    /// `$minReaderVersion`: the oldest reader that may read and write the file.
+    public var minReaderVersion: Int
     /// Every slot, top level and type blocks.
     public var slots: [SettingSlotKey: SettingSlot]
     /// Top-level members this version does not interpret (other `$…` members,
     /// a `[…]` member that is not an object), kept as read.
     public var extra: [String: JSONValue]
 
-    public init(schemaVersion: Int = SharedSettingsMigrations.current, slots: [SettingSlotKey: SettingSlot] = [:],
-                extra: [String: JSONValue] = [:]) {
-        self.schemaVersion = schemaVersion; self.slots = slots; self.extra = extra
+    public init(schemaVersion: Int = SharedSettingsMigrations.current,
+                minReaderVersion: Int = SharedSettingsMigrations.minReaderVersion,
+                slots: [SettingSlotKey: SettingSlot] = [:], extra: [String: JSONValue] = [:]) {
+        self.schemaVersion = schemaVersion; self.minReaderVersion = minReaderVersion; self.slots = slots; self.extra = extra
+    }
+
+    /// Whether a reader of `version` may read and write this file (docs/settings-sync.md §6.2 rule 3).
+    public func isReadable(byReader version: Int = SharedSettingsMigrations.current) -> Bool {
+        minReaderVersion <= version
     }
 
     /// True when no slot is stored.
@@ -146,6 +158,7 @@ public struct SharedSettings: Hashable, Sendable {
             out.slots[key] = theirs
         }
         out.schemaVersion = max(schemaVersion, other.schemaVersion)
+        out.minReaderVersion = max(minReaderVersion, other.minReaderVersion)
         out.extra.merge(other.extra) { mine, _ in mine }
         return out
     }
@@ -189,17 +202,50 @@ public struct SharedSettings: Hashable, Sendable {
         public var warnings: [String] = []
     }
 
+    ///
+    /// A setting with legacy keys (docs/settings-sync.md §6.2 rule 2) resolves,
+    /// at each level, from whichever of its key and its legacy keys was written
+    /// last, a legacy value mapped to the current meaning.
     public func resolve(_ spec: SharedSettingSpec, for type: SettingsDeviceType?) -> Resolved {
         var warnings: [String] = []
-        var candidates: [(SettingSlotKey, Source)] = []
-        if let type { candidates.append((SettingSlotKey(spec.name, type: type), .block)) }
-        candidates.append((SettingSlotKey(spec.name), .top))
-        for (slot, source) in candidates {
-            guard let v = value(slot) else { continue }
-            if let ok = spec.validated(v) { return Resolved(value: ok, source: source, warnings: warnings) }
+        var levels: [(String?, Source)] = []
+        if let type { levels.append((type.rawValue, .block)) }
+        levels.append((nil, .top))
+        for (block, source) in levels {
+            // The latest written slot of the setting at this level decides it.
+            guard let (slot, latest) = latestSlot(spec, block: block), let raw = latest.value else { continue }
+            let mapped = slot.key == spec.name ? raw : spec.legacy.first { $0.name == slot.key }.flatMap { $0.fromLegacy(raw) }
+            if let mapped, let ok = spec.validated(mapped) { return Resolved(value: ok, source: source, warnings: warnings) }
             warnings.append("\(slot): invalid value for \(spec.name) (\(spec.valuesDescription)); ignored")
         }
         return Resolved(value: spec.defaultValue, source: .default, warnings: warnings)
+    }
+
+    /// The slot of `spec` (its key or a legacy key) at `block` written last.
+    func latestSlot(_ spec: SharedSettingSpec, block: String?) -> (SettingSlotKey, SettingSlot)? {
+        var best: (SettingSlotKey, SettingSlot)?
+        for name in [spec.name] + spec.legacy.map(\.name) {
+            let key = SettingSlotKey(name, block: block)
+            guard let slot = slots[key] else { continue }
+            if let b = best, !SettingSlot.precedes(b.1, slot) { continue }
+            best = (key, slot)
+        }
+        return best
+    }
+
+    /// True when the file has any slot of `spec` (its key or a legacy key) at `block`.
+    public func hasSlot(_ spec: SharedSettingSpec, block: String?) -> Bool { latestSlot(spec, block: block) != nil }
+
+    /// Writes `value` (nil: a reset) for `spec` at `block` (nil: the top level),
+    /// and its legacy keys with the value mapped to their meaning (the dual-write
+    /// window, docs/settings-sync.md §6.2 rule 2).
+    public mutating func write(_ spec: SharedSettingSpec, _ value: JSONValue?, block: String?, type: SettingsDeviceType?,
+                               now: Date) throws {
+        try set(SettingSlotKey(spec.name, block: block), to: value, type: type, now: now)
+        for legacy in spec.legacy {
+            let old: JSONValue? = value.flatMap { legacy.toLegacy($0) }
+            try set(SettingSlotKey(legacy.name, block: block), to: old, type: type, now: now)
+        }
     }
 
     // MARK: Encoding
@@ -214,6 +260,7 @@ public struct SharedSettings: Hashable, Sendable {
     public func jsonObject(includingMeta: Bool = true) -> JSONValue {
         var top = extra
         top["$schemaVersion"] = .number(Double(schemaVersion))
+        top["$minReaderVersion"] = .number(Double(minReaderVersion))
         var meta: [String: JSONValue] = [:]
         var blocks: [String: [String: JSONValue]] = [:]
         var blockMeta: [String: [String: JSONValue]] = [:]
@@ -264,15 +311,19 @@ public struct SharedSettings: Hashable, Sendable {
         }
         guard case .object(var top) = root else { throw SharedSettingsError.invalid("not a JSON object") }
         var warnings: [String] = []
-        var version = 1
-        switch top.removeValue(forKey: "$schemaVersion") {
-        case .number(let n)? where n.rounded(.towardZero) == n && n >= 1 && n <= 1_000_000_000:
-            version = Int(n)
-        case nil:
-            warnings.append("no $schemaVersion; read as 1")
-        case .some:
-            warnings.append("$schemaVersion is not a positive integer; read as 1")
+        func version(_ name: String) -> Int {
+            switch top.removeValue(forKey: name) {
+            case .number(let n)? where n.rounded(.towardZero) == n && n >= 1 && n <= 1_000_000_000:
+                return Int(n)
+            case nil:
+                warnings.append("no \(name); read as 1")
+            case .some:
+                warnings.append("\(name) is not a positive integer; read as 1")
+            }
+            return 1
         }
+        let schemaVersion = version("$schemaVersion")
+        let minReader = version("$minReaderVersion")
         let metaObject: [String: JSONValue]
         switch top.removeValue(forKey: "$meta") {
         case .object(let o)?: metaObject = o
@@ -313,7 +364,8 @@ public struct SharedSettings: Hashable, Sendable {
             }
             guard slots.count <= maxSlots else { throw SharedSettingsError.tooLarge }
         }
-        return Decoded(settings: SharedSettings(schemaVersion: version, slots: slots, extra: extra), warnings: warnings)
+        return Decoded(settings: SharedSettings(schemaVersion: schemaVersion, minReaderVersion: minReader, slots: slots,
+                                                extra: extra), warnings: warnings)
     }
 
     /// The type name of a block member `[name]`: lowercase letters and digits,
@@ -340,7 +392,8 @@ public struct SharedSettings: Hashable, Sendable {
         return SettingSlotMeta(modified: Int64(m), type: type, extra: o)
     }
 
-    static func printable(_ s: String) -> String {
+    /// `s` cut to 64 printable ASCII characters (others become `?`), for messages.
+    public static func printable(_ s: String) -> String {
         String(s.unicodeScalars.prefix(64).map { $0.isASCII && $0.value >= 0x20 && $0.value < 0x7f ? Character($0) : "?" })
     }
 }
@@ -380,7 +433,11 @@ extension Vault {
     ///   `SharedSettingsError` for a file that is too large, cannot be
     ///   decrypted, does not verify (format.md §4 tag, scope `settings`), or
     ///   is not a JSON object.
-    public func readSharedSettingsFile() throws -> SharedSettings.Decoded? {
+    ///
+    /// - Parameter allowNewerReader: also return a file whose `$minReaderVersion`
+    ///   is later than this reader (for `settings validate` only: such a file is
+    ///   never applied or written).
+    public func readSharedSettingsFile(allowNewerReader: Bool = false) throws -> SharedSettings.Decoded? {
         try requireMigrated()
         let secret = try requireReadable()
         let file = sharedSettingsURL
@@ -404,7 +461,11 @@ extension Vault {
         do { json = try Gzip.decompress(unframed.gzip, maxOutput: SharedSettings.maxJSONBytes) } catch {
             throw SharedSettingsError.invalid("gzip: \(SharedSettings.printable("\(error)"))")
         }
-        return try SharedSettings.decode(json)
+        let decoded = try SharedSettings.decode(json)
+        guard allowNewerReader || decoded.settings.isReadable() else {
+            throw SharedSettingsError.needsNewerReader(minReaderVersion: decoded.settings.minReaderVersion)
+        }
+        return decoded
     }
 
     /// Unframes under the current secret, or (a rewrap in progress) the previous one.
@@ -437,7 +498,8 @@ extension Vault {
     ///
     /// - Parameter replacingUnreadable: when the file exists but cannot be
     ///   read (it does not verify or decode), start from an empty set and
-    ///   replace it; otherwise that error is thrown.
+    ///   replace it; otherwise that error is thrown. A file that needs a
+    ///   newer reader is never replaced (`needsNewerReader`).
     @discardableResult
     public func updateSharedSettings(replacingUnreadable: Bool = false,
                                      _ change: (inout SharedSettings) throws -> Void) throws -> SharedSettings {
@@ -453,6 +515,7 @@ extension Vault {
 
     private func readSharedSettingsForUpdate(replacingUnreadable: Bool) throws -> SharedSettings? {
         do { return try readSharedSettings() } catch let e as SharedSettingsError {
+            if case .needsNewerReader = e { throw e }   // never replaced (docs/settings-sync.md §6.2 rule 4)
             if replacingUnreadable { return nil }
             throw e
         }

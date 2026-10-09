@@ -3,7 +3,7 @@ import Foundation
 /// A setting this version knows (docs/settings-sync.md §5): its name, scope,
 /// the values it accepts and its default. The app maps each to its stored
 /// value; the CLI validates `settings set` with it.
-public struct SharedSettingSpec: Hashable, Sendable {
+public struct SharedSettingSpec: Sendable {
     /// What values a setting takes.
     public enum Kind: Hashable, Sendable {
         /// `true` or `false`.
@@ -31,10 +31,28 @@ public struct SharedSettingSpec: Hashable, Sendable {
     public let defaultValue: JSONValue
     /// One line for `settings list` and the schema (English).
     public let summary: String
+    /// Older keys of the same setting still written beside it (the dual-write
+    /// window, docs/settings-sync.md §6.2 rule 2). None in version 1.
+    public let legacy: [LegacyKey]
+
+    /// An older key of a setting and how its values map to and from the current key's.
+    public struct LegacyKey: Sendable {
+        public var name: String
+        /// The current value as the old key holds it (nil: the old key cannot say it; written as a reset).
+        public var toLegacy: @Sendable (JSONValue) -> JSONValue?
+        /// The old key's value in the current meaning (nil: unusable).
+        public var fromLegacy: @Sendable (JSONValue) -> JSONValue?
+
+        public init(_ name: String, toLegacy: @escaping @Sendable (JSONValue) -> JSONValue? = { $0 },
+                    fromLegacy: @escaping @Sendable (JSONValue) -> JSONValue? = { $0 }) {
+            self.name = name; self.toLegacy = toLegacy; self.fromLegacy = fromLegacy
+        }
+    }
 
     public init(_ name: String, types: [SettingsDeviceType]? = nil, _ kind: Kind, default defaultValue: JSONValue,
-                _ summary: String) {
+                _ summary: String, legacy: [LegacyKey] = []) {
         self.name = name; self.types = types; self.kind = kind; self.defaultValue = defaultValue; self.summary = summary
+        self.legacy = legacy
     }
 
     /// Whether a device of `type` uses it.
@@ -165,6 +183,9 @@ public enum SharedSettingsCatalog {
     /// The setting `name`; nil for a key this version does not know.
     public static func spec(named name: String) -> SharedSettingSpec? { specs.first { $0.name == name } }
 
+    /// Every key this version reads: the settings' keys and their legacy keys.
+    public static var allKeyNames: Set<String> { Set(specs.flatMap { [$0.name] + $0.legacy.map(\.name) }) }
+
     /// The settings a device of `type` uses.
     public static func specs(for type: SettingsDeviceType) -> [SharedSettingSpec] { specs.filter { $0.isUsed(by: type) } }
 
@@ -182,8 +203,12 @@ public enum SharedSettingsCatalog {
     /// of known keys and decoding warnings are errors; unknown keys, blocks and
     /// `$` members, and a newer `$schemaVersion`, are information.
     public static func issues(in decoded: SharedSettings.Decoded) -> [Issue] {
-        var out = decoded.warnings.map { Issue(severity: .error, path: "$meta", message: $0) }
+        var out = decoded.warnings.map { Issue(severity: .error, path: "file", message: $0) }
         let s = decoded.settings
+        if !s.isReadable() {
+            out.append(Issue(severity: .error, path: "$minReaderVersion",
+                             message: "\(s.minReaderVersion) is newer than this reader (\(SharedSettingsMigrations.current)): update Sempere"))
+        }
         if s.schemaVersion > SharedSettingsMigrations.current {
             out.append(Issue(severity: .info, path: "$schemaVersion",
                              message: "\(s.schemaVersion) is newer than \(SharedSettingsMigrations.current): keys this version does not know are kept"))
@@ -194,7 +219,9 @@ public enum SharedSettingsCatalog {
                 continue
             }
             guard let spec = spec(named: key.key) else {
-                out.append(Issue(severity: .info, path: key.description, message: "unknown key; kept"))
+                if !allKeyNames.contains(key.key) {
+                    out.append(Issue(severity: .info, path: key.description, message: "unknown key; kept"))
+                }
                 continue
             }
             if let v = s.slots[key]?.value, spec.validated(v) == nil {
@@ -233,6 +260,8 @@ public enum SharedSettingsSchema {
         var props: [String: JSONValue] = [
             "$schemaVersion": .object(["type": .string("integer"), "minimum": .number(1),
                                        "description": .string("version of the keys' names and meanings; \(SharedSettingsMigrations.current) for this one")]),
+            "$minReaderVersion": .object(["type": .string("integer"), "minimum": .number(1),
+                                          "description": .string("the oldest reader that may read and write the file; \(SharedSettingsMigrations.minReaderVersion) for this one")]),
             "$meta": .object([
                 "type": .string("object"),
                 "description": .string("per key (and per key of each type block, under the block's name): its last write"),
@@ -251,7 +280,7 @@ public enum SharedSettingsSchema {
             "title": .string("Sempere shared settings"),
             "description": .string("The plaintext of a vault's settings.age (format.md §13). Generated from SharedSettingsCatalog; do not edit by hand."),
             "type": .string("object"),
-            "required": .array([.string("$schemaVersion")]),
+            "required": .array([.string("$schemaVersion"), .string("$minReaderVersion")]),
             "allOf": .array([.object(["$ref": .string("#/$defs/settings")])]),
             "properties": .object(props),
             "patternProperties": .object([blockPattern: .object(["type": .string("object")])]),

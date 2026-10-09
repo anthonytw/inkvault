@@ -87,12 +87,11 @@ public struct SettingsSyncState: Hashable, Sendable, Codable {
                                 type: SettingsDeviceType) -> Discovery {
         let file = file ?? SharedSettings()
         let specs = SharedSettingsCatalog.specs(for: type)
-        guard specs.contains(where: { file.slots[SettingSlotKey($0.name)] != nil || file.slots[SettingSlotKey($0.name, type: type)] != nil })
-        else { return .empty }
+        guard specs.contains(where: { file.hasSlot($0, block: nil) || file.hasSlot($0, block: type.rawValue) }) else { return .empty }
         var diffs: [Difference] = []
         for spec in specs {
             let r = file.resolve(spec, for: type)
-            guard r.source != .default || file.slots[SettingSlotKey(spec.name)] != nil, let mine = local[spec.name] else { continue }
+            guard r.source != .default || file.hasSlot(spec, block: nil), let mine = local[spec.name] else { continue }
             if r.value != mine { diffs.append(Difference(key: spec.name, vault: r.value, device: mine)) }
         }
         return diffs.isEmpty ? .agrees : .differs(diffs)
@@ -111,7 +110,7 @@ public struct SettingsSyncState: Hashable, Sendable, Codable {
         for spec in SharedSettingsCatalog.specs(for: type) {
             guard let value = local[spec.name] else { continue }
             applied[spec.name] = value
-            if replace { try known.set(writeSlot(spec, type: type), to: value, type: type, now: now) }
+            if replace { try known.write(spec, value, block: writeBlock(spec, type: type), type: type, now: now) }
         }
         return try reconcile(local: local, file: file, type: type, now: now)
     }
@@ -142,9 +141,10 @@ public struct SettingsSyncState: Hashable, Sendable, Codable {
     public mutating func onlyOnThisType(_ key: String, local: [String: JSONValue], file: SharedSettings?,
                                         type: SettingsDeviceType, now: Date) throws -> Pass {
         overrides.remove(key)
-        if let value = local[key] {
+        if let file { known = known.merging(file) }
+        if let value = local[key], let spec = SharedSettingsCatalog.spec(named: key) {
             applied[key] = value
-            try known.set(SettingSlotKey(key, type: type), to: value, type: type, now: now)
+            try known.write(spec, value, block: type.rawValue, type: type, now: now)
         }
         return try reconcile(local: local, file: file, type: type, now: now)
     }
@@ -153,16 +153,17 @@ public struct SettingsSyncState: Hashable, Sendable, Codable {
     public mutating func useOnAllDevices(_ key: String, local: [String: JSONValue], file: SharedSettings?,
                                          type: SettingsDeviceType, now: Date) throws -> Pass {
         if let value = local[key] { applied[key] = value }
-        let slot = SettingSlotKey(key, type: type)
         if let file { known = known.merging(file) }
-        if known.slots[slot]?.value != nil { try known.set(slot, to: nil, type: type, now: now) }
+        if let spec = SharedSettingsCatalog.spec(named: key), known.latestSlot(spec, block: type.rawValue)?.1.value != nil {
+            try known.write(spec, nil, block: type.rawValue, type: type, now: now)
+        }
         return try reconcile(local: local, file: file, type: type, now: now)
     }
 
-    /// The slot an edit of `spec` on a device of `type` writes: its block's when
-    /// the setting resolves from there, else the top level.
-    func writeSlot(_ spec: SharedSettingSpec, type: SettingsDeviceType) -> SettingSlotKey {
-        known.resolve(spec, for: type).source == .block ? SettingSlotKey(spec.name, type: type) : SettingSlotKey(spec.name)
+    /// The block an edit of `spec` on a device of `type` writes: its type's when
+    /// the setting resolves from there, else the top level (nil).
+    func writeBlock(_ spec: SharedSettingSpec, type: SettingsDeviceType) -> String? {
+        known.resolve(spec, for: type).source == .block ? type.rawValue : nil
     }
 
     /// One sync pass (docs/settings-sync.md §4.4): merges `file` (nil when the
@@ -180,9 +181,9 @@ public struct SettingsSyncState: Hashable, Sendable, Codable {
         for spec in synced {
             guard let mine = local[spec.name] else { continue }
             if let last = applied[spec.name], last != mine {
-                try known.set(writeSlot(spec, type: type), to: mine, type: type, now: now)   // edited here
-            } else if known.slots[SettingSlotKey(spec.name)] == nil, known.slots[SettingSlotKey(spec.name, type: type)] == nil {
-                try known.set(SettingSlotKey(spec.name), to: mine, type: type, now: now)    // the vault has none yet
+                try known.write(spec, mine, block: writeBlock(spec, type: type), type: type, now: now)   // edited here
+            } else if !known.hasSlot(spec, block: nil), !known.hasSlot(spec, block: type.rawValue) {
+                try known.write(spec, mine, block: nil, type: type, now: now)    // the vault has none yet
             }
         }
         var pass = Pass()
