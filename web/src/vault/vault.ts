@@ -2,6 +2,7 @@
 // age decryption with typage, the `SMPR` framing, the HMAC tag under the
 // vault secret, gunzip and JSON. Nothing here touches the network or the DOM.
 
+import { t } from "../i18n/index.ts";
 import { Decrypter, armor, identityToRecipient } from "age-encryption";
 import { DecodeError, arr, isObject, obj, opt, reqWith, str, uuid } from "../format/json.ts";
 import { parseRevisionName, revisionFilename } from "../format/ids.ts";
@@ -245,9 +246,10 @@ export async function checkRecipients(m: VaultManifest, secret: Uint8Array): Pro
  */
 export function recipientsWarningText(status: RecipientsStatus | undefined): string | undefined {
   if (status?.status !== "tampered") return undefined;
-  const why = status.reason === "tagRemoved" ? "lost its authentication tag" : "was changed without the vault's key";
-  return `This vault's device list ${why}. Notes still read correctly here, but the Sempere app and CLI will not `
-    + "write to it until it is repaired (sempere vault recipients repair).";
+  const reason = status.reason === "tagRemoved" ? "tagRemoved" : "changed";
+  return reason === "tagRemoved"
+    ? t("This vault's device list lost its authentication tag. Notes still read correctly here, but the Sempere app and CLI will not write to it until it is repaired (sempere vault recipients repair).")
+    : t("This vault's device list was changed without the vault's key. Notes still read correctly here, but the Sempere app and CLI will not write to it until it is repaired (sempere vault recipients repair).");
 }
 
 /** An unlocked vault: the identity and the vault secret, in memory only. */

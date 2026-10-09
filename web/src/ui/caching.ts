@@ -2,6 +2,7 @@
 // "Clear cached data" button (docs/web-viewer.md "Opening fast").
 
 import { FileCache, IndexedDBFileStore, MemoryFileStore } from "../vault/cache.ts";
+import { locale, t } from "../i18n/index.ts";
 import { h } from "./dom.ts";
 
 let shared: Promise<FileCache> | undefined;
@@ -14,23 +15,23 @@ export function fileCache(): Promise<FileCache> {
 }
 
 export function formatBytes(n: number): string {
-  if (n < 1024 * 1024) return `${Math.ceil(n / 1024)} KB`;
-  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+  if (n < 1024 * 1024) return `${Math.ceil(n / 1024).toLocaleString(locale())} KB`;
+  return `${(n / (1024 * 1024)).toLocaleString(locale(), { minimumFractionDigits: 1, maximumFractionDigits: 1 })} MB`;
 }
 
 /** A button that empties the cache (every vault's), saying how much it held. */
 export function clearCacheButton(): HTMLButtonElement {
   const button = h("button", {
-    text: "Clear cached data", class: "secondary", attrs: { type: "button" },
-    title: "Delete the encrypted vault files this browser keeps to open faster (nothing decrypted is ever kept)",
+    text: t("Clear cached data"), class: "secondary", attrs: { type: "button" },
+    title: t("Delete the encrypted vault files this browser keeps to open faster (nothing decrypted is ever kept)"),
   });
   void fileCache().then((c) => c.size()).then(({ bytes }) => {
-    if (bytes > 0) button.textContent = `Clear cached data (${formatBytes(bytes)})`;
+    if (bytes > 0) button.textContent = t("Clear cached data ({size})", { size: formatBytes(bytes) });
   });
   button.addEventListener("click", () => {
     button.disabled = true;
     void fileCache().then((c) => c.clear()).finally(() => {
-      button.textContent = "Cached data cleared";
+      button.textContent = t("Cached data cleared");
     });
   });
   return button;
