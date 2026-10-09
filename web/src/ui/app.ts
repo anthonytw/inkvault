@@ -544,6 +544,11 @@ export class App {
     const el = h("span", { class: "snippet" });
     if (!sn) return el;
     if (hit.page) el.append(h("span", { class: "page-ref", text: t("p. {number}: ", { number: hit.page.number }) }));
+    // A match only inside an equation: a marker, never the LaTeX source (Swift `NoteSearch.equationMarker`).
+    if (sn.isEquation) {
+      el.append(h("span", { class: "equation-marker", text: t("[equation]") }));
+      return el;
+    }
     let at = 0;
     for (const [a, b] of sn.matches) {
       if (a < at) continue;

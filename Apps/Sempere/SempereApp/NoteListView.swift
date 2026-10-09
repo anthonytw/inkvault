@@ -597,6 +597,18 @@ private struct TranscriptHitRow: View {
     }
 }
 
+/// What a search result's snippet says when the match is inside an equation (tested).
+enum SearchSnippetText {
+    static var equationMarker: String {
+        String(localized: "[equation]", comment: "Search result: the match is inside an equation (its source is not quoted)")
+    }
+
+    /// The snippet as a plain string: the localized marker for an equation, else its text.
+    static func display(_ snippet: NoteSearchHit.Snippet) -> String {
+        snippet.isEquation ? equationMarker : snippet.text
+    }
+}
+
 private struct SearchRow: View {
     let hit: NoteSearchHit
     let note: NoteSummary
@@ -615,7 +627,12 @@ private struct SearchRow: View {
                 }
             }
             if let snippet = hit.snippet {
-                Text(Self.highlighted(snippet)).font(.callout).foregroundStyle(.secondary).lineLimit(3)
+                if snippet.isEquation {
+                    // The match is in an equation's LaTeX source: the marker, not the source (core: `NoteSearch.equationMarker`).
+                    Text(SearchSnippetText.equationMarker).font(.callout.italic()).foregroundStyle(.secondary)
+                } else {
+                    Text(Self.highlighted(snippet)).font(.callout).foregroundStyle(.secondary).lineLimit(3)
+                }
             }
             HStack(spacing: 6) {
                 if let notebook = NotebookPath.canonical(note.notebook) {
