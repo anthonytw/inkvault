@@ -118,7 +118,7 @@ final class MathModelImportTests: XCTestCase {
         let blobs = fm.temporaryDirectory.appendingPathComponent("blobs-\(UUID().uuidString)")
         try fm.copyItem(at: tinyFolder(), to: copy)
         try fm.createDirectory(at: blobs, withIntermediateDirectories: true)
-        addTeardownBlock { try? fm.removeItem(at: copy); try? fm.removeItem(at: blobs) }
+        addTeardownBlock { try? FileManager.default.removeItem(at: copy); try? FileManager.default.removeItem(at: blobs) }
         let tokenizer = copy.appendingPathComponent("tokenizer.json"), blob = blobs.appendingPathComponent("tokenizer")
         try fm.moveItem(at: tokenizer, to: blob)
         try fm.createSymbolicLink(at: tokenizer, withDestinationURL: blob)
@@ -155,7 +155,7 @@ final class MathModelImportTests: XCTestCase {
             XCTAssertNotEqual(hostile, original, "the fixture manifest has \(from)")
             let copy = fm.temporaryDirectory.appendingPathComponent("hostile-\(UUID().uuidString)")
             try fm.copyItem(at: tinyFolder(), to: copy)
-            addTeardownBlock { try? fm.removeItem(at: copy) }
+            addTeardownBlock { try? FileManager.default.removeItem(at: copy) }
             try Data(hostile.utf8).write(to: copy.appendingPathComponent("manifest.json"))
             for source in [copy, try zip(of: copy)] {
                 XCTAssertThrowsError(try MathModelImport.install(from: source, root: root)) { error in
@@ -173,7 +173,7 @@ final class MathModelImportTests: XCTestCase {
         for delta in [-1, 1] {
             let copy = fm.temporaryDirectory.appendingPathComponent("size-\(UUID().uuidString)")
             try fm.copyItem(at: tinyFolder(), to: copy)
-            addTeardownBlock { try? fm.removeItem(at: copy) }
+            addTeardownBlock { try? FileManager.default.removeItem(at: copy) }
             let tokenizer = copy.appendingPathComponent("tokenizer.json")
             var data = try Data(contentsOf: tokenizer)
             if delta < 0 { data.removeLast() } else { data.append(0x20) }
