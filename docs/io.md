@@ -671,7 +671,7 @@ would make readers drop the new delta).
 ## Backups
 
 `Backup` (`Sources/Sempere/Backup.swift`) copies a vault's format files
-(`vault.json`, `rewrap-journal.json`, `keys/*.key.age`, `notes/<id>/<revision>`,
+(`vault.json`, `rewrap-journal.json`, `settings.age`, `keys/*.key.age`, `notes/<id>/<revision>`,
 `notes/<id>/att/<blob>`;
 nothing else) with the same atomic-write helper, then reads each copy back
 and compares SHA-256. The backup folder is a vault plus `backup.json`
@@ -866,8 +866,8 @@ server is already age-encrypted, except `vault.json` (public by design).
 A remote `vault.json` with another `vaultId` aborts the run before any
 change.
 
-**What is synced.** `vault.json`, `rewrap-journal.json`,
-`notes/<uuid>/<name>.age` and each note's attachment blobs
+**What is synced.** `vault.json`, `rewrap-journal.json`, `settings.age` (shared
+settings, merged per key: below), `notes/<uuid>/<name>.age` and each note's attachment blobs
 `notes/<uuid>/att/<64 hex>.<kind>.age` (below). Remote entries that are not a lowercase-UUID note
 directory, a canonical revision file name (format.md §5), an `att`
 collection or a canonical blob name (format.md §8.1.2) are ignored and
@@ -974,11 +974,19 @@ content hash (SHA-256) against the last-synced hash; the server ETag (or
 Last-Modified) is only recorded to send `If-Match` on upload. Local only
 changed: PUT with `If-Match`. Remote only changed: atomic replace. Both
 changed (or no common ancestor and different content): the remote copy is
-saved as `<name>.conflict-<device>-<yyyymmddThhmmssZ>.json` in the vault root
+saved as `<name>.conflict-<device>-<yyyymmddThhmmssZ>.<ext>` in the vault root
 (not again if an identical one exists), nothing else changes, and the
 conflict is reported on every run until the files agree. A PUT rejected with
 412 is a conflict too. `rewrap-journal.json` deleted locally is not deleted
 remotely (deletions come only from compaction) and not restored locally.
+`settings.age` (format.md §13) is merged instead when both sides changed and
+the vault is unlocked: both copies are opened (tag verified), merged per key,
+and the result written locally and uploaded with `If-Match` (`merged` in the
+report; a 412 is merged on the next run). A copy that does not verify never
+replaces one that does, and is replaced by it. A copy that needs a newer reader
+(`$minReaderVersion`) is never opened: it is mirrored byte for byte over a copy
+this version can read; two such copies that differ follow the conflict rule
+above, as does the file while the vault is locked.
 Before a remote `vault.json` replaces the local one, its device list is
 checked (`Vault.incomingManifestProblem`, format.md §2.1): the same keys
 (still tagged) pass without a key; a changed list passes only when the vault

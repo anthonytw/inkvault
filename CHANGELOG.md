@@ -9,6 +9,16 @@ The section for a version is the body of its GitHub Release (`docs/releasing.md`
 
 ### Added
 
+- Settings sync through the vault (`docs/settings-sync.md`, `format.md` §13): the vault can hold
+  `settings.age`, a VS Code-style settings.json encrypted and tagged like a revision, that devices
+  which opt in (Settings ▸ Sync Settings with This Vault) follow. Every setting syncs; keys only some
+  kinds of device use are ignored by the others, and `[mac]` / `[ipad]` / `[iphone]` blocks hold
+  per-type values. Merged per key (last writer wins), so concurrent edits on two devices both survive.
+  "Only on This Device" keeps a setting local until "Use Synced Value". `$schemaVersion` and
+  `$minReaderVersion` keep older and newer apps compatible (older apps pause rather than write).
+  CLI: `sempere settings list|get|set|reset|edit|validate|schema` (`--type` for a type block); the
+  schema is `docs/settings.schema.json`. Backups copy the file and `sempere sync webdav` merges it.
+
 - Recordings in exports, finished (C4): "PDF + attachments" ends with an attachment list (kind, title,
   pages, duration, size of every recording, transcript and video clip), each row linked to its
   embedded file and to the page it is on; `sempere export --recordings list` adds the page alone.

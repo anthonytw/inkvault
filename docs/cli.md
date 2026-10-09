@@ -1514,6 +1514,64 @@ now. `--json`:
 `capture` gives `{capture, note, files}`; `import` gives `{dryRun, captures:
 [{capture, note, title, created, transcript, file, removed, error}]}`.
 
+### Shared settings
+
+```
+sempere settings list     [--type mac|ipad|iphone] [--all]
+sempere settings get      KEY [--type T]
+sempere settings set      KEY VALUE [--type T]
+sempere settings reset    KEY [--type T]
+sempere settings edit
+sempere settings validate
+sempere settings schema
+```
+
+The vault's shared settings, `settings.age` (`format.md` §13,
+`docs/settings-sync.md`): what devices with Settings ▸ Sync Settings with This
+Vault on follow. Keys are flat and dotted (`editor.defaultPaper`,
+`mouse.smoothing`); each is listed once with the device types that use it
+(`docs/settings-sync.md` §5). A key may also hold a value for one kind of device
+in a type block, `[mac]`, `[ipad]` or `[iphone]`; `--type` targets that block. A
+device resolves a setting from its type block, then the top level, then the
+built-in default. **The CLI has no device overrides**: "Only on This Device"
+lives on each device and wins there over anything set here.
+
+- `list` shows every known key with its value and where it comes from (`top`,
+  `block` or `default`); with `--type`, what a device of that type uses (only the
+  keys it uses); `--all` adds unknown keys and every type block's entries.
+- `get` prints one value as JSON (resolved for `--type`); a key this version does
+  not know prints its raw value.
+- `set` validates the value against the registry: `true`/`false`/`on`/`off` for
+  switches, numbers and names from the key's list, a title pattern as `notes new
+  --title-format` checks it, a notebook path (stored canonical), a paper kind
+  (`ruled`, `grid`, …) or a paper JSON object (clamped), `null` (or `device`) for
+  the device's transcription language. Unknown keys are refused (exit 2).
+- `reset` writes a reset (the default applies; with `--type`, the top level
+  applies again on that kind of device). Resets merge like values, so a device
+  still holding the old value does not bring it back.
+- `edit` opens `$VISUAL`, `$EDITOR` or `vi` on the decrypted JSON without `$meta`
+  (mode 0600 in a private 0700 temporary folder, deleted afterwards). The result
+  must be a settings object with both versions and valid values for every known
+  key, without `$meta`; otherwise nothing is written (exit 1). Each changed key
+  is recorded in `$meta` and merged with what other devices wrote.
+- `validate` checks the file against the schema: invalid values of known keys,
+  malformed `$meta` entries or versions, and a `$minReaderVersion` newer than
+  this version are errors (exit 3); unknown keys, blocks and `$` members are
+  information. A vault without the file is valid.
+- `schema` prints the JSON Schema (`docs/settings.schema.json`) made from this
+  version's registry.
+
+Writes merge per key with the file on disk (last writer wins, `format.md`
+§13.3), keep everything this version does not know, record no device type, and
+are refused like every write: exit 5 for a legacy vault, 6 for an untrusted device
+list, 7 for a read-only vault. A file whose `$minReaderVersion` is newer than this
+version is refused by every command but `validate` (exit 7) and never rewritten.
+`--json`: `list` gives `{schemaVersion, minReaderVersion, type, settings: [{key,
+value, source, defaultValue, usedBy, summary}], others: [{key, block, value,
+known}]}`; `get` gives `{key, value, source}`; `set` and `reset` give `{key, value,
+block}`; `edit` gives `{changed}`; `validate` gives `{valid, issues: [{severity,
+path, message}]}`.
+
 ### Export
 
 ```
