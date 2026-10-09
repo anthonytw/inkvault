@@ -1,6 +1,7 @@
 import Foundation
 import Sempere
 import SempereImport
+import SempereRender
 import UniformTypeIdentifiers
 
 /// What the app asks of an import (the importer's own flags and the two the app handles itself).
@@ -197,9 +198,9 @@ extension AppModel {
             let clock = try deviceClockForWriting()
             let device = clock.device
             let notes = isCloudVault ? vault.url.appendingPathComponent("notes", isDirectory: true) : nil
+            let extractor: (any PDFTextExtracting)? = importer.usesPDFText && options.pdfText ? PDFKitTextExtractor() : nil
             let request = ImporterRequest(paths: urls, vault: vault, device: device, options: options.values,
-                                          pdfText: importer.usesPDFText && options.pdfText ? PDFKitTextExtractor() : nil,
-                                          notebook: NotebookPath.canonical(notebook))
+                                          pdfText: extractor, notebook: NotebookPath.canonical(notebook))
             let scoped = urls.map { $0.startAccessingSecurityScopedResource() }
             defer { for (url, s) in zip(urls, scoped) where s { url.stopAccessingSecurityScopedResource() } }
             result = try await clock.withClock(save: true) { c in
