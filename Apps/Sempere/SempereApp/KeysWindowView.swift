@@ -250,7 +250,7 @@ private struct AddDeviceKeyView: View {
                 }
             }
         }
-        .frame(minWidth: 460, minHeight: 320)
+        .frame(minWidth: SheetSizing.minWidth(460, isPhone: Platform.isPhone), minHeight: 320)
         .onAppear { if vaultID == nil { vaultID = model.vault?.vaultId } }
         .interactiveDismissDisabled(generated != nil || working != nil)
         .disabled(working != nil)

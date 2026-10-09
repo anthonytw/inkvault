@@ -57,7 +57,7 @@ struct RecipientsRepairView: View {
                 }
             }
         }
-        .frame(minWidth: 460, minHeight: 360)
+        .frame(minWidth: SheetSizing.minWidth(460, isPhone: Platform.isPhone), minHeight: 360)
         .onAppear { selected = choice.initial }
         .disabled(working)
         .interactiveDismissDisabled(working)

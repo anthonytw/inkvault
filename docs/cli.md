@@ -37,7 +37,7 @@ printed only by `keys generate`, `keys export` and `keys paper` (into its PDF).
 | 0 | Success. |
 | 1 | Generic failure (I/O, bad input, corrupt file, refusing to overwrite). |
 | 2 | Usage error (unknown option, missing vault, bad recipient string). |
-| 3 | `vault verify` or `backup verify` found problems, a restored vault is not healthy, or a recipient change is incomplete. |
+| 3 | `vault verify` or `backup verify` found problems, a restored vault is not healthy, a recipient change is incomplete, or `backup status --max-age` found no complete backup in that many days. |
 | 4 | Cannot decrypt: wrong key or passphrase, or no key available (no identity, no passphrase and no terminal to ask, or a `--passphrase-env` variable that is not set). |
 | 5 | Legacy vault: it still lists a classic X25519 key, so it may only be migrated. The message names the command: `migrate first: sempere vault recipients replace OLD NEW`. |
 | 6 | Untrusted device list: `vault.json`'s recipients do not check (`format.md` §2.1: changed without the vault's key, its tag removed, or the vault secret replaced in a way this machine cannot confirm). Every command that would encrypt to the list refuses (nothing is written), `vault verify` reports it, and `sync webdav` exits 6 when it rejected a remote `vault.json`. The message names the unexpected keys and `sempere vault recipients repair`. Reading notes still works. |
