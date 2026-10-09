@@ -126,7 +126,9 @@ changes.
   required-reason categories its sources use, fails on networking in it or on a category that
   neither its manifest nor the app's declares (it is linked statically, so the app's manifest
   covers it), and checks the checkout is the pinned revision. Read that line in the `app` log
-  when bumping it; the archive's privacy report (step 8 below) is the final word.
+  when bumping it; the archive's privacy report (step 8 below) is the final word. Result for
+  1.7.3 (CI of #130): `privacy manifest absent; required-reason APIs: none; networking: none`,
+  so it needs no manifest of its own and adds nothing to the app's.
 - Apple frameworks (PencilKit, Vision, Speech, AVFoundation, PDFKit) are covered by Apple.
 
 ## 3. App Privacy ("nutrition label")
@@ -493,7 +495,7 @@ In order; none of this can be done from the repository.
    both on hardware (iPad on 26.7.1; a Mac).
 8. [ ] In Xcode's Organizer, Generate Privacy Report for each archive; check it lists only
    UserDefaults (CA92.1) and FileTimestamp (C617.1, 3B52.1), plus empty manifests for
-   swift-crypto (and SwiftMath, if it has one).
+   swift-crypto (SwiftMath 1.7.3 ships none and needs none: section 2).
 9. [ ] iOS version page: screenshots (iPad 13", iPhone 6.9"), promotional text, description,
    keywords, support and marketing URLs, What's New, build, copyright, App Review
    Information (contact, notes from section 7, no sign-in), version release (manual or
