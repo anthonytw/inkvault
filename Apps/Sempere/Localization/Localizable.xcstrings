@@ -2588,6 +2588,17 @@
         }
       }
     },
+    "Add a device by pasting its public key (age1pq1…) or by generating one for it. Replace swaps a device's key for a new one in a single re-encryption (for a lost or exposed key). A key that opened the vault here cannot be removed or replaced here." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Añade un dispositivo pegando su clave pública (age1pq1…) o generando una para él. «Sustituir» cambia la clave de un dispositivo por una nueva en un solo recifrado (para una clave perdida o expuesta). Una clave que abrió la bóveda aquí no se puede eliminar ni sustituir aquí."
+          }
+        }
+      }
+    },
     "Add a device key to “%@”" : {
       "comment" : "Face ID prompt reason; %@ is the vault's name",
       "extractionState" : "manual",
@@ -3619,6 +3630,41 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Elegir carpeta de copia…"
+          }
+        }
+      }
+    },
+    "Choose Devices to Keep" : {
+      "comment" : "Recipients repair sheet title",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Elegir dispositivos que conservar"
+          }
+        }
+      }
+    },
+    "Choose Devices to Keep lets you pick the devices yourself; the others are removed and every note is re-encrypted with a new vault key." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Con «Elegir dispositivos que conservar» eliges tú los dispositivos; los demás se eliminan y todas las notas se vuelven a cifrar con una clave de bóveda nueva."
+          }
+        }
+      }
+    },
+    "Choose Devices to Keep…" : {
+      "comment" : "Recipients alert button: pick the keys a repair keeps",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Elegir dispositivos que conservar…"
           }
         }
       }
@@ -4752,6 +4798,17 @@
         }
       }
     },
+    "Devices to keep" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dispositivos que conservar"
+          }
+        }
+      }
+    },
     "Direction" : {
       "comment" : "Text style bar: writing direction menu",
       "extractionState" : "manual",
@@ -5318,6 +5375,39 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Todos los adjuntos están en uso."
+          }
+        }
+      }
+    },
+    "Every note is re-encrypted to the new key instead of the old one. Keep this vault open until it finishes." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Todas las notas se vuelven a cifrar para la clave nueva en lugar de la antigua. Mantén esta bóveda abierta hasta que termine."
+          }
+        }
+      }
+    },
+    "Every note is re-encrypted with a new vault key, to the new key instead of this one. The old key can no longer open new or changed notes; it keeps what it already copied." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Todas las notas se vuelven a cifrar con una clave de bóveda nueva, para la clave nueva en lugar de esta. La clave antigua ya no podrá abrir notas nuevas o modificadas; conserva lo que ya copió."
+          }
+        }
+      }
+    },
+    "Every note is re-encrypted with a new vault key. Devices you do not keep can no longer open new or changed notes; they keep what they already copied." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Todas las notas se vuelven a cifrar con una clave de bóveda nueva. Los dispositivos que no conserves ya no podrán abrir notas nuevas o modificadas; conservan lo que ya copiaron."
           }
         }
       }
@@ -6829,6 +6919,29 @@
         }
       }
     },
+    "Keep an unconfirmed device key in “%@”" : {
+      "comment" : "Face ID prompt before a repair keeps an unconfirmed key; the value is the vault name",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Conservar una clave de dispositivo no confirmada en «%@»"
+          }
+        }
+      }
+    },
+    "Keep the key this device unlocked the vault with: without it, this device could not open the vault after the repair." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Conserva la clave con la que este dispositivo desbloqueó la bóveda: sin ella, este dispositivo no podría abrirla después de la reparación."
+          }
+        }
+      }
+    },
     "Keep the screen awake while this note is open" : {
       "comment" : "Help tag of Keep Screen On",
       "extractionState" : "manual",
@@ -6837,6 +6950,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Mantener la pantalla encendida mientras esta nota esté abierta"
+          }
+        }
+      }
+    },
+    "Keep: %@." : {
+      "comment" : "Repair confirmation; the value is a list of device names and abbreviated keys",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Conservar: %@."
           }
         }
       }
@@ -6861,6 +6986,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Archivo de clave"
+          }
+        }
+      }
+    },
+    "Key to replace" : {
+      "comment" : "Replace Device Key: section header",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Clave que se sustituye"
           }
         }
       }
@@ -6929,6 +7066,17 @@
       "comment" : "Equation sheet: header of the source field; a name, not translated",
       "extractionState" : "manual",
       "shouldTranslate" : false
+    },
+    "Label (empty: keep the current one)" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Etiqueta (vacía: conservar la actual)"
+          }
+        }
+      }
     },
     "Label (for example, Anna's iPad)" : {
       "comment" : "Text field: label of a device key",
@@ -7526,6 +7674,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Nunca"
+          }
+        }
+      }
+    },
+    "Never confirmed by this device" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nunca confirmado por este dispositivo"
           }
         }
       }
@@ -8548,6 +8707,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Solo las versiones anteriores de estas notas muestran estos adjuntos. Se liberan al reducir esas versiones (Ajustes › Historial de versiones)."
+          }
+        }
+      }
+    },
+    "Only the devices you keep can open the vault after the repair. Keep a device marked as never confirmed only if you know it is yours." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Solo los dispositivos que conserves podrán abrir la bóveda después de la reparación. Conserva un dispositivo marcado como nunca confirmado solo si sabes que es tuyo."
           }
         }
       }
@@ -10693,6 +10863,18 @@
         }
       }
     },
+    "Remove: %@." : {
+      "comment" : "Repair confirmation; the value is a list of device names and abbreviated keys",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Eliminar: %@."
+          }
+        }
+      }
+    },
     "Removed %@ from %@." : {
       "comment" : "Thinning done: “Removed 120 old autosaves (1.2 MB) from 4 notes.”",
       "extractionState" : "manual",
@@ -10908,14 +11090,48 @@
         }
       }
     },
-    "Repair it from a device that has opened this vault before, or with `sempere vault recipients repair --keep`." : {
-      "comment" : "Device list alert (it = the list); keep the command as it is",
+    "Repair" : {
+      "comment" : "Recipients repair: destructive confirmation button",
       "extractionState" : "manual",
       "localizations" : {
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Repárala desde un dispositivo que ya haya abierto esta bóveda o con `sempere vault recipients repair --keep`."
+            "value" : "Reparar"
+          }
+        }
+      }
+    },
+    "Repair the device list?" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "¿Reparar la lista de dispositivos?"
+          }
+        }
+      }
+    },
+    "Repairing the device list and re-encrypting every note…" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reparando la lista de dispositivos y volviendo a cifrar todas las notas…"
+          }
+        }
+      }
+    },
+    "Repair…" : {
+      "comment" : "Recipients repair sheet: confirm button",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reparar…"
           }
         }
       }
@@ -10928,6 +11144,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Repetir frase de contraseña"
+          }
+        }
+      }
+    },
+    "Replace Device Key" : {
+      "comment" : "Key window: title of the sheet that replaces a device's key",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sustituir clave de dispositivo"
           }
         }
       }
@@ -10956,6 +11184,30 @@
         }
       }
     },
+    "Replace Key…" : {
+      "comment" : "Key window: context menu, replace a device's key",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sustituir clave…"
+          }
+        }
+      }
+    },
+    "Replace a device key of “%@”" : {
+      "comment" : "Face ID prompt before replacing a device key; the value is the vault name",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sustituir una clave de dispositivo de «%@»"
+          }
+        }
+      }
+    },
     "Replace the saved key for “%@”" : {
       "comment" : "Face ID prompt; the value is the vault name",
       "extractionState" : "manual",
@@ -10964,6 +11216,52 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Sustituir la clave guardada de «%@»"
+          }
+        }
+      }
+    },
+    "Replace this key?" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "¿Sustituir esta clave?"
+          }
+        }
+      }
+    },
+    "Replace “%@”" : {
+      "comment" : "Key window: confirm replacing the named device's key",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sustituir «%@»"
+          }
+        }
+      }
+    },
+    "Replace…" : {
+      "comment" : "Key window: replace a device's key",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sustituir…"
+          }
+        }
+      }
+    },
+    "Replacing the key and re-encrypting every note…" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sustituyendo la clave y volviendo a cifrar todas las notas…"
           }
         }
       }
@@ -12795,6 +13093,17 @@
         }
       }
     },
+    "Taken off the list without the vault's key" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Quitado de la lista sin la clave de la bóveda"
+          }
+        }
+      }
+    },
     "Tap Ink to Play" : {
       "comment" : "Toggle in the player: tap handwriting to play the audio recorded when it was written",
       "extractionState" : "manual",
@@ -13157,6 +13466,17 @@
         }
       }
     },
+    "That is the key this vault was unlocked with. To replace it, add a new key for this device, unlock with it, then remove this one." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Es la clave con la que se desbloqueó esta bóveda. Para sustituirla, añade una clave nueva para este dispositivo, desbloquea con ella y luego elimina esta."
+          }
+        }
+      }
+    },
     "That is the key this vault was unlocked with. Unlock with another key to remove it." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -13503,6 +13823,17 @@
         }
       }
     },
+    "The key this device unlocked with is not in the list, so a repair from here could lock this device out. Repair it from another device, or with `sempere vault recipients repair --keep`." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La clave con la que se desbloqueó este dispositivo no está en la lista, así que una reparación desde aquí podría dejarlo sin acceso. Repárala desde otro dispositivo o con `sempere vault recipients repair --keep`."
+          }
+        }
+      }
+    },
     "The key this device unlocked “%@” with." : {
       "comment" : "Footer in Save Key; %@ is the vault's name",
       "extractionState" : "manual",
@@ -13800,6 +14131,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "La bóveda se cifrará con tu clave poscuántica %1$@…%2$@."
+          }
+        }
+      }
+    },
+    "The vault's device list checks, or it cannot be repaired from this device. Nothing was changed." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La lista de dispositivos de la bóveda es correcta o no se puede reparar desde este dispositivo. No se ha cambiado nada."
           }
         }
       }
@@ -14102,6 +14444,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Este dispositivo no puede ejecutar el modelo de escritura."
+          }
+        }
+      }
+    },
+    "This device's key: always kept" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Clave de este dispositivo: siempre se conserva"
           }
         }
       }
@@ -15142,6 +15495,18 @@
         }
       }
     },
+    "Unnamed device" : {
+      "comment" : "Repair: a key without a label",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dispositivo sin nombre"
+          }
+        }
+      }
+    },
     "Untitled" : {
       "comment" : "Shown for a note without a title",
       "extractionState" : "manual",
@@ -15713,6 +16078,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Amarillo"
+          }
+        }
+      }
+    },
+    "You are keeping a device this device never confirmed. Keep it only if you know it is yours." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vas a conservar un dispositivo que este dispositivo nunca confirmó. Consérvalo solo si sabes que es tuyo."
           }
         }
       }

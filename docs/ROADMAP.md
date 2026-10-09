@@ -30,7 +30,7 @@ GA-12, GA-22, GA-24, GA-25, GA-26.
 | Crypto | age v1: X25519, scrypt, armor, STREAM; CCTV vectors | ✅ |
 | Crypto | Post-quantum ML-KEM-768 + X25519 recipients; vaults post-quantum only, legacy vaults open only to migrate | ✅ #33 |
 | Crypto | Streaming encrypt/decrypt, header-only rewrap, streaming re-encrypt (B1) | ✅ #43 |
-| Crypto | Authenticated recipients (`format.md` §2.1): `recipientsTag` over the device list, `secretLink` on rotations (signed, Ed25519 + ML-DSA-65, ✅ #115), per-device trust records (public keys only, ✅ #115); writes, rewraps and capture profiles refuse a tampered list; repair and confirm; untagged vaults tagged by their first writer | ✅ #98 |
+| Crypto | Authenticated recipients (`format.md` §2.1): `recipientsTag` over the device list, `secretLink` on rotations (signed, Ed25519 + ML-DSA-65, ✅ #115), per-device trust records (public keys only, ✅ #115); writes, rewraps and capture profiles refuse a tampered list; repair and confirm (repair with chosen keys in the app too, ✅ #135); untagged vaults tagged by their first writer | ✅ #98 |
 | Crypto | Asymmetric hybrid `secretLink` (security review R2, `format.md` §2.1): Ed25519 + ML-DSA-65 signatures by keys derived from the outgoing secret, both must verify; trust records `sempere-trust/2` hold only the public keys, a legacy `sempere-trust/1` record is replaced at the first write; shared vectors (`Fixtures/secret-link-vectors.json`) mirrored in the web viewer | ✅ #115 |
 | Vault | Write-once revisions, HLC, merge, snapshots, compaction | ✅ |
 | Vault | History and restore points | ✅ |
@@ -123,7 +123,7 @@ The CLI gets every feature first, or at the latest with the app (`CLAUDE.md`
 | Authenticated device list (`format.md` §2.1): `vault info`/`verify` report it (`recipientsAuth`), exit 6 for writes to a tampered list, `vault recipients repair [--keep] [--dry-run]` and `confirm`, `sync webdav` rejects an unchecked remote `vault.json` (exit 6) | ✅ #98 | ✅ #98 |
 | Signed secret links (`format.md` §2.1, security review R2): `secretLink` = Ed25519 + ML-DSA-65 signatures, trust records hold public keys only; `vault link [status]` and `vault link upgrade` (one-time migration, `--json`); the app upgrades after unlock | ✅ #115 | ✅ #115 |
 | Recovery kit (paper key), backup / verify / restore | ✅ #30 | ✅ #30 |
-| `backup status DIR` (last run, notes, files, bytes from `backup.json`), `restore --dry-run` (preview: notes, revisions, attachments, newest revision; checks the target), restore never into `--vault` / `$SEMPERE_VAULT` (the app's Backups) | ✅ #110 | ✅ #110 |
+| `backup status DIR` (last run, last complete run, notes, files, bytes from `backup.json`), `restore --dry-run` (preview: notes, revisions, attachments, newest revision; checks the target), restore never into `--vault` / `$SEMPERE_VAULT` (the app's Backups) | ✅ #110 | ✅ #110 |
 | Markdown (Obsidian) and single-file HTML export | ✅ #27 | ✅ #27 |
 | Release builds: static binary (Linux x86_64 + aarch64), universal (macOS), Homebrew formula, provenance | ✅ #26 | ✅ #26 |
 | Attachments: `blobs` (list, verify, extract, add, copy, unused, gc, repair), `recipients --rewrap`, `recover` of a blob (B2) | ✅ #60 | ✅ #60 |
@@ -140,7 +140,7 @@ The CLI gets every feature first, or at the latest with the app (`CLAUDE.md`
 | Vaults of a newer format version (`format.md` §7): read commands work and report `readOnly`, `readOnlyReasons` and per-note `newer` in `--json`; every write exits 7 | ✅ #94 | ✅ #94 |
 | `notes favorite` / `unfavorite` (nothing sets `meta.favorite` today; the app follows) (GA-01, M) | 📋 | 📋 |
 | `items text` (edit a text box's text and style, on `NoteOps.setText`) (GA-03, M) | 📋 | 📋 |
-| `backup` overdue check for the app's "Remind Me" (GA-18, S) | 📋 | 📋 |
+| `backup status DIR --max-age DAYS`: overdue check for the app's "Remind Me" (exit 3; `backup.json` records the last complete run, `completed`) (GA-18, S) | ✅ #135 | ✅ #135 |
 | `vault summaries --plaintext --out` writes the file mode 0600 (P5) (GA-30, S) | ✅ #130 | — |
 | Tests: exit 7 for every write command (GA-65, M); documented flags never exercised (GA-66, S–M); Linux errors of `recognize` and `attach video --from-clip` (GA-53, S); `sync webdav --retry-quarantined` and the restore resume marker through the commands (GA-60, S) | 📋 | 📋 |
 
@@ -207,9 +207,9 @@ The CLI gets every feature first, or at the latest with the app (`CLAUDE.md`
 | Items | Rotate an item (`NoteEditor.setItemRotation` has no caller; the CLI has `items rotate`) (GA-02, M) | 📋 |
 | Settings | "Notebook for quick voice notes" in New Notes does nothing; one field should drive capture (GA-04, S) | 📋 |
 | Settings | Transcription model download button never appears (`TranscriptionSettings.downloader` is never set) (GA-05, M) | 📋 |
-| Search | Transcripts in the app's search (`TranscriptSearch`, shared with `search --transcripts`) (GA-06, M); highlights inside text boxes (`TextMatchBoxes`; CLI `search --show-boxes` too) (GA-07, M) | 🚧 #134 (not yet tried on the iPad) |
-| Import | App Notability import: an options sheet (attachments, photo metadata, PDF page text, folder tags, read handwriting) and the full report (`dropped.*`, warnings) (GA-08, M) | 🚧 #134 (not yet tried on the iPad) |
-| Keys | Recipient `repair --keep` and replace-recipient in the app (today the alert says to use the CLI) (GA-17, M) | 📋 |
+| Search | Transcripts in the app's search (`TranscriptSearch`, shared with `search --transcripts`) (GA-06, M); highlights inside text boxes (`TextMatchBoxes`; CLI `search --show-boxes` too) (GA-07, M) | ✅ #134 (not yet tried on the iPad) |
+| Import | App Notability import: an options sheet (attachments, photo metadata, PDF page text, folder tags, read handwriting) and the full report (`dropped.*`, warnings) (GA-08, M) | ✅ #134 (not yet tried on the iPad) |
+| Keys | Recipient `repair --keep` and replace-recipient in the app: the recipients alert's Choose Devices to Keep… and the key window's Replace… (GA-17, M); `--prune` and `--archive` stay CLI-only on purpose (`docs/cli.md` "The app's Backups", GA-18) | ✅ #135 (not yet tried on a device) |
 | Capture | C8: stale `completeUnlessOpen` comments in `QuickCapture.swift` (GA-34, S) | 📋 |
 | Release | Privacy policy (both copies), App Store answers and `DESIGN.md` describe the dormant model downloader exactly; `release-check.sh` fails on networking in the app outside it and on a non-empty catalogue, checks the SwiftMath pin and (CI `app` job) scans its checkout; the CLI release refuses a CHANGELOG section with `TODO(user)` or no date (GA-40 to GA-42, M) | ✅ #130 (the 0.5.0 date itself is the maintainer's) |
 | Tests | `writeEpoch`, `summaryEpochs`, `DerivedLists`, `validateVault`, `backgroundTimeExpired`, quick-capture intents and Live Activity, menu handlers and scene restore, key export, PDF-drag purge (GA-54 to GA-57, GA-59, M); settings confirmations (GA-64, S) | 📋 |
@@ -245,7 +245,7 @@ behaviour and testing on a real Mac.
 | Multiple windows (one note per window), state restoration | ✅ #46 (`docs/mac.md`); note windows checked on Catalyst in CI; restoration needs a hand test; double-click opens a window ✅ #101 |
 | Drag a note to the Finder as PDF | ✅ #46, #85 (`docs/mac.md`); file promise served off the main thread after build 6; Finder drop needs a hand test |
 | Bulk export from the app | ✅ #42 (multi-selection export, `ShareExport`); File ▸ Export Notes… (selection, notebook or vault; PDF, PDF + attachments, PNG; folder (resumable) or zip), shared with `sempere export --all` (`BulkExportSession`): ✅ #109 (not yet tried on a Mac) |
-| Key management window (recipients, add/remove device key, paper kit) | ✅ #46 (`docs/mac.md`); save/create key actions ✅ #99 |
+| Key management window (recipients, add/remove device key, paper kit) | ✅ #46 (`docs/mac.md`); save/create key actions ✅ #99; replace a device key ✅ #135 |
 | Drawing with mouse/trackpad (any input, object eraser takes the pointer, tool-sized cursor, ruler) | ✅ #46 (`docs/mac.md`); mouse stroke smoothing (Settings → General: Off / Light / Strong) ✅ #123 |
 | Mac App Store build (same bundle, universal purchase) | ✅ #113: project checked (one bundle id, sandbox, entitlements allow-list in `scripts/release-check.sh`), steps in `docs/release/app-store.md` §6; the submission is 📋 |
 | Mac App Store screenshots (Catalyst, 2880 × 1800, best effort) | ✅ #53 |

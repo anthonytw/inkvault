@@ -378,6 +378,13 @@ mark on the key that unlocked the vault. From it:
 * **Remove…** drops a key. The key that unlocked the vault, and the last key,
   cannot be removed. Removal rotates the vault secret and re-encrypts every
   note (`Vault.removeRecipient`, `docs/io.md` "Recipient changes").
+* **Replace…** swaps another device's key for a pasted public key or a
+  generated one (shown once, as for Add) in one change: the vault secret
+  rotates and every note is re-encrypted once (`Vault.replaceRecipient`, the
+  CLI's `vault recipients replace`); an empty label keeps the old one. It
+  asks for confirmation and then the owner check, as Add does. The key that
+  unlocked the vault cannot be replaced here (`KeyError.replaceInUse`): add a
+  key for this device, unlock with it, then remove the old one.
 * **Recovery Kit…** is the paper kit (`sempere keys paper`): the unlocked key as
   a QR code and checked text, to print (system print panel) or save as PDF. The
   PDF holds the secret key, and the dialog says so.
