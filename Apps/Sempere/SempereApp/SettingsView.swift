@@ -92,7 +92,6 @@ private struct NewNoteSettingsSection: View {
     @State private var format = NewNoteSettings.titleFormat()
     /// The custom pattern as typed (stored only while it checks).
     @State private var pattern = NewNoteSettings.titlePattern()
-    @State private var notebook = NewNoteSettings.voiceNotebook()
     @State private var paper = PaperPreference.load()
     @State private var choosingPaper = false
 
@@ -130,28 +129,16 @@ private struct NewNoteSettingsSection: View {
                     PaperPreference.save(chosen)
                 }
             }
-            LabeledContent("Voice Notes") {
-                TextField(NewNoteSettings.defaultVoiceNotebook, text: $notebook)
-                    .multilineTextAlignment(.trailing)
-                    .autocorrectionDisabled()
-                    .onSubmit(commitNotebook)
-                    .onChange(of: notebook) { NewNoteSettings.setVoiceNotebook(notebook) }
-            }
         } header: {
             Text("New Notes")
         } footer: {
-            Text("A new note whose title you leave empty is named \(sample). Quick voice notes go to the notebook “\(NewNoteSettings.canonicalNotebook(notebook))”; use / for levels.")
+            Text("A new note whose title you leave empty is named \(sample).")
         }
     }
 
     private var sample: String {
         let t = NewNoteSettings.title(format, pattern: NewNoteSettings.titlePattern())
         return t.isEmpty ? String(localized: "“Untitled”", comment: "Settings ▸ New Notes footer: how a note with no title is shown, in quotes") : "“\(t)”"
-    }
-
-    private func commitNotebook() {
-        NewNoteSettings.setVoiceNotebook(notebook)
-        notebook = NewNoteSettings.voiceNotebook()
     }
 }
 

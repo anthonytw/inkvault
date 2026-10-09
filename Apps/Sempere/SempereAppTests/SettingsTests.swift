@@ -211,16 +211,6 @@ struct SettingsTests {
         #expect(!NewNoteSettings.resolvedTitle(typed: "", defaults: d).isEmpty)
     }
 
-    @Test func voiceNotebookDefaultsToInboxAndIsCanonical() {
-        let d = scratch()
-        #expect(NewNoteSettings.voiceNotebook(d) == "Inbox")
-        NewNoteSettings.setVoiceNotebook(" School // Audio ", in: d)
-        #expect(NewNoteSettings.voiceNotebook(d) == "School/Audio")
-        NewNoteSettings.setVoiceNotebook(" / ", in: d)
-        #expect(NewNoteSettings.voiceNotebook(d) == "Inbox", "a blank name resets to the default")
-        #expect(NewNoteSettings.canonicalNotebook("") == "Inbox")
-    }
-
     @Test func defaultPaperIsRemembered() {
         let d = scratch()
         #expect(PaperPreference.load(from: d) == PaperPreference.fallback)
