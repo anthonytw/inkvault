@@ -494,9 +494,10 @@ private struct DeviceKeySettingsSection: View {
             Picker("When Removing a Device or Upgrading to Post-Quantum Keys", selection: Binding(
                 get: { onRemove },
                 set: { chosen in
-                    if RewrapSettings.needsConfirmation(forRemoval: chosen), chosen != onRemove {
+                    switch RewrapSettings.removalStep(choosing: chosen, current: onRemove) {
+                    case .confirm:
                         confirming = true
-                    } else {
+                    case .apply:
                         onRemove = chosen
                         RewrapSettings.setOnRemoveOrUpgrade(chosen)
                     }

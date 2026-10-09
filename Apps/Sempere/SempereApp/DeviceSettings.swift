@@ -247,6 +247,15 @@ enum RewrapSettings {
     /// copies of every attachment: choosing it needs a warning and a confirmation.
     static func needsConfirmation(forRemoval method: RewrapMethod) -> Bool { method == .headerOnly }
 
+    /// What choosing `chosen` in the "When Removing a Device or Upgrading" picker does
+    /// while `current` is set: header-only (when not already set) waits for the
+    /// confirmation dialog, anything else is applied and stored at once.
+    enum RemovalStep: Equatable { case confirm, apply }
+
+    static func removalStep(choosing chosen: RewrapMethod, current: RewrapMethod) -> RemovalStep {
+        needsConfirmation(forRemoval: chosen) && chosen != current ? .confirm : .apply
+    }
+
     static func title(_ m: RewrapMethod) -> String {
         m == .headerOnly
             ? String(localized: "Rewrite headers only", comment: "Settings ▸ Device Keys: how attachments are rewrapped (picker choice)")

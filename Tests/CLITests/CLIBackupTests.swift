@@ -264,4 +264,54 @@ final class CLIBackupTests: CLITestCase {
         let bytes = try Data(contentsOf: URL(fileURLWithPath: tar))
         XCTAssertNil(String(decoding: bytes, as: UTF8.self).range(of: "Fixture lecture"), "no plaintext in the archive")
     }
+
+    /// GA-60: the `.sempere-restore.json` marker through the command. An interrupted restore (marker,
+    /// some files, no `vault.json`) is finished by running the same command again; the marker goes
+    /// when the restore is complete; a marker of another vault, or a folder with other content,
+    /// is refused (exit 1) and left as it was.
+    func testRestoreResumesAnInterruptedRestoreThroughTheCommand() throws {
+        let vault = try copyFixtureVault()
+        let args = ["--vault", vault, "--identity", Self.fixtureKey]
+        let backup = path("backup")
+        XCTAssertEqual(try cli(["backup", "--to", backup, "-q"] + args).status, 0)
+        let vaultId = try XCTUnwrap((try cli(["vault", "info", "--json"] + args).json as? [String: Any])?["vaultId"] as? String
+                                    ?? (try cli(["vault", "info", "--json"] + args).json as? [String: Any])?["id"] as? String)
+        let note = "22222222-2222-4222-8222-222222222222"
+        let revision = try XCTUnwrap(try FileManager.default.contentsOfDirectory(atPath: "\(backup)/notes/\(note)").sorted().first)
+        let marker = ".sempere-restore.json"
+
+        // Another vault's marker: refused, nothing written.
+        let foreign = path("foreign.sempere")
+        try FileManager.default.createDirectory(atPath: foreign, withIntermediateDirectories: true)
+        try Data("{\"vaultId\": \"00000000-0000-4000-8000-000000000000\"}".utf8).write(to: URL(fileURLWithPath: "\(foreign)/\(marker)"))
+        let refused = try cli(["restore", backup, "--to", foreign, "--identity", Self.fixtureKey])
+        XCTAssertEqual(refused.status, 1, refused.err)
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: foreign), [marker])
+        // A folder with other content and no marker: refused too.
+        let occupied = path("occupied.sempere")
+        try FileManager.default.createDirectory(atPath: occupied, withIntermediateDirectories: true)
+        try Data("keep".utf8).write(to: URL(fileURLWithPath: "\(occupied)/mine.txt"))
+        XCTAssertEqual(try cli(["restore", backup, "--to", occupied, "--identity", Self.fixtureKey]).status, 1)
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: occupied), ["mine.txt"])
+
+        // The interrupted one: marker plus one revision, no vault.json.
+        let target = path("resumed.sempere")
+        try FileManager.default.createDirectory(atPath: "\(target)/notes/\(note)", withIntermediateDirectories: true)
+        try Data("{\"vaultId\": \"\(vaultId)\"}".utf8).write(to: URL(fileURLWithPath: "\(target)/\(marker)"))
+        try FileManager.default.copyItem(atPath: "\(backup)/notes/\(note)/\(revision)", toPath: "\(target)/notes/\(note)/\(revision)")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: "\(target)/vault.json"), "an unfinished restore is no vault")
+        let dry = try cli(["restore", backup, "--to", target, "--dry-run", "--json", "--identity", Self.fixtureKey])
+        XCTAssertEqual(dry.status, 0, dry.err)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: "\(target)/\(marker)"), "a dry run leaves the marker")
+
+        let r = try cli(["restore", backup, "--to", target, "--json", "--identity", Self.fixtureKey])
+        XCTAssertEqual(r.status, 0, r.err)
+        let report = try XCTUnwrap(r.json as? [String: Any])
+        XCTAssertEqual(report["alreadyPresent"] as? Int, 1, "the revision already there is not copied again")
+        XCTAssertGreaterThan(report["restored"] as? Int ?? 0, 1)
+        XCTAssertEqual(report["healthy"] as? Bool, true)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: "\(target)/\(marker)"), "the marker goes when the restore is complete")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: "\(target)/vault.json"))
+        XCTAssertEqual(try cli(["vault", "verify", "--vault", target, "--identity", Self.fixtureKey]).status, 0)
+    }
 }

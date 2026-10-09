@@ -76,9 +76,9 @@ GA-12, GA-22, GA-24, GA-25, GA-26.
 | Capture | C2: a forged capture's attribution (the capturing device is not stored, the notebook comes from the manifest) (GA-31, M) | 📋 |
 | Crypto | C3: a removed device's captures are adopted while its rewrap is unfinished; needs an authenticated names list (format change) (GA-32, L) | 📋 |
 | Crypto | N3: `format` and `features` in `vault.json` are not covered by `recipientsTag` (format change) (GA-33, L) | 📋 |
-| CI | Run the WebDAV integration tests against a server container (GA-50, M) | 📋 |
-| CI | Fail instead of skip for zbar, zip, pdftotext, `BidiTest.txt` and macOS poppler (GA-61, S) | 📋 |
-| Tests | Fixture vault with a note that has items (GA-63, S) | 📋 |
+| CI | Run the WebDAV integration tests against a server (`webdav` job, wsgidav) (GA-50, M) | 🚧 #133 |
+| CI | Fail instead of skip for zbar, zip, pdftotext, `BidiTest.txt` and macOS poppler (`SEMPERE_REQUIRE_TOOLS`) (GA-61, S) | 🚧 #133 |
+| Tests | Fixture vault with a note that has items (GA-63, S) | 🚧 #133 |
 
 ## CLI (`sempere`; one codebase for both platforms)
 
@@ -142,7 +142,7 @@ The CLI gets every feature first, or at the latest with the app (`CLAUDE.md`
 | `items text` (edit a text box's text and style, on `NoteOps.setText`) (GA-03, M) | 📋 | 📋 |
 | `backup` overdue check for the app's "Remind Me" (GA-18, S) | 📋 | 📋 |
 | `vault summaries --plaintext --out` writes the file mode 0600 (P5) (GA-30, S) | ✅ #130 | — |
-| Tests: exit 7 for every write command (GA-65, M); documented flags never exercised (GA-66, S–M); Linux errors of `recognize` and `attach video --from-clip` (GA-53, S); `sync webdav --retry-quarantined` and the restore resume marker through the commands (GA-60, S) | 📋 | 📋 |
+| Tests: exit 7 for every write command (GA-65, M); documented flags never exercised (GA-66, S–M); Linux errors of `recognize` and `attach video --from-clip` (GA-53, S); `sync webdav --retry-quarantined` and the restore resume marker through the commands (GA-60, S) | 🚧 #133 | 📋 |
 
 ## iPad app (`Apps/`, SwiftUI + PencilKit, iPadOS 26)
 
@@ -212,10 +212,10 @@ The CLI gets every feature first, or at the latest with the app (`CLAUDE.md`
 | Keys | Recipient `repair --keep` and replace-recipient in the app (today the alert says to use the CLI) (GA-17, M) | 📋 |
 | Capture | C8: stale `completeUnlessOpen` comments in `QuickCapture.swift` (GA-34, S) | 📋 |
 | Release | Privacy policy (both copies), App Store answers and `DESIGN.md` describe the dormant model downloader exactly; `release-check.sh` fails on networking in the app outside it and on a non-empty catalogue, checks the SwiftMath pin and (CI `app` job) scans its checkout; the CLI release refuses a CHANGELOG section with `TODO(user)` or no date (GA-40 to GA-42, M) | ✅ #130 (the 0.5.0 date itself is the maintainer's) |
-| Tests | `writeEpoch`, `summaryEpochs`, `DerivedLists`, `validateVault`, `backgroundTimeExpired`, quick-capture intents and Live Activity, menu handlers and scene restore, key export, PDF-drag purge (GA-54 to GA-57, GA-59, M); settings confirmations (GA-64, S) | 📋 |
+| Tests | `writeEpoch`, `summaryEpochs`, `DerivedLists`, `validateVault`, `backgroundTimeExpired`, quick-capture intents and Live Activity, menu handlers and scene restore, key export, PDF-drag purge (GA-54 to GA-57, GA-59, M); settings confirmations (GA-64, S) | 🚧 #133 |
 | Export | HTML and SVG export (`ShareFormat.html` is never offered), `--clean` and `--breaks` in the app; today CLI-only (GA-19, S) | 📋 |
 | Release | App Store review notes and listing draft claim highlighted words on the page; check against the iPhone, which has none yet (GA-43, S) | 📋 |
-| Tests | Pseudo-language layout test (double-length, right to left, Spanish) in CI, at iPhone width and on Catalyst (GA-51, S–M) | 📋 |
+| Tests | Pseudo-language layout test (double-length, right to left, Spanish) in CI on the iPad simulator (iPhone by hand with `SEMPERE_PSEUDO_DEVICE=iPhone`, Catalyst not yet) (GA-51, S–M) | 🚧 #133 |
 | Device | Hand tests of the "not yet tried on the iPad" rows, in particular background sync, remote merge, page scrolling and sidebar drops (GA-72, M) | 📋 (needs the maintainer) |
 
 ## macOS app (the iPad app via Mac Catalyst; same target, same code)
@@ -268,11 +268,11 @@ behaviour and testing on a real Mac.
 | Proton Drive in the Files app | 📋 (needs the maintainer) | It probably already works through the folder picker. The download checks are tuned for iCloud, so it needs a test pass with a Proton Drive account. Google Drive, Dropbox, OneDrive and Nextcloud are not planned. |
 | iPhone: page layout switch, Duplicate / Delete / Undo Delete Page, Add Page After This One, Insert PDF at page and the thumbnail strip on the phone toolbar (GA-15, M) | ✅ #136 (not yet tried on an iPhone) | The Pages submenu of the overflow menu (`PhonePageMenu`). |
 | iPhone: swipe to turn pages, search-hit highlights on the phone, paper picker layout pass (GA-16, M) | ✅ #136 (not yet tried on an iPhone) | Swipe and the compact paper picker added; the highlights already worked (shared canvas code), now tested at phone size. |
-| iPhone: tests of the overflow menu and Annotate, the "wide landscape ignores the stored column" and pageless one-screen rules at phone size (GA-58, M) | 📋 | `PhoneLayoutTests.swift`. |
+| iPhone: tests of the overflow menu and Annotate, the "wide landscape ignores the stored column" and pageless one-screen rules at phone size (GA-58, M) | 🚧 #133 | `PhoneLayoutTests.swift`. |
 | iPhone: hand test on a physical iPhone (Face ID, folder picker, finger annotation) (GA-71, M) | 📋 (needs the maintainer) | Needs a phone. |
 | Web viewer: cache ciphertext from before a rewrap stays openable by a removed key (P4) (GA-28, S) | 📋 (#125) | `web/src/vault/cache.ts`; `security-review-2026-10.md`. |
 | Web viewer: passkey record bound to the vault's location, not only its (unauthenticated) id; version 1 records migrated; no IndexedDB database before opting in (P3) (GA-28, S) | ✅ #130 | `web/src/vault/passkey.ts`; `docs/web-viewer.md` "The location". |
-| Web viewer CI: run all 7 browser smoke scripts (2 run today), give `smoke-cache` a fixture with summaries and an index (GA-52, M) | 📋 | `ci.yml`, `web/scripts/`. |
+| Web viewer CI: run all 7 browser smoke scripts (`web-smoke` job, `smoke-all.sh`), give `smoke-cache` a fixture with summaries and an index (GA-52, M) | 🚧 #133 | `ci.yml`, `web/scripts/`. |
 
 ## First release
 

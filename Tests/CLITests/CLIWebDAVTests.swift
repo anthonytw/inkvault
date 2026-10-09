@@ -122,4 +122,67 @@ final class CLIWebDAVTests: CLITestCase {
         XCTAssertTrue(bad.err.contains("401"), bad.err)
         XCTAssertFalse(bad.err.contains("wrong-pw"))
     }
+
+    /// GA-60: `--retry-quarantined` through the command. A revision that is not an age file is
+    /// quarantined at the first pull; the next pull skips it (unchanged on the server) and says so;
+    /// `--retry-quarantined` fetches and checks it again.
+    func testRetryQuarantinedAgainstRealServer() throws {
+        let env = ProcessInfo.processInfo.environment
+        guard let base = env["SEMPERE_WEBDAV_TEST_URL"], let user = env["SEMPERE_WEBDAV_TEST_USER"],
+              let password = env["SEMPERE_WEBDAV_TEST_PASSWORD"] else { throw XCTSkip("no WebDAV test server") }
+        let url = base + "cli-quarantine-\(UUID().uuidString.lowercased())/vault/"
+        let e = ["TEST_DAV_PW": password, "XDG_STATE_HOME": path("state")]
+        let common = ["--user", user, "--password-env", "TEST_DAV_PW"]
+        let source = try copyFixtureVault(as: "source.sempere")
+        let junk = "notes/22222222-2222-4222-8222-222222222222/17911308099000000-a1b2c3d4-9.delta.age"
+        try Data((0..<300).map { UInt8(truncatingIfNeeded: $0 &* 7) }).write(to: URL(fileURLWithPath: source + "/" + junk))
+        XCTAssertEqual(try cli(["sync", "webdav", url, "--vault", source, "--push-only"] + common, env: e).status, 0)
+
+        // Exit 1 when a file was quarantined in this run (docs/cli.md), 0 when it was only skipped.
+        func pull(_ extra: [String] = [], status: Int32) throws -> [String: Any] {
+            let r = try cli(["sync", "webdav", url, "--vault", path("pulled.sempere"), "--json"] + common + extra, env: e)
+            XCTAssertEqual(r.status, status, r.err)
+            return try XCTUnwrap(r.json as? [String: Any])
+        }
+        func paths(_ json: [String: Any], _ key: String) -> [String] {
+            (json[key] as? [[String: Any]] ?? []).compactMap { $0["path"] as? String }
+        }
+        let first = try pull(status: 1)
+        XCTAssertEqual(paths(first, "quarantined"), [junk])
+        XCTAssertFalse(FileManager.default.fileExists(atPath: path("pulled.sempere/" + junk)), "never placed in the vault")
+        let second = try pull(status: 0)
+        XCTAssertEqual(paths(second, "quarantined"), [])
+        XCTAssertEqual(paths(second, "skipped"), [junk])
+        XCTAssertTrue((second["skipped"] as? [[String: Any]])?.first?["message"] as? String ?? "" != "")
+        let third = try pull(["--retry-quarantined"], status: 1)
+        XCTAssertEqual(paths(third, "quarantined"), [junk], "fetched and checked again")
+        XCTAssertEqual(paths(third, "skipped"), [])
+    }
+
+    /// GA-60 / GA-66: `--device` names this machine in the conflict copy of `vault.json`.
+    func testDeviceNamesTheConflictFileAgainstRealServer() throws {
+        let env = ProcessInfo.processInfo.environment
+        guard let base = env["SEMPERE_WEBDAV_TEST_URL"], let user = env["SEMPERE_WEBDAV_TEST_USER"],
+              let password = env["SEMPERE_WEBDAV_TEST_PASSWORD"] else { throw XCTSkip("no WebDAV test server") }
+        let url = base + "cli-conflict-\(UUID().uuidString.lowercased())/vault/"
+        let e = ["TEST_DAV_PW": password, "XDG_STATE_HOME": path("state")]
+        let common = ["--user", user, "--password-env", "TEST_DAV_PW"]
+        let a = try copyFixtureVault(as: "a.sempere")
+        let b = path("b.sempere")
+        XCTAssertEqual(try cli(["sync", "webdav", url, "--vault", a] + common, env: e).status, 0)
+        XCTAssertEqual(try cli(["sync", "webdav", url, "--vault", b] + common, env: e).status, 0)
+        // Each machine adds a different recipient: vault.json changed on both sides.
+        func addRecipient(_ vault: String, _ name: String) throws {
+            let pub = try cli(["keys", "generate", "--out", path(name), "-q"]).out.trimmingCharacters(in: .whitespacesAndNewlines)
+            let r = try cli(["vault", "recipients", "add", pub, "--vault", vault, "--identity", Self.fixtureKey], env: e)
+            XCTAssertEqual(r.status, 0, r.err)
+        }
+        try addRecipient(a, "one.key")
+        try addRecipient(b, "two.key")
+        XCTAssertEqual(try cli(["sync", "webdav", url, "--vault", a] + common, env: e).status, 0)
+        let r = try cli(["sync", "webdav", url, "--vault", b, "--device", "laptop-b"] + common, env: e)
+        XCTAssertEqual(r.status, 3, "a conflict exits 3: \(r.err)")
+        let names = try FileManager.default.contentsOfDirectory(atPath: b)
+        XCTAssertTrue(names.contains { $0.hasPrefix("vault.conflict-laptop-b-") && $0.hasSuffix(".json") }, "\(names)")
+    }
 }
