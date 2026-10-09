@@ -1039,3 +1039,111 @@ the next run a first sync: nothing is deleted, nothing overwritten.
 **Testing.** `scripts/test-webdav.sh` starts a local wsgidav
 (`pip install wsgidav cheroot`) and runs the integration tests, which are
 skipped unless `SEMPERE_WEBDAV_TEST_URL` is set.
+
+## WebDAV vaults in the app
+
+For people with no Mac and no iCloud, the app keeps a vault on a WebDAV
+server it talks to itself (`Open Vault ▸ WebDAV…`). It wraps the same
+`SempereWebDAV` library as `sempere sync webdav`; nothing about the server
+side changes, and any server the CLI works with works here.
+
+**Model: a local copy that is pushed.** The vault the app opens is a local
+copy in the app's container (`Application Support/Sempere/WebDAV/<location
+id>/<name>.sempere`, sync state and quarantine beside it). Every read and
+write goes to that copy through the usual plain-folder paths (no iCloud
+code runs for it), so the app works offline exactly as with a vault on the
+device. The server is updated by a **push-only** run (`WebDAVSyncOptions.pushOnly`,
+"Push-only mirror" above): it uploads what the server lacks, removes there
+what local compaction or blob collection explains, and never downloads,
+writes or deletes anything in the local copy. A server can therefore never
+feed a revision, a blob or a changed device list into the vault the app is
+editing.
+
+**Connecting** (`WebDAVConnectSheet`, logic in `WebDAVLocation`,
+`WebDAVConnection`): URL, user name, password, "Test Connection".
+- `https` only; plain `http` is accepted for `localhost` alone (as the CLI).
+  Credentials in the URL are refused.
+- The password is stored only in the Keychain (generic password, service
+  `io.github.anthonytw.sempere.webdav`, account the location id,
+  `kSecAttrAccessibleWhenUnlockedThisDeviceOnly`, never synchronizable), is
+  never logged and never written to a file or `UserDefaults`. The rest of the
+  location (URL, user, certificate pin, folder name) is in
+  `Application Support/Sempere/webdav.json`, holding no secret.
+- The test lists the URL (PROPFIND, Depth 1) and says what it found:
+  reachable and a vault; reachable with vaults one level below; reachable
+  with no vault; or why not (offline, wrong user or password, not found, not
+  a WebDAV server, a redirect, an untrusted certificate). The **vault list**
+  is the URL itself when it holds a `vault.json`, otherwise each collection
+  directly below it that holds one (at most 64 collections are looked into).
+  Names and ids from the server are untrusted: control characters are
+  escaped and lengths bounded before display.
+- **Self-signed certificates** need an explicit, loud opt-in. When the
+  system does not trust the server's certificate, the test shows its SHA-256
+  fingerprint and subject in a red warning box ("Anyone who can intercept
+  this connection could present such a certificate. Trust it only if this
+  fingerprint is the one your server shows.") with a "Trust This
+  Certificate" button and a confirmation. What is stored is a pin of that
+  exact leaf certificate (its SHA-256) for that one location: no other
+  certificate, self-signed or not, is accepted for it in place of system
+  trust, and a changed certificate fails with "the server's certificate
+  changed" until the user trusts the new one. Evaluation happens in the app
+  (`PinnedServerTrust`, Security framework) behind the library's
+  `WebDAVServerTrust` hook; the CLI has no pin and relies on the system's
+  trust store.
+
+**Download.** Choosing a vault from the list downloads it into a new local
+copy with the library's two-way engine (a first pull into an empty folder,
+so nothing is uploaded), checking each file's age structure as a locked
+first pull does (format.md §9.1), then opens the copy locked and shows the
+usual unlock sheet; every read after unlock verifies tags and names as for
+any vault. A download that stops (offline, the app quit) continues where it
+stopped when the vault is opened again; the copy is opened only after a
+download run that finished without errors (`WebDAVLocation.downloaded`).
+
+**When it pushes** (`WebDAVPushScheduler`, pure logic): once after the vault
+is unlocked, 10 s after the last write (every `NoteWriter` delta and blob
+counts), when the app becomes active, every 5 minutes while the vault is open
+and on "Sync Now". Never while locked (deletions need the vault unlocked),
+never in the background, at most one run at a time; a write during a run
+schedules another. After a failure the next automatic try waits 30 s,
+doubling up to 15 minutes; "Sync Now" and a write retry at once.
+
+**Status** (`WebDAVSyncStatus`): the note list shows a bar while the copy has
+changes the server has not had, or after a problem, with the last successful
+push time. Offline is not an error: "Offline. Changes are kept on this iPad
+and uploaded when the server can be reached." Wrong password, a changed
+certificate and the problems below are shown with what to do.
+
+**Conflicts and other writers.** A push-only run never takes anything from
+the server, so the cases are:
+
+| On the server | What the app does |
+| --- | --- |
+| another vault (`vaultId` differs) | stops before any change (`vaultMismatch`) and says so; nothing is uploaded |
+| `vault.json` or `rewrap-journal.json` changed since this device's last sync (another device or the CLI wrote it) | kept, not overwritten (`WebDAVSyncOptions.keepServerChanges`, CLI `--keep-server-changes`), reported as a conflict: "The vault's device list on the server was changed elsewhere." Notes still upload |
+| `vault.json` differs but was not changed since the last sync (only this device changed it) | replaced by the local copy, as any push-only run |
+| revisions or blobs this device never had (another writer) | kept and listed (`extraneous`); never deleted by the app (`deleteExtraneous` is off) |
+
+The intended use is one writing device per server folder, plus readers (the
+web viewer). A second device may download the same vault and write to it:
+both devices' files then coexist on the server and nothing is lost, but
+neither sees the other's notes until it downloads the vault again. "Download
+Again" does that: it first pushes (and refuses if that push did not finish
+cleanly, so no change of this device is lost), then downloads the server's
+vault into a new copy, which replaces the old one only once complete. The
+device list of the new copy is checked against this device's trust record
+when it is unlocked (format.md §2.1), so a server cannot slip in a key this
+way either.
+
+**Not offered for a WebDAV vault in the app**: changing the vault's keys
+(adding, removing or replacing a device, a migration). A recipient change
+rewraps files in place (format.md §3.3), which sync never propagates, so the
+server would keep files a removed key can read. The app says to do it with
+the CLI on a folder copy and upload that to a new server folder.
+
+**Removing** ("Remove from This Device") deletes the local copy, its sync
+state and the Keychain password. When the copy holds changes the server has
+not confirmed, the confirmation says so and offers to push first.
+
+**Mac.** The sandboxed Mac build has `com.apple.security.network.client`
+for this (`docs/release/app-store.md`, "Entitlements").
