@@ -322,6 +322,7 @@ struct EditorView: View {
                     .disabled(editor.currentPage == nil)
                     .help("Choose the paper (ruling, colour) of this page or all pages")
             }
+            ToolbarItem(placement: .secondaryAction) { favoriteButton }
             ToolbarItem(placement: .secondaryAction) { insertMenu }
             ToolbarItem(placement: .secondaryAction) { recordingsMenu }
             ToolbarItem(placement: .secondaryAction) { recordingsListButton }
@@ -438,6 +439,17 @@ struct EditorView: View {
         Text(editor.pages.isEmpty ? "No pages" : "Page \(editor.pageIndex + 1) of \(editor.pages.count)")
     }
 
+    /// Marks this note as a favorite or not (Favorites in the sidebar).
+    private var favoriteButton: some View {
+        let on = model.notes.first { $0.id == editor.noteID }?.favorite ?? false
+        return Button(LocalizedStringKey(on ? "Remove from Favorites" : "Add to Favorites"),
+                      systemImage: on ? "star.fill" : "star") {
+            Task { await model.report { try await model.setFavorite(!on, for: editor.noteID) } }
+        }
+        .disabled(model.isVaultReadOnly)
+        .help(on ? "Remove this note from Favorites" : "Add this note to Favorites")
+    }
+
     private var eraserSizeMenu: some View {
         // PencilKit's object eraser has no size; the app's does (ObjectEraser.swift).
         Menu {
@@ -487,6 +499,7 @@ struct EditorView: View {
                     .help("Show or hide the tool palette; press and hold for the compact palette")
                 }
             }
+            ToolbarItem(placement: .primaryAction) { favoriteButton }
             if !editor.isReadOnly, editor.currentPage != nil {
                 ToolbarItem(placement: .primaryAction) { textToolToggle }
             }

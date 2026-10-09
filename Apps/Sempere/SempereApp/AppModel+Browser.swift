@@ -152,6 +152,15 @@ extension AppModel {
         try await commit(id) { state in state.map { NoteOps.rename(to: title, state: $0) } ?? [.setMeta(.title(title))] }
     }
 
+    /// Marks a note as a favorite, or takes the mark off (one `setMeta` favorite
+    /// delta, `NoteOps.setFavorite`; nothing is written when it already is that way).
+    func setFavorite(_ on: Bool, for id: UUID) async throws {
+        try await downloadNote(id)
+        try await verifySummary(id)
+        guard try summary(id).favorite != on else { return }
+        try await commit(id) { state in state.map { NoteOps.setFavorite(on, state: $0) } ?? [.setMeta(.favorite(on))] }
+    }
+
     /// Adds a tag (one `addTag`, format.md §5.4.1). Matching ignores case: a
     /// tag the note has already (in any case) is not added again, and the
     /// spelling of a tag already used in the vault wins over the typed one.
