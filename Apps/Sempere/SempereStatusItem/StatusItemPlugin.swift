@@ -49,6 +49,8 @@ final class StatusItemPlugin: NSObject {
 
     private func makeMenu(_ s: StatusItemProtocol.State) -> NSMenu {
         let menu = NSMenu()
+        // Off, or AppKit enables every item whose target answers its action and `isEnabled` is ignored.
+        menu.autoenablesItems = false
         let voice = NSMenuItem(title: s.voiceTitle, action: #selector(voiceNote(_:)), keyEquivalent: "")
         voice.target = self
         voice.isEnabled = !s.busy
