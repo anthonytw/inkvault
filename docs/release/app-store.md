@@ -216,7 +216,7 @@ Information → Age Rating (the questionnaire as updated in 2025; check the word
 | Secondary category | TODO(maintainer): Education, Utilities or none. |
 | Copyright | `2026 Anthony Wertz` (App Store Connect adds ©). TODO(maintainer): confirm. |
 | Price | Free, no in-app purchases, no ads (TODO(maintainer): confirm). |
-| License agreement | Apple's standard EULA. The source license (GPL-3.0-or-later with the App Store exception, `LICENSE-EXCEPTION`) is what allows distribution under Apple's terms; the description mentions it. |
+| License agreement | Apple's standard EULA until the maintainer applies the custom one drafted in [`docs/appstore/eula.md`](../appstore/eula.md) (the GPL's no-warranty and liability terms in plain form, plus Apple's minimum terms; it needs a lawyer's review and its `TODO(user)` fields). The source license (GPL-3.0-or-later with the App Store exception, `LICENSE-EXCEPTION`) is what allows distribution under Apple's terms; the description mentions it. A revised exception is drafted, not applied, in [`docs/appstore/app-store-exception-draft.md`](../appstore/app-store-exception-draft.md). |
 
 `docs/privacy/` is plain HTML because `docs/.nojekyll` turns Jekyll off for the whole folder.
 Some docs (e.g. `docs/import-notability.md`) contain `{{`, which Liquid would choke on, failing
@@ -432,7 +432,7 @@ Every change is kept in a history you can browse and restore from. Save versions
 keep; older ones thin out on a schedule you choose.
 
 READABLE WITHOUT THE APP
-Your notes are standard age files. With your key and free tools you can always decrypt them, and
+Your notes are standard age files. With your key and free tools you can decrypt them, and
 the open-source command-line tool exports PDF, SVG, PNG, Markdown and HTML on Mac and Linux.
 
 ON THE MAC
@@ -442,8 +442,10 @@ PRIVATE BY DESIGN
 No ads, no analytics, no tracking, no subscription. Sempere collects no data.
 
 OPEN SOURCE
-Sempere is free software (GPL-3.0-or-later with an App Store exception). Read the code at
-github.com/anthonytw/sempere.
+Sempere is free software (GPL-3.0-or-later with an App Store exception) and comes with no
+warranty. Read the code at github.com/anthonytw/sempere. Your key is the only way into your
+notes: keep the recovery kit and a backup, because if every copy of the key is lost, nobody can
+recover them.
 ```
 
 TODO(maintainer): trim to the submitted build. These features are on `main`, but
@@ -497,24 +499,27 @@ In order; none of this can be done from the repository.
    Apple Silicon Macs" there; no build setting does it (`LSRequiresIPhoneOS` does not), and the
    app copes with either build restoring the other's windows (docs/mac.md "Windows restored
    from another build").
-5. [ ] Export compliance: nothing to upload while France is excluded
+5. [ ] License Agreement (needs the maintainer): have `docs/appstore/eula.md` reviewed, fill its
+   `TODO(user)` fields, and paste it under App Information ▸ License Agreement (custom); decide on
+   `docs/appstore/app-store-exception-draft.md` at the same time (`LICENSE-EXCEPTION` stays until then).
+6. [ ] Export compliance: nothing to upload while France is excluded
    ([export-compliance.md](export-compliance.md)). Read the EAR sources once (its TODO).
 
 **Per version (iOS, then macOS):**
 
-6. [ ] Run `scripts/release-check.sh` on the commit to be archived (CI runs it on `main`).
-7. [ ] Archive and upload iOS and Mac builds (`sempere-testflight.sh both`); TestFlight-test
+7. [ ] Run `scripts/release-check.sh` on the commit to be archived (CI runs it on `main`).
+8. [ ] Archive and upload iOS and Mac builds (`sempere-testflight.sh both`); TestFlight-test
    both on hardware (iPad on 26.7.1; a Mac).
-8. [ ] In Xcode's Organizer, Generate Privacy Report for each archive; check it lists only
+9. [ ] In Xcode's Organizer, Generate Privacy Report for each archive; check it lists only
    UserDefaults (CA92.1) and FileTimestamp (C617.1, 3B52.1), plus empty manifests for
    swift-crypto (SwiftMath 1.7.3 ships none and needs none: section 2).
-9. [ ] iOS version page: screenshots (iPad 13", iPhone 6.9"), promotional text, description,
+10. [ ] iOS version page: screenshots (iPad 13", iPhone 6.9"), promotional text, description,
    keywords, support and marketing URLs, What's New, build, copyright, App Review
    Information (contact, notes from section 7, no sign-in), version release (manual or
    automatic).
-10. [ ] macOS version page: the same text fields (they are per platform), Mac screenshots,
+11. [ ] macOS version page: the same text fields (they are per platform), Mac screenshots,
     the Mac build, the same review notes.
-11. [ ] Submit both for review. They are reviewed separately and can be released separately.
+12. [ ] Submit both for review. They are reviewed separately and can be released separately.
 
 **Later:** France (export-compliance.md, "When France is added"); the Spanish localization of
 the listing (after #92).

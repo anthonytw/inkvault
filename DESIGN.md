@@ -161,8 +161,11 @@ removes such leftovers.
 
 ## Recovery
 
-The promise is that a dead device or a lost key never costs notes. Three
-things keep it, none of which need us, a server or the app:
+The aim is that a dead device or a lost copy of the key need not cost notes,
+as long as another copy of the key and a backup exist. If every copy of the key
+is lost, nobody can open the notes; the app says so when a vault is created or
+first unlocked on a device ("About Your Key"). Three things support the aim,
+none of which need us, a server or the app:
 
 - **The key on paper.** `sempere keys paper` prints a recovery kit: the age
   identity as a QR code and as text, the public key, the vault id, and

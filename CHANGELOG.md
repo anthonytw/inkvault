@@ -18,6 +18,16 @@ The section for a version is the body of its GitHub Release (`docs/releasing.md`
 - iPhone: the overflow menu's Pages submenu has the page layout switch, Add Page After This One / at
   End, Insert PDF at this page, Duplicate, Delete, Undo Delete and the page thumbnails; swiping left or
   right turns pages while reading; the paper picker has a compact layout.
+- Setting expectations. `sempere --version` prints the GPL notice ("This program comes with ABSOLUTELY
+  NO WARRANTY…") with links to the licence and the security policy; `sempere about` (`--json`) adds the
+  source, where to report a vulnerability, the security limits and the third-party software. The app
+  shows "About Your Key" the first time a vault is unlocked with a key on a device (a new vault
+  included): only the key opens the notes, nobody can recover them if every copy is lost, with
+  buttons to save the key and recovery kit and to the backup settings; "I Understand" closes it. A
+  six-page quick tour follows once per device. Settings ▸ About shows the version, the licence
+  (bundled), acknowledgments and the links, and reopens both; on the Mac, Sempere ▸ About Sempere and
+  Help ▸ Quick Tour / About Your Key. New `docs/security.md` says what the encryption protects and
+  what it does not; `SECURITY.md` describes the advisory process.
 - Web viewer in Spanish: the interface is in English or Spanish, taken from the browser's language list
   with a Language selector (Automatic, English, Español) that overrides it and is remembered in the
   browser. Notes, notebook and tag names, recording titles and transcripts are shown as written; dates,

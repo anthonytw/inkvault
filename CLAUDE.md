@@ -497,6 +497,14 @@ Branch per task, PR to `main`, squash merge, CI green. Commit messages:
   A new window, sheet or column layout gets a step there; a new scene must
   inject the app environment, which `AppSceneEnvironmentTests` (Linux) checks,
   along with the wrapper rule above: no view reads the three with a plain `@Environment`.
+- Expectations (`Expectations.swift`, `ExpectationsViews.swift`, `docs/security.md`): "About Your Key"
+  shows by itself once per (vault, key) on a device (`OnboardingMemory`, digests only), then the
+  quick tour once per device; both only in the canvas window, after the unlock sheet and never over
+  the new-vault sheet (`holdsOnboarding`). Scripted debug launches skip them unless
+  `SEMPERE_DEBUG_ONBOARDING` is set. Tour pages claim only what `main` does. The CLI's `--version`
+  and the app's About share `SempereAbout` (Sources/Sempere/About.swift); a new dependency goes in
+  its `components` and the app's `ThirdPartyNotices.txt` (`AboutTests` checks both). Wording: describe
+  the design and its limits, never promise outcomes.
 - Every icon-only control in the app has `.help("…")` (Mac tooltips);
   `scripts/check-help.py` fails the `app` CI job otherwise (`docs/mac.md`
   "Tooltips"). Menu-only view builders are marked `// help-lint: titled`.

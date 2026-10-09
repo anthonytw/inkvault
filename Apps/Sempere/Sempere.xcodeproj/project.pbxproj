@@ -15,6 +15,8 @@
 		A1000000000000000000B008 /* SempereImport in Frameworks */ = {isa = PBXBuildFile; productRef = A1000000000000000000D006 /* SempereImport */; };
 		A1000000000000000000B009 /* SempereNotability in Frameworks */ = {isa = PBXBuildFile; productRef = A1000000000000000000D007 /* SempereNotability */; };
 		A1000000000000000000B003 /* Fixtures in Resources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000F003 /* Fixtures */; };
+		A1000000000000000000B00B /* LICENSE in Resources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000F007 /* LICENSE */; };
+		A1000000000000000000B00C /* LICENSE-EXCEPTION in Resources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000F008 /* LICENSE-EXCEPTION */; };
 		A1000000000000000000B006 /* SempereWidgets.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = A1000000000000000000F005 /* SempereWidgets.appex */; platformFilter = ios; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		A1000000000000000000B00A /* SempereStatusItem.bundle in Embed Mac Plug-Ins */ = {isa = PBXBuildFile; fileRef = A1000000000000000000F006 /* SempereStatusItem.bundle */; platformFilter = maccatalyst; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
@@ -82,6 +84,8 @@
 		A1000000000000000000F003 /* Fixtures */ = {isa = PBXFileReference; lastKnownFileType = folder; name = Fixtures; path = ../../Tests/SempereTests/Fixtures; sourceTree = SOURCE_ROOT; };
 		A1000000000000000000F005 /* SempereWidgets.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = SempereWidgets.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		A1000000000000000000F006 /* SempereStatusItem.bundle */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SempereStatusItem.bundle; sourceTree = BUILT_PRODUCTS_DIR; };
+		A1000000000000000000F007 /* LICENSE */ = {isa = PBXFileReference; lastKnownFileType = text; name = LICENSE; path = ../../LICENSE; sourceTree = SOURCE_ROOT; };
+		A1000000000000000000F008 /* LICENSE-EXCEPTION */ = {isa = PBXFileReference; lastKnownFileType = text; name = "LICENSE-EXCEPTION"; path = "../../LICENSE-EXCEPTION"; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -185,6 +189,7 @@
 				A1000000000000000000E007 /* SempereStatusItem */,
 				A1000000000000000000E008 /* StatusItemShared */,
 				A10000000000000000001003 /* Fixtures (shared with the package tests) */,
+				A10000000000000000001004 /* Licence (the repository's, bundled in the app) */,
 				A10000000000000000001002 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -207,6 +212,15 @@
 				A1000000000000000000F003 /* Fixtures */,
 			);
 			name = "Test Fixtures";
+			sourceTree = "<group>";
+		};
+		A10000000000000000001004 /* Licence (the repository's, bundled in the app) */ = {
+			isa = PBXGroup;
+			children = (
+				A1000000000000000000F007 /* LICENSE */,
+				A1000000000000000000F008 /* LICENSE-EXCEPTION */,
+			);
+			name = Licence;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -395,6 +409,8 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A1000000000000000000B00B /* LICENSE in Resources */,
+				A1000000000000000000B00C /* LICENSE-EXCEPTION in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

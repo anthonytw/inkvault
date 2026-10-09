@@ -109,12 +109,14 @@ case "${1:-}" in
     ;;
   test-ui)
     # The UI tests live in the SempereScreenshots scheme (never built by `test`). The launch smoke
-    # tests run here for the iPad's sidebar and list layouts (detail only is the Mac's, `test-mac-smoke`).
+    # tests run here for the iPad's sidebar and list layouts (detail only is the Mac's, `test-mac-smoke`)
+    # and for the first-unlock notices (About Your Key, the quick tour).
     sim=$(pick_simulator)
     xcodebuild test -project "$project" -scheme SempereScreenshots -derivedDataPath "$derived" \
       -destination "platform=iOS Simulator,id=$sim" -only-testing:SempereAppUITests/SidebarDropUITests \
       -only-testing:SempereAppUITests/LaunchSmokeUITests/testFreshLaunchDefaultLayoutShowsSidebarListAndNote \
       -only-testing:SempereAppUITests/LaunchSmokeUITests/testFreshLaunchDoubleColumn \
+      -only-testing:SempereAppUITests/LaunchSmokeUITests/testFirstUnlockShowsKeyNoticeThenTour \
       -parallel-testing-enabled NO CODE_SIGNING_ALLOWED=NO
     ;;
   *)

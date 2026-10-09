@@ -216,6 +216,9 @@ enum WindowCommands {
         case .importPDF: ui.importingPDF = true
         case .importFromApp: ui.importingFromApp = true
         case .exportNotes: model.requestExport(.pdf, ids: exportIDs, window: ui.id)
+        case .showAbout: ui.expectations = .about
+        case .showTour: ui.expectations = .tour(firstRun: false)
+        case .showKeyNotice: ui.expectations = .keyNotice(firstRun: false)
         case .toggleVoiceNote: Task { await model.toggleVoiceNote() }
         default: return false
         }
@@ -261,6 +264,8 @@ final class WindowUI {
     var importReport: ImportDetails?
     /// A menu command for the editor's Insert menu (`InsertRequest`), taken by the window's editor.
     var insertRequest: InsertRequest?
+    /// About Sempere, the quick tour or the key notice (`ExpectationsSheets`).
+    var expectations: ExpectationsSheet?
     /// A menu command for the editor's toolbar toggles (`ToolRequest`), taken by the window's editor.
     var toolRequest: ToolRequest?
     /// The note whose Version History sheet is open (`WindowSheets`).
