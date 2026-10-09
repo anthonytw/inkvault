@@ -182,8 +182,8 @@ development language and **Spanish (`es`) is complete**. Only the interface is t
   `sempere-viewer-language`; nothing secret, and nothing depends on it: where storage is blocked it
   lasts until the page closes). It sets `<html lang>` and the page title, and dates, numbers and sizes
   follow it (`Intl`).
-- **Changing the language redraws the screen** in the new one. The open note stays open (the list is
-  read again from the browser's cache); a URL typed on the open screen is kept; a key pasted on the
+- **Changing the language redraws the screen** in the new one. The open note stays open and the search
+  box keeps its text (the list is read again from the browser's cache); a URL typed on the open screen is kept; a key pasted on the
   unlock screen is not (it is never stored), so choose the language first.
 - **Messages from deep inside the libraries** (a network failure, a parser's complaint about a
   damaged file) stay English, as the CLI's do. The errors a person is likely to meet (wrong key,

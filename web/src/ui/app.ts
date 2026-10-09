@@ -319,6 +319,8 @@ export class App {
     const src = this.source;
     if (!src) return;
     const searchBox = h("input", { attrs: { type: "search", placeholder: t("Search titles, tags and handwriting"), "aria-label": t("Search") } });
+    // Drawn again after a language change: the box shows the search the list is filtered by.
+    searchBox.value = this.query;
     const vault = this.vault;
     this.transcripts?.stop();
     this.transcripts = vault ? new TranscriptSearch(

@@ -120,12 +120,20 @@ for (const [locale, languages, want, wantLang] of [
   await page.locator(".note-list button.note").first().click();
   await page.locator(".page svg").first().waitFor({ timeout: 30000 });
   const openTitle = await page.locator(".note-header h2").textContent();
-  // 4. Switching with the vault open redraws the screen and keeps the note.
+  // 4. Switching with the vault open redraws the screen and keeps the note and the search.
+  const term = (openTitle ?? "").trim().split(/\s+/)[0];
+  await page.locator("input[type=search]").fill(term);
+  await page.waitForTimeout(400);
+  const filtered = await page.locator(".note-list button.note").count();
   await page.locator(".topbar .language select").selectOption("en");
   await page.waitForFunction(() => document.querySelector(".topbar button.secondary:last-child")?.textContent === "Lock");
   await page.locator(".note-header h2").waitFor();
   await page.locator(".note-list button.note").first().waitFor();
   await page.waitForFunction(() => /\d+ notes?( ·|$)/.test(document.querySelector(".status")?.textContent ?? ""), null, { timeout: 30000 });
+  check(term.length > 0 && (await page.locator("input[type=search]").inputValue()) === term, `switching language keeps the search box's text "${term}"`);
+  check((await page.locator(".note-list button.note").count()) === filtered, `the list stays filtered by it (${filtered} notes)`);
+  await page.locator("input[type=search]").fill("");
+  await page.waitForTimeout(400);
   const en = await data();
   check(JSON.stringify(es) === JSON.stringify(en) && es.titles.length > 0, `vault data identical in both languages (${es.titles.length} notes, ${es.notebooks.length} notebooks, ${es.tags.length} tags)`);
   // The notebook and tag names of the vault itself, as written: only the interface around them is translated.
