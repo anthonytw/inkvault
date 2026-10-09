@@ -3243,7 +3243,8 @@ lowest; then `type` as a string, absent lowest; then the value's canonical JSON
 entry. This total order makes the merge commutative, associative and idempotent.
 Slots, blocks and members a reader does not know are merged and written back
 unchanged. `$schemaVersion` and `$minReaderVersion` merge to the larger value;
-unknown `$` members to their union.
+unknown `$` members (and `[t]` members that are not objects) to their union, the
+greater canonical JSON winning when both copies hold the member with different values.
 
 A write of a slot (a value or a reset) records `modified = max(now, m + 1)`, where
 `m` is the `modified` the writer holds for that slot, so a write wins over what its
@@ -3272,5 +3273,8 @@ later `$schemaVersion`, keeps everything it does not know verbatim, and both num
 ### 13.5 Writers
 
 Writing `settings.age` is a write to the vault: refused for a read-only vault (§7.3),
-a legacy vault (§3.3.2) and a tampered recipients list (§2.1). WebDAV sync (`docs/io.md`)
+a legacy vault (§3.3.2) and a tampered recipients list (§2.1). A writer that replaces a file
+that does not verify first checks that `vault.json` on disk still lists the recipients and
+wraps the secret it holds: one that stayed open while another device changed the keys
+would otherwise overwrite the current file with one for the old recipients. WebDAV sync (`docs/io.md`)
 merges the file when both sides changed and the vault is unlocked.

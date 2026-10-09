@@ -408,7 +408,10 @@ sempere settings schema
   a vault that has `settings.age`. They do not rewrap it in a recipient change: the file
   is then left encrypted to the previous keys and tagged under the previous secret, newer
   readers report it as unreadable, and the next write from a device with sync on replaces
-  it from that device's copy. A device removed by such an older app can read that stale
+  it from that device's copy. A device whose own keys are the stale ones (the vault stayed
+  open there while another device changed them, so `vault.json` on disk no longer matches
+  what it holds) never replaces the file: it waits until the vault is reopened
+  (`Vault.keysMatchManifestOnDisk`). A device removed by such an older app can read that stale
   copy (settings only, no note content) until it is replaced.
 
 ## 9. The app
