@@ -85,9 +85,10 @@ public struct CaptureKey: Hashable, Sendable {
 
     /// The device capture key of the recipient whose fingerprint is
     /// `device` (format.md §11.1): HKDF-SHA256 of the secret with `info`
-    /// `sempere/1 device capture key ‖ 0x00 ‖ fingerprint`. Only that
-    /// device's profile holds it, so a capture it tags is attributed to that
-    /// recipient (security review 2026-10, C2).
+    /// `sempere/1 device capture key ‖ 0x00 ‖ fingerprint`. Of the profiles,
+    /// only that device's holds it, so a capture it tags is attributed to that
+    /// recipient (security review 2026-10, C2); a holder of the vault secret
+    /// can derive it too, as it can write any revision.
     public static func derive(from secret: VaultSecret, device fingerprint: String) -> CaptureKey {
         var info = Data(deviceInfo.utf8)
         info.append(0)

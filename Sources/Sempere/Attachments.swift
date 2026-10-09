@@ -992,7 +992,8 @@ public struct Recording: Hashable, Sendable, Codable, Identifiable {
 /// Who captured a voice note adopted from the inbox (format.md §8.3.1,
 /// §11.3): the capturing device's id, as its capture named it, and the
 /// fingerprint of the vault recipient whose device capture key sealed it
-/// (authenticated: only that device's profile holds the key). No
+/// (authenticated against profile holders: only that device's profile, and
+/// holders of the vault secret itself, hold the key). No
 /// `recipient` means the capture was sealed with the vault capture key, by a
 /// profile made before attribution: then `device` is only a claim.
 public struct CaptureAttribution: Hashable, Sendable, Codable {

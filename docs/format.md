@@ -2931,9 +2931,12 @@ deviceCaptureKey(r) = HKDF-SHA256(ikm = vaultSecret, salt = "",
 *New: capture attribution* (security review 2026-10, C2, C3). A capture
 profile is made by a device that unlocked the vault with the identity of a
 listed recipient `r`, and holds `deviceCaptureKey(r)` and `fingerprint(r)`:
-only that profile can seal a capture that verifies as coming from `r`, so
-captures are **attributed** to a device of the authenticated list (§2.1),
-and a holder of another device's profile cannot impersonate it. The
+besides that profile, only a holder of the vault secret itself (a listed
+device that unlocks, which can also write revisions as anyone, §4) can seal a
+capture that verifies as coming from `r`, so captures are **attributed** to a
+device of the authenticated list (§2.1), and a holder of another device's
+profile cannot impersonate it. Attribution says which profile sealed a
+capture against profile holders, never against key holders. The
 **vault capture key** `captureKey`, which every profile held before
 attribution, is still accepted for files sealed with it, as **unattributed**
 captures; writers make no new profile with it, and a device that unlocks
