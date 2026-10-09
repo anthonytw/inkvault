@@ -685,7 +685,8 @@ first number among `start`, `startTime`, `timestamp`, `time`, `offset`,
 are seconds, or milliseconds when that reading keeps them inside the recording
 (and the seconds one does not). Items are sorted by start when all have one,
 made non-overlapping, empty text dropped, at most 20 000 segments of 8 192
-characters. The result is a `sempere-transcript/1` blob
+characters and 8 MiB of text in all (an eighth of the 64 MiB a transcript blob may
+hold, so the blob decodes even if JSON escapes every character). The result is a `sempere-transcript/1` blob
 (`format.md` §8.3.2) named by the recording's `transcript` register, with
 `engine` `notability-<bundle version>` (`notability-unknown` without one),
 `created` the note's modification date, and `language` from the entry's

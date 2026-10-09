@@ -228,6 +228,12 @@ public struct TranscriptRead: Hashable, Sendable {
     /// Most segments and characters per segment kept.
     static let maxSegments = 20_000
     static let maxTextLength = 8_192
+    /// Most bytes of segment text kept (UTF-8, plus `segmentOverhead` per segment for the JSON
+    /// around it): an eighth of `Transcript.maxSize`, so the blob written is one readers accept
+    /// (`Transcript.decode` refuses larger ones) even if JSON escapes every character (`\u0001`,
+    /// six bytes for one). Hours of speech are well under a megabyte; the segments past it are dropped.
+    static let maxTotalBytes = Transcript.maxSize / 8
+    static let segmentOverhead = 64
 
     /// The first transcript-named field of `entry`: its name and the transcript
     /// (nil when the field holds nothing readable).
@@ -303,6 +309,7 @@ public struct TranscriptRead: Hashable, Sendable {
         if let d = duration, d > 0, let top = times.max(), top > d * 1.5 + 1, top / 1000 <= d * 1.5 + 1 { scale = 0.001 }
         var segments: [Transcript.Segment] = []
         var cursor = 0.0
+        var bytes = 0
         // Sorted by start when every item has one; otherwise in the order Notability lists them.
         let timed = finite.allSatisfy({ $0.start != nil })
             ? finite.enumerated().sorted { ($0.element.start ?? 0, $0.offset) < ($1.element.start ?? 0, $1.offset) }.map(\.element)
@@ -311,6 +318,8 @@ public struct TranscriptRead: Hashable, Sendable {
             var text = it.text.replacingOccurrences(of: "\r\n", with: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
             if text.count > maxTextLength { text = String(text.prefix(maxTextLength)) }
             guard !text.isEmpty else { continue }
+            bytes += text.utf8.count + segmentOverhead
+            if bytes > maxTotalBytes { break }
             var start = it.start.map { $0 * scale } ?? cursor
             start = max(start, cursor)
             var end = it.end.map { $0 * scale } ?? start
