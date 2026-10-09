@@ -45,6 +45,13 @@ struct ExpectationsSheets: ViewModifier {
     @AppModelEnvironment private var model
     @AppEnvironmentObject private var keys: RememberedKeys
     let ui: WindowUI
+    /// The sheet that is on screen (its content appeared), to tell a presentation SwiftUI dropped.
+    @State private var shown = ShownSheet()
+
+    @MainActor
+    private final class ShownSheet {
+        var sheet: ExpectationsSheet?
+    }
 
     private struct Trigger: Equatable {
         var ready: Bool
@@ -64,27 +71,54 @@ struct ExpectationsSheets: ViewModifier {
         @Bindable var ui = ui
         content
             .sheet(item: $ui.expectations) { sheet in
-                switch sheet {
-                case .about:
-                    NavigationStack { AboutView(showsDone: true) }
-                case .tour(let firstRun):
-                    QuickTourView(firstRun: firstRun)
-                case .keyNotice(let firstRun):
-                    KeyNoticeView(firstRun: firstRun)
+                Group {
+                    switch sheet {
+                    case .about:
+                        NavigationStack { AboutView(showsDone: true) }
+                    case .tour(let firstRun):
+                        QuickTourView(firstRun: firstRun)
+                    case .keyNotice(let firstRun):
+                        KeyNoticeView(firstRun: firstRun) { showTourIfDue() }
+                    }
                 }
+                .onAppear { shown.sheet = sheet }
+                .onDisappear { if shown.sheet == sheet { shown.sheet = nil } }
             }
             .task(id: trigger) {
                 guard trigger.ready else { return }
                 // Let a sheet that just closed (unlock, new vault) finish its animation.
-                try? await Task.sleep(for: .milliseconds(700))
+                try? await Task.sleep(for: .seconds(1))
                 guard !Task.isCancelled, trigger.ready else { return }
                 switch OnboardingPolicy.next(unlocked: true, vault: trigger.vault, recipient: trigger.recipient,
                                              memory: OnboardingMemory(), automatic: OnboardingPolicy.automatic) {
-                case .keyNotice: ui.expectations = .keyNotice(firstRun: true)
-                case .tour: ui.expectations = .tour(firstRun: true)
+                case .keyNotice: present(.keyNotice(firstRun: true))
+                case .tour: present(.tour(firstRun: true))
                 case nil: break
                 }
             }
+    }
+
+    /// Shows `sheet` by itself. SwiftUI drops a presentation that arrives while
+    /// another sheet is still closing and leaves the item set with nothing on
+    /// screen; then the item is cleared again, so the trigger tries once more.
+    private func present(_ sheet: ExpectationsSheet) {
+        ui.expectations = sheet
+        let ui = ui, shown = shown
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(2))
+            if ui.expectations == sheet, shown.sheet != sheet { ui.expectations = nil }
+        }
+    }
+
+    /// After "I Understand": the tour replaces the notice (a new item swaps the
+    /// sheet) when it is due, else the sheet closes. Not left to the trigger
+    /// above: in CI the tour never showed once the notice had closed.
+    private func showTourIfDue() {
+        if OnboardingPolicy.automatic && !OnboardingMemory().tourSeen {
+            present(.tour(firstRun: true))
+        } else {
+            ui.expectations = nil
+        }
     }
 }
 
@@ -99,6 +133,8 @@ struct KeyNoticeView: View {
     @Environment(\.dismiss) private var dismiss
     /// Shown by itself: it needs an explicit "I Understand".
     var firstRun: Bool
+    /// Called after "I Understand" instead of closing the sheet (`ExpectationsSheets` shows the tour next).
+    var onUnderstood: (() -> Void)?
     @State private var savingKey = false
     @State private var showingBackups = false
 
@@ -177,7 +213,7 @@ struct KeyNoticeView: View {
         if let vault = model.vault?.vaultId {
             OnboardingMemory().acknowledgeKeyNotice(vault: vault, recipient: model.heldIdentity?.recipient.string)
         }
-        dismiss()
+        if let onUnderstood { onUnderstood() } else { dismiss() }
     }
 }
 
