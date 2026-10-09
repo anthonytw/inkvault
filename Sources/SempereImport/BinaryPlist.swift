@@ -1,7 +1,7 @@
 import Foundation
 
 /// A strict reader for binary property lists (`bplist00`), the format of
-/// every plist inside a Notability package.
+/// every plist inside an importable package.
 ///
 /// The importer does not use `PropertyListSerialization` for untrusted
 /// packages: swift-corelibs-foundation's binary plist bridging crashes
@@ -10,19 +10,19 @@ import Foundation
 /// using it, rejects reference cycles, limits nesting to `maxDepth`, and
 /// parses each object once (shared references reuse the parsed value, so a
 /// file that references one object many times costs no more than its size).
-enum BinaryPlist {
+package enum BinaryPlist {
     /// Deepest container nesting accepted. NSKeyedArchiver output is flat
     /// (objects refer to each other by UID), so real files stay far below it.
-    static let maxDepth = 64
+    package static let maxDepth = 64
 
-    static let magic = Array("bplist00".utf8)
+    package static let magic = Array("bplist00".utf8)
 
-    static func isBinaryPlist(_ data: Data) -> Bool { data.starts(with: magic) }
+    package static func isBinaryPlist(_ data: Data) -> Bool { data.starts(with: magic) }
 
     /// Parses `data`, returning the top object.
     ///
     /// - Throws: `ImportError.archive` for anything malformed.
-    static func parse(_ data: Data) throws -> PlistValue {
+    package static func parse(_ data: Data) throws -> PlistValue {
         var reader = try Reader([UInt8](data))
         return try reader.object(reader.top, depth: 0)
     }

@@ -1,4 +1,5 @@
 import Foundation
+import SempereImport
 
 /// Every command of the Mac menu bar, in one type. Menus (`AppCommands`),
 /// shortcuts and enabling all derive from this list, so a feature that adds a
@@ -11,7 +12,7 @@ import Foundation
 enum MenuCommand: String, CaseIterable, Sendable {
     // File
     case newNote, openNoteInWindow, newVault, openVault, reopenVault, closeVault, reloadVault
-    case importPDF, importNotability, insertPDFPages, insertPhoto, exportNotes
+    case importPDF, importFromApp, insertPDFPages, insertPhoto, exportNotes
     case bulkExport
     /// Start or stop a quick voice note (`toggleVoiceNote`, docs/quick-capture.md "Surfaces").
     case toggleVoiceNote
@@ -112,7 +113,10 @@ enum MenuCommand: String, CaseIterable, Sendable {
         case .closeVault: return String(localized: "Close Vault")
         case .reloadVault: return String(localized: "Reload Vault")
         case .importPDF: return String(localized: "Import PDF as New Note…")
-        case .importNotability: return String(localized: "Import from Notability…")
+        case .importFromApp:
+            // The registered importer's name ("Import from Notability…"); a build without importers has no such entry.
+            return AppImporters.primary.map { String(localized: "Import from \($0.displayName)…", comment: "File menu: import notes from another app (its name)") }
+                ?? String(localized: "Import from Other App…")
         case .insertPDFPages: return String(localized: "Insert PDF Pages…")
         case .insertPhoto: return String(localized: "Insert Photo…")
         case .exportNotes: return String(localized: "Export…", comment: "File menu: open the export sheet")
@@ -182,7 +186,7 @@ enum MenuCommand: String, CaseIterable, Sendable {
         case .reloadVault: return Shortcut("r", cmd)
         // ⌘I is UIKit's Italic (Format menu); ⌘E its "Use Selection for Find".
         case .importPDF: return Shortcut("i", shift)
-        case .importNotability: return nil
+        case .importFromApp: return nil
         case .insertPDFPages: return nil
         case .insertPhoto: return Shortcut("i", option)
         case .exportNotes: return Shortcut("e", shift)
@@ -300,7 +304,8 @@ enum MenuCommand: String, CaseIterable, Sendable {
         case .deleteNote: return unlocked && context.hasNote && !context.noteDeleted && !context.editingText
         case .restoreNote: return unlocked && context.hasNote && context.noteDeleted
         // The importers and their sheets are per window (`WindowSheets`): any window with a vault.
-        case .importPDF, .importNotability: return unlocked && !context.vaultReadOnly && context.window != .other
+        case .importPDF: return unlocked && !context.vaultReadOnly && context.window != .other
+        case .importFromApp: return AppImporters.primary != nil && unlocked && !context.vaultReadOnly && context.window != .other
         // The Insert menu's own rule (`InsertMenu`): an editable note with a page. On a pageless note
         // Insert PDF Pages… switches it to pages once a PDF is picked (`InsertOptions.pdfImport`).
         case .insertPhoto, .insertPDFPages: return context.canEditNote && context.hasPage
@@ -343,7 +348,8 @@ enum MenuLayout {
     static let file: [[MenuCommand]] = [
         [.newNote, .openNoteInWindow],
         [.newVault, .openVault, .reopenVault, .closeVault],
-        [.importPDF, .importNotability],
+        // Import from another app only when the build has an importer (`AppImporters`).
+        [.importPDF] + (AppImporters.primary == nil ? [] : [.importFromApp]),
         [.insertPDFPages, .insertPhoto],
         [.exportNotes, .bulkExport],
         [.reloadVault],
