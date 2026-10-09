@@ -25,6 +25,7 @@ Scope: interface text only.
 | --- | --- |
 | `Apps/Sempere/Localization/Localizable.xcstrings` | every interface string of the app, the quick-capture intents and the widget extension |
 | `Apps/Sempere/Localization/InfoPlist.xcstrings` | permission prompts (microphone, camera, Face ID, speech) and the exported document type names |
+| `web/src/i18n/catalog.ts` | every interface string of the web viewer (`docs/web-viewer.md` "Languages"; see [Web viewer](#web-viewer)) |
 
 `Localization/` is a folder-synchronized group of **both** the app and the `SempereWidgets` targets
 (the intents in `SempereShared` are compiled into both), so one catalog serves both bundles.
@@ -125,12 +126,35 @@ Marcador).
 | sync | sincronización | “sincronizar” |
 | thin / thinning (history) | reducir / reducción (del historial) | |
 | zoom / fit width / actual size | zoom / ajustar al ancho / tamaño real | |
+| passkey | llave de acceso | Apple's Spanish term; a vault's *key* stays “clave”, never “llave” |
+| device list | lista de dispositivos | the vault's recipients |
+| viewer (web) | visor | “Visor de Sempere” |
+| video / clip | vídeo | with the accent, as in the app; not “clip” |
 | layout (paged / infinite) | disposición (paginada / infinita) | |
 
 Tone: short, plain, no exclamation marks except where English has them. Keep ellipses (`…`) and
 curly quotes (`“ ”` become `« »` only inside running Spanish text where English quotes a *name*; use
 `“ ”` again for values the user typed, as Apple does). Spanish needs roughly 1.3× the room of English:
 the pseudo-language check below uses 2×.
+
+## Web viewer
+
+The web viewer (`web/`, `docs/web-viewer.md` "Languages") follows the same scope, glossary and tone;
+its catalog is `web/src/i18n/catalog.ts`, in TypeScript, because the page has no String Catalog
+tooling. The differences from the app:
+
+- The language is the first supported one of `navigator.languages`, with a **Language** selector
+  (“Automatic”, “English”, “Español”) that overrides it and is remembered in the browser.
+- Keys are the English text, as in the app; `{name}` replaces `%@` and `{count}` replaces `%lld`.
+  Counts are entries with `en` (one/other) and `es` (one/many/other) forms and are read with `tn`.
+  `t` and `tn` take typed keys, so an unknown key does not compile.
+- Notebook, tag and note names, recording titles and transcripts are vault data and stay as written;
+  messages from deep library errors stay English, and the errors a person meets have their own
+  sentence (`web/src/ui/errors.ts`).
+- `web/test/i18n.test.ts` replaces `LocalizationCatalogTests` for the web: every key has Spanish and
+  its plural forms, placeholders agree, the glossary holds, every `t` key exists and is used, and no
+  `src/ui` code shows an English literal. `web/scripts/smoke-language.mjs` runs it in a browser.
+- Adding a language: see the end of `docs/web-viewer.md` "Languages".
 
 ## Checking layouts
 

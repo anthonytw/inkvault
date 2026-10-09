@@ -4,6 +4,7 @@
 // transcript that breaks §8.3.2 is reported like a blob that fails
 // verification. Tapping a segment plays the recording from its start.
 
+import { t, tn } from "../i18n/index.ts";
 import type { JSONObject } from "../format/json.ts";
 import { parseRFC3339 } from "../format/rfc3339.ts";
 import { type Transcript, decodeTranscript, maxTranscriptBytes } from "../format/transcript.ts";
@@ -27,7 +28,7 @@ export function formatDuration(seconds: number): string {
 }
 
 function problem(e: unknown): string {
-  if (e instanceof BlobError && e.code === "missing") return "The audio file is missing from the vault.";
+  if (e instanceof BlobError && e.code === "missing") return t("The audio file is missing from the vault.");
   return e instanceof Error ? e.message : String(e);
 }
 
@@ -40,7 +41,7 @@ export class RecordingsPanel {
 
   constructor(recordings: JSONObject[], private readonly blobs?: NoteBlobs) {
     this.root = h("details", { class: "recordings" },
-      h("summary", { text: `${recordings.length} recording${recordings.length === 1 ? "" : "s"}` }),
+      h("summary", { text: tn("{count} recordings", recordings.length) }),
       h("ul", {}, ...recordings.map((r) => this.row(r))));
     this.root.hidden = recordings.length === 0;
   }
@@ -73,7 +74,7 @@ export class RecordingsPanel {
   }
 
   private row(rec: JSONObject): HTMLElement {
-    const title = typeof rec.title === "string" && rec.title.trim() !== "" ? rec.title : "Recording";
+    const title = typeof rec.title === "string" && rec.title.trim() !== "" ? rec.title : t("Recording");
     const started = typeof rec.started === "string" ? parseRFC3339(rec.started) : undefined;
     const duration = typeof rec.duration === "number" ? formatDuration(rec.duration) : "";
     const ref = asBlobRef(rec.blob);
@@ -86,14 +87,14 @@ export class RecordingsPanel {
     const loadAudio = (): Promise<HTMLAudioElement | undefined> => {
       loading ??= (async () => {
         if (!ref || !this.blobs) {
-          status.textContent = "The audio is not available.";
+          status.textContent = t("The audio is not available.");
           return undefined;
         }
         if (!essence(ref.type).startsWith("audio/")) {
-          status.textContent = `This recording's type (${ref.type}) cannot be played here.`;
+          status.textContent = t("This recording's type ({type}) cannot be played here.", { type: ref.type });
           return undefined;
         }
-        status.textContent = "Decrypting…";
+        status.textContent = t("Decrypting…");
         try {
           const blob = await this.blobs.get(ref, maxAudioBytes);
           // The note may have been closed meanwhile: then nothing is kept.
@@ -102,7 +103,7 @@ export class RecordingsPanel {
           this.urls.push(url);
           const a = h("audio", { attrs: { controls: "", preload: "auto" } });
           a.addEventListener("error", () => {
-            status.textContent = "This browser cannot play the recording's audio format.";
+            status.textContent = t("This browser cannot play the recording's audio format.");
           });
           a.src = url;
           player.replaceChildren(a);
@@ -118,7 +119,7 @@ export class RecordingsPanel {
     };
 
     const play = h("button", {
-      text: "Play", attrs: { type: "button" }, on: {
+      text: t("Play"), attrs: { type: "button" }, on: {
         click: () => {
           void loadAudio().then((a) => a?.play().catch(() => undefined));
         },
@@ -138,14 +139,14 @@ export class RecordingsPanel {
     const loadTranscript = (): Promise<void> => {
       if (!transcriptRef || !this.blobs) return Promise.resolve();
       transcriptLoaded ??= (async () => {
-        transcriptEl.replaceChildren(h("p", { class: "sub", text: "Decrypting…" }));
+        transcriptEl.replaceChildren(h("p", { class: "sub", text: t("Decrypting…") }));
         try {
           const b = await this.blobs?.get(transcriptRef, maxTranscriptBytes);
           if (!b) return;
           const t = decodeTranscript(new Uint8Array(await b.arrayBuffer()), String(rec.id).toLowerCase());
           transcriptEl.replaceChildren(...transcriptView(t, seek));
         } catch (e) {
-          transcriptEl.replaceChildren(h("p", { class: "error", text: `The transcript cannot be shown: ${problem(e)}` }));
+          transcriptEl.replaceChildren(h("p", { class: "error", text: t("The transcript cannot be shown: {detail}", { detail: problem(e) }) }));
         }
       })();
       return transcriptLoaded;
@@ -156,7 +157,7 @@ export class RecordingsPanel {
       if (open) void loadTranscript();
     };
     const showTranscript = transcriptRef ? h("button", {
-      text: "Transcript", attrs: { type: "button", "aria-expanded": "false" }, on: {
+      text: t("Transcript"), attrs: { type: "button", "aria-expanded": "false" }, on: {
         click: () => setTranscriptOpen(transcriptEl.hidden !== false || transcriptLoaded === undefined),
       },
     }) : null;
@@ -195,25 +196,25 @@ export class RecordingsPanel {
 /** Most segments listed at once; a longer transcript says how many are left out. */
 const maxSegmentsShown = 5_000;
 
-function transcriptView(t: Transcript, seek: (seconds: number) => void): HTMLElement[] {
-  const shown = t.segments.slice(0, maxSegmentsShown);
+function transcriptView(tr: Transcript, seek: (seconds: number) => void): HTMLElement[] {
+  const shown = tr.segments.slice(0, maxSegmentsShown);
   const list = h("ol", { class: "segments" }, ...shown.map((seg) => {
     const text = h("span", { class: "seg-text" });
     if (seg.words && seg.words.length > 0) {
       // Words the recogniser doubted (confidence under 0.5) are marked (§8.3.2).
       seg.words.forEach((w, i) => {
         if (i > 0) text.append(" ");
-        text.append(w.c !== undefined && w.c < 0.5 ? h("span", { class: "doubtful", text: w.t, title: `confidence ${w.c}` }) : w.t);
+        text.append(w.c !== undefined && w.c < 0.5 ? h("span", { class: "doubtful", text: w.t, title: t("confidence {value}", { value: w.c }) }) : w.t);
       });
     } else {
       text.textContent = seg.text;
     }
     return h("li", { attrs: { "data-start": String(seg.start) } }, h("button", {
-      class: "seg-time", text: formatDuration(seg.start), title: "Play from here", attrs: { type: "button" },
+      class: "seg-time", text: formatDuration(seg.start), title: t("Play from here"), attrs: { type: "button" },
       on: { click: () => seek(seg.start) },
     }), text);
   }));
-  const out = [h("p", { class: "sub", text: [t.language, t.engine].filter(Boolean).join(" · ") }), list];
-  if (t.segments.length > shown.length) out.push(h("p", { class: "sub", text: `${t.segments.length - shown.length} more segments not shown.` }));
+  const out = [h("p", { class: "sub", text: [tr.language, tr.engine].filter(Boolean).join(" · ") }), list];
+  if (tr.segments.length > shown.length) out.push(h("p", { class: "sub", text: tn("{count} more segments not shown.", tr.segments.length - shown.length) }));
   return out;
 }

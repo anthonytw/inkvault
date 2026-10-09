@@ -684,4 +684,7 @@ Branch per task, PR to `main`, squash merge, CI green. Commit messages:
   `web/src/`; `web/scripts/golden.sh` re-exports `web/test/golden` with the
   CLI and the `web-golden` CI job diffs it. The viewer never parses markup
   (DOM nodes only, Trusted Types CSP) and never stores or sends the key. Pin
-  npm dependencies exactly; install with `npm ci`.
+  npm dependencies exactly; install with `npm ci`. Interface text is localized
+  (`web/src/i18n/catalog.ts`, English keys, Spanish complete, typed `t` / `tn`; `docs/web-viewer.md`
+  "Languages"): every string `src/ui` shows goes through `t`, counts are plural entries, vault data
+  (titles, notebook and tag names) is never translated, and `i18n.test.ts` fails on a key without Spanish.

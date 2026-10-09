@@ -4,6 +4,7 @@
 // from an object URL. One clip is held at a time: playing another, closing
 // the player or leaving the note revokes the URL so the browser can free it.
 
+import { t, tn } from "../i18n/index.ts";
 import type { NoteState } from "../format/model.ts";
 import { cmpItems } from "../format/registers.ts";
 import { BlobError, type BlobRef, type NoteBlobs, asBlobRef, essence } from "../vault/blobs.ts";
@@ -46,8 +47,8 @@ export function videoEntries(state: NoteState): VideoEntry[] {
 }
 
 function problem(e: unknown): string {
-  if (e instanceof BlobError && e.code === "missing") return "The video file is missing from the vault (or not synced yet).";
-  if (e instanceof BlobError && e.code === "tooLarge") return `The clip is larger than this viewer plays (${maxVideoBytes / 2 ** 20} MiB); export it with the CLI.`;
+  if (e instanceof BlobError && e.code === "missing") return t("The video file is missing from the vault (or not synced yet).");
+  if (e instanceof BlobError && e.code === "tooLarge") return t("The clip is larger than this viewer plays ({size} MiB); export it with the CLI.", { size: maxVideoBytes / 2 ** 20 });
   return e instanceof Error ? e.message : String(e);
 }
 
@@ -65,11 +66,11 @@ export class VideosPanel {
     this.entries = videoEntries(state);
     const rows = this.entries.map((v, i) => h("li", { class: "recording" },
       h("div", { class: "rec-head" },
-        h("span", { class: "title", text: `Video ${i + 1}` }),
-        h("span", { class: "sub", text: [`page ${v.page}`, v.duration !== undefined ? formatDuration(v.duration) : ""].filter(Boolean).join(" · ") })),
-      h("div", { class: "rec-actions" }, h("button", { text: "Play", attrs: { type: "button" }, on: { click: () => void this.play(v.item) } }))));
+        h("span", { class: "title", text: t("Video {number}", { number: i + 1 }) }),
+        h("span", { class: "sub", text: [t("page {number}", { number: v.page }), v.duration !== undefined ? formatDuration(v.duration) : ""].filter(Boolean).join(" · ") })),
+      h("div", { class: "rec-actions" }, h("button", { text: t("Play"), attrs: { type: "button" }, on: { click: () => void this.play(v.item) } }))));
     this.root = h("details", { class: "recordings videos" },
-      h("summary", { text: `${this.entries.length} video${this.entries.length === 1 ? "" : "s"}` }),
+      h("summary", { text: tn("{count} videos", this.entries.length) }),
       h("ul", {}, ...rows), this.status, this.player);
     this.player.hidden = true;
     this.root.hidden = this.entries.length === 0;
@@ -88,14 +89,14 @@ export class VideosPanel {
     const gen = ++this.generation;
     this.playing = id;
     if (!this.blobs) {
-      this.status.textContent = "The video is not available.";
+      this.status.textContent = t("The video is not available.");
       return;
     }
     if (!playable.has(essence(v.clip.type))) {
-      this.status.textContent = `This clip's type (${v.clip.type}) cannot be played here.`;
+      this.status.textContent = t("This clip's type ({type}) cannot be played here.", { type: v.clip.type });
       return;
     }
-    this.status.textContent = "Decrypting…";
+    this.status.textContent = t("Decrypting…");
     try {
       const blob = await this.blobs.get(v.clip, maxVideoBytes);
       // Another clip, or another note, may have been chosen meanwhile: nothing is kept then.
@@ -103,10 +104,10 @@ export class VideosPanel {
       this.url = URL.createObjectURL(new Blob([blob], { type: essence(v.clip.type) }));
       const video = h("video", { attrs: { controls: "", playsinline: "", preload: "auto" } });
       video.addEventListener("error", () => {
-        this.status.textContent = `This browser cannot play the clip's format (${v.codec ?? "unknown codec"}; HEVC needs Safari, or Chrome or Edge with hardware support). The CLI can extract the file.`;
+        this.status.textContent = t("This browser cannot play the clip's format ({codec}; HEVC needs Safari, or Chrome or Edge with hardware support). The CLI can extract the file.", { codec: v.codec ?? t("unknown codec") });
       });
       video.src = this.url;
-      const close = h("button", { text: "Close", attrs: { type: "button" }, on: { click: () => this.close() } });
+      const close = h("button", { text: t("Close"), attrs: { type: "button" }, on: { click: () => this.close() } });
       this.player.replaceChildren(video, close);
       this.player.hidden = false;
       this.status.textContent = "";
