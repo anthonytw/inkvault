@@ -284,18 +284,7 @@ struct ImportNotability: ParsableCommand {
                 for w in n.warnings { print("attachments \(n.source): \(w)") }
             }
             if output.verbose, !n.dropped.isEmpty {
-                let d = n.dropped
-                let parts = [(d.typedTextCharacters, "typed text characters"), (d.pdfs, "pdfs"),
-                             (d.pdfPages, "pdf pages (imported as blank paper)"), (d.media, "media objects"),
-                             (d.pdfHighlights, "pdf highlights"), (d.templatePDFs, "template PDF paper"),
-                             (d.recLinks, "stroke links to recordings"),
-                             (d.recordings, "recordings"), (d.dashedStrokes, "dashed strokes imported solid"),
-                             (d.unknownStyleStrokes, "strokes of unknown style imported as pen"),
-                             (d.defaultedAttributeStrokes, "strokes with a missing style, colour or width (defaulted)"),
-                             (d.unsupportedShapes, "shapes not converted"),
-                             (d.unsupportedStrokes, "strokes of an undecoded .ntb kind"),
-                             (d.clampedStrokes, ".ntb strokes placed at the page edge (position not stored)")]
-                    .filter { $0.0 > 0 }.map { "\($0.0) \($0.1)" }
+                let parts = n.dropped.nonZero.map { "\($0.count) \($0.kind.english)" }
                 print("not imported from \(n.source): " + parts.joined(separator: ", "))
             }
         }

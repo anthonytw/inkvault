@@ -191,6 +191,22 @@ final class NotabilityTextAudioTests: XCTestCase {
         XCTAssertTrue(r.warnings.contains { $0.contains("read as milliseconds") })
     }
 
+    func testDroppedKindsNameEveryCounter() {
+        var d = NotabilityImporter.Dropped()
+        XCTAssertTrue(d.nonZero.isEmpty)
+        d.media = 2; d.pdfTextPages = 3; d.dashedStrokes = 5
+        XCTAssertEqual(d.nonZero.map(\.kind), [.media, .dashedStrokes, .pdfTextPages])
+        XCTAssertEqual(d.nonZero.map(\.count), [2, 5, 3])
+        // Every counter has a kind: a Dropped with each field set once lists them all.
+        var all = NotabilityImporter.Dropped()
+        all.typedTextCharacters = 1; all.pdfs = 1; all.pdfPages = 1; all.media = 1; all.pdfHighlights = 1; all.templatePDFs = 1
+        all.recLinks = 1; all.recordings = 1; all.dashedStrokes = 1; all.unknownStyleStrokes = 1
+        all.defaultedAttributeStrokes = 1; all.unsupportedShapes = 1; all.unsupportedStrokes = 1; all.clampedStrokes = 1
+        all.bundleRecordsWithoutFile = 1; all.bundleFilesUnreferenced = 1; all.pdfTextPages = 1
+        XCTAssertEqual(all.nonZero.count, NotabilityImporter.Dropped.Kind.allCases.count)
+        XCTAssertTrue(NotabilityImporter.Dropped.Kind.allCases.allSatisfy { !$0.english.isEmpty })
+    }
+
     // MARK: Notability's own transcripts (GA-09)
 
     static let transcriptEntry = lectureEntry + """

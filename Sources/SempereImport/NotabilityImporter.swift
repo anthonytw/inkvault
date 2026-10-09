@@ -144,6 +144,65 @@ public enum NotabilityImporter {
 
         /// True when nothing was left behind.
         public var isEmpty: Bool { self == Dropped() }
+
+        /// What `Kind` counts, in report order: the nonzero ones, for the CLI's verbose line and the app's
+        /// report sheet (which localizes `Kind` itself).
+        public var nonZero: [(kind: Kind, count: Int)] {
+            Kind.allCases.compactMap { k in count(of: k) > 0 ? (k, count(of: k)) : nil }
+        }
+
+        /// The counter `kind` names.
+        public func count(of kind: Kind) -> Int {
+            switch kind {
+            case .typedTextCharacters: return typedTextCharacters
+            case .pdfs: return pdfs
+            case .pdfPages: return pdfPages
+            case .media: return media
+            case .pdfHighlights: return pdfHighlights
+            case .templatePDFs: return templatePDFs
+            case .recLinks: return recLinks
+            case .recordings: return recordings
+            case .dashedStrokes: return dashedStrokes
+            case .unknownStyleStrokes: return unknownStyleStrokes
+            case .defaultedAttributeStrokes: return defaultedAttributeStrokes
+            case .unsupportedShapes: return unsupportedShapes
+            case .unsupportedStrokes: return unsupportedStrokes
+            case .clampedStrokes: return clampedStrokes
+            case .bundleRecordsWithoutFile: return bundleRecordsWithoutFile
+            case .bundleFilesUnreferenced: return bundleFilesUnreferenced
+            case .pdfTextPages: return pdfTextPages
+            }
+        }
+
+        /// One counter of `Dropped`, named for reports (the raw value is the JSON key).
+        public enum Kind: String, CaseIterable, Sendable {
+            case typedTextCharacters, pdfs, pdfPages, media, pdfHighlights, templatePDFs, recLinks, recordings
+            case dashedStrokes, unknownStyleStrokes, defaultedAttributeStrokes, unsupportedShapes, unsupportedStrokes
+            case clampedStrokes, bundleRecordsWithoutFile, bundleFilesUnreferenced, pdfTextPages
+
+            /// The English words the CLI prints after the count.
+            public var english: String {
+                switch self {
+                case .typedTextCharacters: return "typed text characters"
+                case .pdfs: return "pdfs"
+                case .pdfPages: return "pdf pages (imported as blank paper)"
+                case .media: return "media objects"
+                case .pdfHighlights: return "pdf highlights"
+                case .templatePDFs: return "template PDF paper"
+                case .recLinks: return "stroke links to recordings"
+                case .recordings: return "recordings"
+                case .dashedStrokes: return "dashed strokes imported solid"
+                case .unknownStyleStrokes: return "strokes of unknown style imported as pen"
+                case .defaultedAttributeStrokes: return "strokes with a missing style, colour or width (defaulted)"
+                case .unsupportedShapes: return "shapes not converted"
+                case .unsupportedStrokes: return "strokes of an undecoded .ntb kind"
+                case .clampedStrokes: return ".ntb strokes placed at the page edge (position not stored)"
+                case .bundleRecordsWithoutFile: return ".ntb records naming no file of the bundle"
+                case .bundleFilesUnreferenced: return ".ntb attachment files no record names"
+                case .pdfTextPages: return "pdf pages without text"
+                }
+            }
+        }
     }
 
     /// Outcome for one source note.
