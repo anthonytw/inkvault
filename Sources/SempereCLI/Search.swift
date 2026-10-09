@@ -61,29 +61,6 @@ struct SearchHit: Encodable {
     }
 }
 
-enum RecognitionSearch {
-    /// Occurrences of `term` in `text`, ignoring case.
-    static func ranges(of term: String, in text: String) -> [Range<String.Index>] {
-        var out: [Range<String.Index>] = []
-        var from = text.startIndex
-        while from < text.endIndex, let r = text.range(of: term, options: [.caseInsensitive, .diacriticInsensitive],
-                                                       range: from..<text.endIndex) {
-            out.append(r)
-            from = r.upperBound > r.lowerBound ? r.upperBound : text.index(after: r.lowerBound)
-        }
-        return out
-    }
-
-    /// A one-line excerpt around `range`, with `…` where it was cut.
-    static func snippet(_ text: String, around range: Range<String.Index>, context: Int = 30) -> String {
-        let start = text.index(range.lowerBound, offsetBy: -context, limitedBy: text.startIndex) ?? text.startIndex
-        let end = text.index(range.upperBound, offsetBy: context, limitedBy: text.endIndex) ?? text.endIndex
-        let body = text[start..<end].split(whereSeparator: \.isNewline).joined(separator: " ")
-            .trimmingCharacters(in: .whitespaces)
-        return (start > text.startIndex ? "…" : "") + body + (end < text.endIndex ? "…" : "")
-    }
-}
-
 struct SearchCommand: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "search",
@@ -206,14 +183,13 @@ struct SearchCommand: ParsableCommand {
                         printStderr("warning: cannot read the transcript of recording \(recording.id.uuidString.lowercased()) in note \(noteId): \(CLIError.from(error).message)")
                         continue
                     }
-                    for segment in transcript.segments {
-                        let found = RecognitionSearch.ranges(of: needle, in: segment.text)
-                        guard let first = found.first else { continue }
+                    for t in TranscriptSearch.hits(of: needle, in: transcript, recording: recording.id,
+                                                   title: recording.title) {
                         hits.append(SearchHit(noteId: noteId, title: title, notebook: state.meta.notebook, page: nil, pageId: nil,
-                                              snippet: RecognitionSearch.snippet(segment.text, around: first), matches: found.count,
-                                              source: "transcript", engine: transcript.engine, words: [],
+                                              snippet: t.snippet, matches: t.matches,
+                                              source: "transcript", engine: t.engine, words: [],
                                               recordingId: recording.id.uuidString.lowercased(), recordingTitle: recording.title,
-                                              start: segment.start, end: segment.end))
+                                              start: t.start, end: t.end))
                     }
                 }
             }
