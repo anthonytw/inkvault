@@ -85,6 +85,7 @@ public struct SharedSettingSpec: Sendable {
         case .localeOrNull:
             if value == .null { return value }
             if case .string(let s) = value, (1...35).contains(s.utf8.count),
+               let first = s.utf8.first, (0x41...0x5a).contains(first) || (0x61...0x7a).contains(first),
                s.utf8.allSatisfy({ (0x30...0x39).contains($0) || (0x41...0x5a).contains($0) || (0x61...0x7a).contains($0)
                    || $0 == UInt8(ascii: "_") || $0 == UInt8(ascii: "-") }) {
                 return value
@@ -310,7 +311,7 @@ public enum SharedSettingsSchema {
                  "properties": .object(["kind": .object(["type": .string("string")])])]
         case .localeOrNull:
             o = ["oneOf": .array([.object(["type": .string("null")]),
-                                  .object(["type": .string("string"), "pattern": .string("^[A-Za-z0-9_-]{1,35}$")])])]
+                                  .object(["type": .string("string"), "pattern": .string("^[A-Za-z][A-Za-z0-9_-]{0,34}$")])])]
         }
         let used = spec.types.map { " Used by: \($0.map(\.rawValue).joined(separator: ", "))." } ?? ""
         o["description"] = .string(spec.summary + "." + used)

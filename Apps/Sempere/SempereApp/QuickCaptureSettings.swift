@@ -36,9 +36,11 @@ struct QuickCaptureSettingsSection: View {
             if let stored, model.quickCaptureIsForOpenVault {
                 TextField("Notebook", text: $notebook)
                     .onSubmit { update { $0.profile.notebook = NoteOps.normalizedNotebook(notebook) ?? CaptureProfile.defaultNotebook } }
+                    .syncedSetting("quickCapture.notebook")
                 Toggle("Transcribe Voice Notes", isOn: Binding(get: { stored.transcribe }, set: { on in
                     update { $0.transcribe = on }
                 }))
+                .syncedSetting("quickCapture.transcribe")
             } else if let stored {
                 LabeledContent("Voice notes go to", value: stored.vaultName)
             }
@@ -57,6 +59,7 @@ struct QuickCaptureSettingsSection: View {
             Text("Record from the Lock Screen, Control Center, the Action button, a widget or Siri (“Record a Sempere voice note”), without unlocking the vault or using Face ID. Each voice note is encrypted on this device to your vault's keys as soon as it stops, and becomes a note in the notebook above, titled with the date and time, the next time the vault is unlocked. Transcription runs on this device only. This device keeps the vault's public keys and a capture key that can add voice notes but cannot read any note.")
         }
         .id(Self.anchor)
+        .onChange(of: model.settingsAppliedRevision) { reload() }
         .onAppear {
             reload()
             // Live Activities may have been switched in Settings ▸ Sempere meanwhile.
@@ -74,6 +77,7 @@ struct QuickCaptureSettingsSection: View {
         change(&s)
         do { try model.quickCapture.store.save(s) } catch { problem = "\(error)" }
         model.quickCapture.publishStatus()
+        model.settingsChanged()   // a synced setting (docs/settings-sync.md §5.2)
         reload()
     }
 }

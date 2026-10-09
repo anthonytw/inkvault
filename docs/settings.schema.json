@@ -237,7 +237,7 @@
               "type" : "null"
             },
             {
-              "pattern" : "^[A-Za-z0-9_-]{1,35}$",
+              "pattern" : "^[A-Za-z][A-Za-z0-9_-]{0,34}$",
               "type" : "string"
             }
           ]

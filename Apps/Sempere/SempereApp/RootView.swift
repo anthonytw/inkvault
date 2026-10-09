@@ -132,6 +132,7 @@ struct RootView: View {
             // iCloud may have delivered files while the app was away; no
             // polling while it is in the background.
             if phase == .active { model.enterForeground() }
+            if phase == .active { model.scheduleSettingsSync() }   // another device may have changed the vault's settings
             if phase == .active, model.isCloudVault { model.startCloudSync() }
             if phase == .active {
                 // Live Activities may have been switched in Settings ▸ Sempere meanwhile.
