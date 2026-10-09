@@ -50,7 +50,10 @@ final class TextBoxEditorController: NSObject, UITextViewDelegate, UIGestureReco
         var dirty = false
     }
 
-    private(set) var session: Session?
+    private(set) var session: Session? {
+        // The menus read it (`NoteEditor.typingInTextBox`): ⌘⌫ and ⌥⌘⌫ are the text view's then.
+        didSet { if (session == nil) != (oldValue == nil) { editor?.typingInTextBox = session != nil } }
+    }
     /// The controller editing now, if any: one box is edited at a time, also
     /// across the pages of a paged note (each page has its own controller).
     private static weak var editing: TextBoxEditorController?
