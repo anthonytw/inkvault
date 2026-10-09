@@ -127,19 +127,18 @@ struct PaperPickerView: View {
 
     @ViewBuilder
     private var kindButtons: some View {
-            ForEach(PaperKind.allCases, id: \.self) { kind in
-                Button { draft.select(kind) } label: {
-                    VStack(spacing: 6) {
-                        thumbnail(for: kind)
-                        Text(kind.localizedTitle).font(.caption).foregroundStyle(.primary)
-                            .multilineTextAlignment(.center)
-                    }
-                    .frame(width: layout.kindsInStrip ? 96 : nil)
+        ForEach(PaperKind.allCases, id: \.self) { kind in
+            Button { draft.select(kind) } label: {
+                VStack(spacing: 6) {
+                    thumbnail(for: kind)
+                    Text(kind.localizedTitle).font(.caption).foregroundStyle(.primary)
+                        .multilineTextAlignment(.center)
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel(kind.localizedTitle)
-                .accessibilityAddTraits(kind == draft.kind ? .isSelected : [])
+                .frame(width: layout.kindsInStrip ? 96 : nil)
             }
+            .buttonStyle(.plain)
+            .accessibilityLabel(kind.localizedTitle)
+            .accessibilityAddTraits(kind == draft.kind ? .isSelected : [])
         }
     }
 
