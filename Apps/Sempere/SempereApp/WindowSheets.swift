@@ -47,8 +47,7 @@ struct WindowSheets: ViewModifier {
                         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
                 }
             }
-            .alert(model.notabilitySummary?.title ?? "", isPresented: Binding(get: { model.notabilitySummary != nil && isFront },
-                                                                            set: { if !$0 { model.notabilitySummary = nil } })) {
+            .alert(model.notabilitySummary?.title ?? "", isPresented: notabilitySummaryShown) {
                 if let details = model.notabilitySummary?.details, !details.isEmpty {
                     Button("Show Report") {
                         ui.notabilityReport = details
@@ -60,8 +59,7 @@ struct WindowSheets: ViewModifier {
                 Text(model.notabilitySummary?.message ?? "")
             }
             // PDFs opened from the Finder or the share sheet (`AppModel+OpenedFiles`).
-            .sheet(isPresented: Binding(get: { isFront && [OpenedFile.Stage.ready, .readOnly].contains(model.openedPDFStage) },
-                                        set: { _ in })) {
+            .sheet(isPresented: openedPDFsShown) {
                 OpenedPDFsView(ui: ui)
             }
             .onChange(of: ui.renameNoteID) { _, id in
@@ -146,6 +144,23 @@ extension WindowSheets {
     /// The window that shows app-wide prompts (the opened-PDF sheet, the
     /// Notability result): the library window with the canvas, else any.
     private var isFront: Bool { OpenedFile.shows(in: ui.id, canvasWindow: model.canvasWindow) }
+
+    // Bindings built here, not inline in `body`: the modifier chain is too long for the type checker
+    // to resolve them in place ("unable to type-check this expression in reasonable time").
+    private var notabilitySummaryShown: Binding<Bool> {
+        Binding<Bool>(
+            get: { model.notabilitySummary != nil && isFront },
+            set: { shown in if !shown { model.notabilitySummary = nil } })
+    }
+
+    private var openedPDFsShown: Binding<Bool> {
+        Binding<Bool>(
+            get: {
+                let stage = model.openedPDFStage
+                return isFront && (stage == .ready || stage == .readOnly)
+            },
+            set: { _ in })
+    }
 }
 
 /// The PDFs opened from outside the app: "Import as new notes into <vault>",
