@@ -112,6 +112,21 @@ struct SettingsTests {
         #expect(S.unavailable.text == "Not available on this device")
     }
 
+    /// GA-05: the launch hook installs the download, and the button shows only when the model is missing.
+    @MainActor @Test func theDownloadButtonNeedsAMissingModelAndAnEngine() {
+        typealias S = TranscriptionSettings.ModelStatus
+        let saved = TranscriptionSettings.downloader
+        defer { TranscriptionSettings.downloader = saved }
+        TranscriptionSettings.downloader = nil
+        TranscriptionPreference.installSettingsHooks()
+        #expect(TranscriptionSettings.downloader != nil, "the launch hook wires the download")
+        #expect(TranscriptionSettings.offersDownload(.notDownloaded, hasDownloader: true))
+        #expect(!TranscriptionSettings.offersDownload(.notDownloaded, hasDownloader: false))
+        for status in [S.installed, .unavailable, .downloading(fraction: nil)] {
+            #expect(!TranscriptionSettings.offersDownload(status, hasDownloader: true))
+        }
+    }
+
     // MARK: Photos
 
     @Test func photoPrivacyIsOnByDefault() {

@@ -301,7 +301,7 @@ private struct TranscriptionSettingsSection: View {
                 }
                 .onChange(of: locale) { TranscriptionSettings.setLocaleIdentifier(locale) }
                 LabeledContent("Language Model", value: status.text)
-                if status == .notDownloaded, TranscriptionSettings.downloader != nil {
+                if TranscriptionSettings.offersDownload(status, hasDownloader: TranscriptionSettings.downloader != nil) {
                     Button(LocalizedStringKey(downloading ? "Downloading…" : "Download Language Model")) { Task { await download() } }
                         .disabled(downloading)
                 }
@@ -327,6 +327,7 @@ private struct TranscriptionSettingsSection: View {
         guard let download = TranscriptionSettings.downloader else { return }
         downloading = true
         failure = nil
+        status = .downloading(fraction: nil)
         defer { downloading = false }
         do { try await download(locale) } catch {
             failure = String(localized: "The language model could not be downloaded: \(String(describing: error))",

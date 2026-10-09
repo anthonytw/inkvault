@@ -51,12 +51,18 @@ enum TranscriptionPreference {
     }
 
     /// Installs the Settings panel's model-status lookup (`TranscriptionSettings.statusProvider`):
-    /// what the on-device engines say for the chosen language. Nothing is downloaded here.
+    /// what the on-device engines say for the chosen language, and the download button
+    /// (`TranscriptionSettings.downloader`): it asks Apple's asset service for
+    /// SpeechTranscriber's model, only when the user taps it (`SpeechTranscription.downloadModel`).
+    /// The model is also fetched the first time a recording is transcribed without it.
     @MainActor
     static func installSettingsHooks() {
         TranscriptionSettings.statusProvider = { locale in
             let engines = await SpeechTranscription.availability(options: SpeechTranscription.Options(language: locale))
             return modelStatus(engines)
+        }
+        TranscriptionSettings.downloader = { locale in
+            try await SpeechTranscription.downloadModel(options: SpeechTranscription.Options(language: locale))
         }
     }
 

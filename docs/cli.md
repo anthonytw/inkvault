@@ -1431,6 +1431,7 @@ and changes nothing. `--json` gives `{note, page, pageId, strokes, engine, secon
 sempere transcribe (ID|TITLE [RECORDING...] | --all) [--language TAG] [--engine auto|speechtranscriber|sfspeech]
                    [--force] [--dry-run] [--no-download]
 sempere transcribe --check [--language TAG]
+sempere transcribe --download-model [--language TAG]
 ```
 
 Transcribes a note's recordings on this machine with Apple's Speech framework
@@ -1459,7 +1460,14 @@ whatever they have, and `--force` replaces every transcript. `--dry-run` lists
 what would be read and works on every platform. `--check` prints which engines
 can transcribe here, for which language, and needs no vault (it is the
 availability matrix of task E5; `--json` gives `{supported, engines: [{engine,
-available, language, detail}]}`).
+available, language, detail}]}`). `--download-model` installs
+SpeechTranscriber's on-device model for the language (`--language`, else this
+machine's) through Apple's asset service, without a vault, and returns when it
+is installed (at once if it already is); it is what the app's Settings ▸
+Transcription ▸ Download Language Model button runs. It stands alone (`--check`,
+`--dry-run`, `--all` and a note are usage errors) and exits 1 where there is no
+Speech framework or no such model. The SFSpeechRecognizer fallback has no
+downloadable model.
 
 **macOS only.** The Linux build exits 1 with a message and changes nothing
 (`--dry-run` and `--check` still work). `--json` gives `{dryRun, notes: [{note,

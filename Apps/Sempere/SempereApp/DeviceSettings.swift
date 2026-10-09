@@ -214,8 +214,14 @@ enum TranscriptionSettings {
     /// The transcription feature installs the real lookup at launch; until
     /// then the Settings panel shows `unavailable`.
     @MainActor static var statusProvider: @Sendable (String?) async -> ModelStatus = { _ in .unavailable }
-    /// Starts downloading the model; nil when no engine is installed.
+    /// Starts downloading the model; nil when no engine is installed
+    /// (`TranscriptionPreference.installSettingsHooks` sets it at launch).
     @MainActor static var downloader: (@Sendable (String?) async throws -> Void)?
+
+    /// Whether Settings offers the download button: the model is missing and an engine can fetch it.
+    static func offersDownload(_ status: ModelStatus, hasDownloader: Bool) -> Bool {
+        status == .notDownloaded && hasDownloader
+    }
 }
 
 // MARK: - Device keys
