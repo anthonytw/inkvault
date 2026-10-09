@@ -448,35 +448,57 @@ function request<T>(r: IDBRequest<T>): Promise<T> {
   });
 }
 
-/** Records in this origin's IndexedDB (`sempere-viewer` / `passkey-keys`, keyed by vault id; one per vault). */
+/**
+ * Records in this origin's IndexedDB (`sempere-viewer` / `passkey-keys`, keyed
+ * by vault id; one per vault). The database is created by the first record
+ * only: looking for a record (every unlock screen) or forgetting one where none
+ * exists leaves no database behind, so nothing is stored before the user opts in.
+ */
 export class IndexedDBKeyStorage implements KeyStorage {
-  private db?: Promise<IDBDatabase>;
+  private db?: IDBDatabase;
 
-  private open(): Promise<IDBDatabase> {
-    this.db ??= new Promise((resolve, reject) => {
-      const r = indexedDB.open(dbName, 1);
-      r.onupgradeneeded = () => r.result.createObjectStore(storeName, { keyPath: "vaultId" });
+  constructor(private readonly factory: IDBFactory = indexedDB) {}
+
+  /** The database; undefined when it does not exist and `create` is false (its creation is aborted). */
+  private async database(create: boolean): Promise<IDBDatabase | undefined> {
+    if (this.db) return this.db;
+    const db = await new Promise<IDBDatabase | undefined>((resolve, reject) => {
+      let absent = false;
+      const r = this.factory.open(dbName, 1);
+      r.onupgradeneeded = (e) => {
+        if (!create && e.oldVersion === 0) {
+          absent = true;
+          r.transaction?.abort();
+          return;
+        }
+        r.result.createObjectStore(storeName, { keyPath: "vaultId" });
+      };
       r.onsuccess = () => resolve(r.result);
-      r.onerror = () => reject(r.error ?? new Error("cannot open IndexedDB"));
+      r.onerror = () => absent ? resolve(undefined) : reject(r.error ?? new Error("cannot open IndexedDB"));
       r.onblocked = () => reject(new Error("IndexedDB is blocked by another tab"));
     });
-    return this.db;
+    if (db) this.db = db;
+    return db;
   }
 
-  private async store(mode: IDBTransactionMode): Promise<IDBObjectStore> {
-    return (await this.open()).transaction(storeName, mode).objectStore(storeName);
+  private async store(mode: IDBTransactionMode, create: boolean): Promise<IDBObjectStore | undefined> {
+    return (await this.database(create))?.transaction(storeName, mode).objectStore(storeName);
   }
 
   async get(vaultId: string): Promise<StoredKey | undefined> {
-    return await request((await this.store("readonly")).get(vaultId)) as StoredKey | undefined;
+    const store = await this.store("readonly", false);
+    return store ? await request(store.get(vaultId)) as StoredKey | undefined : undefined;
   }
 
   async put(record: StoredKey): Promise<void> {
-    await request((await this.store("readwrite")).put(record));
+    const store = await this.store("readwrite", true);
+    if (!store) throw new Error("cannot create the IndexedDB database");
+    await request(store.put(record));
   }
 
   async delete(vaultId: string): Promise<void> {
-    await request((await this.store("readwrite")).delete(vaultId));
+    const store = await this.store("readwrite", false);
+    if (store) await request(store.delete(vaultId));
   }
 }
 

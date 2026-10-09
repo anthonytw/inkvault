@@ -5,10 +5,11 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
-  MemoryKeyStorage, PasskeyError, PasskeyVault, type StoredKey, type WebAuthn, describeLocation, maxLocationLength, open,
+  IndexedDBKeyStorage, MemoryKeyStorage, PasskeyError, PasskeyVault, type StoredKey, type WebAuthn, describeLocation, maxLocationLength, open,
   recordPlace, seal, userVerified, validRecord, vaultLocation,
 } from "../src/vault/passkey.ts";
 import { FileListSource, HTTPSource } from "../src/vault/source.ts";
+import { IDBFactory } from "fake-indexeddb";
 import { UnlockedVault, parseIdentity, parseManifest } from "../src/vault/vault.ts";
 import { fixtures, sampleIdentity } from "./support.ts";
 
@@ -414,5 +415,50 @@ describe("remembered keys are bound to the vault's location", () => {
     expect(local).not.toBe(a);
     expect(describeLocation(local)).toMatch(/folder/);
     expect(describeLocation(a)).toBe(a);
+  });
+});
+
+describe("IndexedDB storage of remembered keys", () => {
+  const record = (vaultId: string): StoredKey => ({
+    version: 2, vaultId, location: here, credentialId: new Uint8Array([1, 2, 3]), salt: new Uint8Array(32),
+    iv: new Uint8Array(12), ciphertext: new Uint8Array(40), created: 7,
+  });
+
+  it("creates no database until a key is remembered", async () => {
+    const factory = new IDBFactory();
+    const storage = new IndexedDBKeyStorage(factory);
+    expect(await storage.get(vaultA)).toBeUndefined();
+    await storage.delete(vaultA);
+    expect((await factory.databases()).map((d) => d.name)).toEqual([]);
+    await storage.put(record(vaultA));
+    expect((await factory.databases()).map((d) => d.name)).toEqual(["sempere-viewer"]);
+    // Another tab (a new connection) reads it.
+    const other = new IndexedDBKeyStorage(factory);
+    expect((await other.get(vaultA))?.location).toBe(here);
+    expect(await other.get(vaultB)).toBeUndefined();
+    await other.delete(vaultA);
+    expect(await storage.get(vaultA)).toBeUndefined();
+  });
+
+  it("reads version 1 records written by older viewers", async () => {
+    const factory = new IDBFactory();
+    // The old viewer's database: version 1, the same store, a record without a location.
+    await new Promise<void>((resolve, reject) => {
+      const r = factory.open("sempere-viewer", 1);
+      r.onupgradeneeded = () => r.result.createObjectStore("passkey-keys", { keyPath: "vaultId" });
+      r.onsuccess = () => {
+        const v1: StoredKey = { ...record(vaultA), version: 1 };
+        delete v1.location;
+        const tx = r.result.transaction("passkey-keys", "readwrite");
+        tx.objectStore("passkey-keys").put(v1);
+        tx.oncomplete = () => { r.result.close(); resolve(); };
+        tx.onerror = () => reject(tx.error ?? new Error("put failed"));
+      };
+      r.onerror = () => reject(r.error ?? new Error("open failed"));
+    });
+    const pv = new PasskeyVault(new MockAuthenticator(), new IndexedDBKeyStorage(factory));
+    const stored = await pv.stored(vaultA);
+    expect(stored?.version).toBe(1);
+    expect(stored && recordPlace(stored, here)).toBe("legacy");
   });
 });
