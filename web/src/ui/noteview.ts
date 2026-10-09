@@ -463,10 +463,8 @@ export class NoteView {
 
   private clampPan(): void {
     const vw = this.viewport.clientWidth, vh = this.viewport.clientHeight;
-    const w = this.contentWidth * this.z, ht = this.contentHeight * this.z;
-    const margin = 40;
-    this.x = w + 2 * margin <= vw ? (vw - w) / 2 : Math.min(margin, Math.max(vw - w - margin, this.x));
-    this.y = Math.min(margin, Math.max(Math.min(vh - ht - margin, margin), this.y));
+    this.x = clampX(this.x, this.contentWidth * this.z, vw);
+    this.y = clampY(this.y, this.contentHeight * this.z, vh);
   }
 
   private setZoom(z: number, cx = this.viewport.clientWidth / 2, cy = this.viewport.clientHeight / 2): void {
@@ -587,6 +585,21 @@ export class NoteView {
     this.clampPan();
     this.schedule();
   }
+}
+
+const panMargin = 40;
+
+/**
+ * The horizontal offset of content `w` wide in a viewport `vw` wide: centred (no sideways pan at
+ * all) while the content fits, otherwise free within `panMargin` of either edge.
+ */
+export function clampX(x: number, w: number, vw: number): number {
+  return w <= vw ? (vw - w) / 2 : Math.min(panMargin, Math.max(vw - w - panMargin, x));
+}
+
+/** The vertical offset of content `ht` tall in a viewport `vh` tall, within `panMargin` of the ends. */
+export function clampY(y: number, ht: number, vh: number): number {
+  return Math.min(panMargin, Math.max(Math.min(vh - ht - panMargin, panMargin), y));
 }
 
 /** A video or audio item drawn on a page, and what a tap on it plays. */
