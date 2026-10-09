@@ -252,7 +252,7 @@ behaviour and testing on a real Mac.
 | Keyboard shortcuts for item actions (duplicate, front, delete) and for recording (GA-13, S) | 📋 |
 | Menu parity: Version History, page duplicate / delete / undo delete, Add Page After This One, layout toggle, Show Pages, Text and Select tools, eraser size and Compact Palette as Note / Tools / View entries (GA-14, M) | ✅ #136 (not yet tried on a Mac) |
 | CI: run the Mac Catalyst app suites on PRs, not only on `main` and dispatch (GA-62, S; a decision on macOS runner time) | 📋 (needs the maintainer) |
-| Menu-bar item for quick capture: File > Start/Stop Voice Note (⇧⌘M); Catalyst has no status-bar icon (GA-23, M) | ✅ #136 (not yet tried on a Mac) |
+| Menu-bar item for quick capture (GA-23, M): File > Start/Stop Voice Note (⇧⌘M) ✅ #136; a status-bar icon with Quick Voice Note and New Note, from a small AppKit bundle loaded by the Catalyst app, with a Settings toggle 🚧 | 🔀 follow-up PR for the icon (not yet tried on a Mac) |
 
 ## iPhone and web
 

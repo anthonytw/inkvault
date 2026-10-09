@@ -440,6 +440,9 @@ final class AppModel {
     let exportEpoch = ExportEpoch()
     /// Library windows on screen (a note window restored alone opens one).
     var libraryWindowCount = 0
+    /// "New Note" was chosen in the Mac menu-bar item at this time and has not been carried out yet
+    /// (`AppModel+MenuBar`).
+    var menuBarNewNoteRequest: Date?
     /// The migration of a legacy vault while `phase == .migrating`.
     var migration: VaultMigration?
     /// This device's trust records of vault recipients lists (format.md
