@@ -9,7 +9,8 @@ GitHub Pages from [`docs/privacy/index.html`](../privacy/index.html), at
 
 **Short version: Sempere does not collect, transmit or share any data about you. It has no
 servers, no accounts, no analytics and no advertising. The only network connections it makes
-are to a WebDAV server that you set up yourself, if you choose to keep a vault there.**
+are to a WebDAV server that you set up yourself, if you choose to keep a vault there (see
+"Network connections").**
 
 ## What Sempere is
 
@@ -57,6 +58,24 @@ your key, nobody can decrypt your notes.**
   Photos).
 - **Quick voice notes** from the Lock Screen or Control Center are encrypted on the device
   before they are saved, without unlocking your vault.
+
+## Network connections
+
+Sempere connects only to a WebDAV server you set up yourself, and only if you open a vault there
+(Open from WebDAV): it then uploads your already encrypted vault files to that server's address
+over HTTPS, with the user name and password you entered (the password stays in your device's
+Keychain). Nothing is sent to us or to anyone else. Otherwise your notes reach iCloud Drive or
+another storage provider only through the system's Files and iCloud services, which copy the
+encrypted files you saved there; the speech model download above is the system's too.
+
+Besides the WebDAV client, the app contains one other piece of networking code: a downloader for an optional handwriting-to-math
+recognition model (Settings → Handwritten Math). It runs only when you tap a model's Download
+button, and this version offers no model, so it never runs and has no address to connect to. If a
+future version offers a
+model, it will be downloaded only when you ask, over HTTPS, from an address this policy will name,
+and it will be checked against a fingerprint built into the app. The download request carries
+nothing from your vault, and the model then runs on your device: your ink never leaves it. This
+policy will be updated before such a version is released.
 
 ## Device permissions
 

@@ -13,28 +13,42 @@
 #     entitlements file is missing, or the Mac build is not sandboxed;
 #   - the Mac build would get its own bundle id (no universal purchase);
 #   - ITSAppUsesNonExemptEncryption is missing from the app's Info.plist;
-#   - the two copies of the privacy policy (docs/privacy, docs/appstore) differ in date.
+#   - the two copies of the privacy policy (docs/privacy, docs/appstore) differ in date;
+#   - networking (URLSession, Network.framework, sockets, web views, CloudKit, …)
+#     appears in a shipping app folder (every folder of Apps/Sempere but the test
+#     targets) or a Sources/ target the app links, outside NETWORK_ALLOWED below
+#     (the privacy policy names the only connections: a WebDAV server the user sets up);
+#   - MathModelCatalog.entries is not empty: that turns the allowed model
+#     downloader on, which the privacy documents say is inert;
+#   - a package pinned with an exact version in project.pbxproj resolves to
+#     another version in the project's Package.resolved;
+#   - with --checkouts: a third-party package (SwiftMath) uses networking, or a
+#     required-reason API that neither its own manifest nor the app's declares.
 #
-# Usage: scripts/release-check.sh [--root DIR] [--list]
-#   --root DIR  check another checkout (scripts/test-release-check.sh uses copies)
-#   --list      also print every required-reason API use as file:line
+# Usage: scripts/release-check.sh [--root DIR] [--list] [--checkouts DIR]
+#   --root DIR       check another checkout (scripts/test-release-check.sh uses copies)
+#   --list           also print every required-reason API use as file:line
+#   --checkouts DIR  also scan the resolved third-party packages in DIR (Xcode's
+#                    SourcePackages/checkouts; CI's app job passes it)
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
 list=0
+checkouts=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --root) root="$(cd "$2" && pwd)"; shift 2 ;;
     --list) list=1; shift ;;
-    -h|--help) sed -n '2,23p' "$0"; exit 0 ;;
+    --checkouts) checkouts="$(cd "$2" && pwd)"; shift 2 ;;
+    -h|--help) sed -n '2,34p' "$0"; exit 0 ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
 done
 
-exec python3 -I - "$root" "$list" <<'PY'
-import os, plistlib, re, sys
+exec python3 -I - "$root" "$list" "$checkouts" <<'PY'
+import os, plistlib, re, subprocess, sys, json
 
-root, list_uses = sys.argv[1], sys.argv[2] == "1"
+root, list_uses, checkouts = sys.argv[1], sys.argv[2] == "1", sys.argv[3]
 app_dir = os.path.join(root, "Apps", "Sempere")
 pbxproj_path = os.path.join(app_dir, "Sempere.xcodeproj", "project.pbxproj")
 errors, warnings = [], []
@@ -111,6 +125,41 @@ PRODUCT_SOURCES = {
     # check the archive's privacy report (docs/release/app-store.md).
     "SwiftMath": [],
 }
+
+# Third-party packages: product -> checkout folder name under Xcode's SourcePackages/checkouts.
+THIRD_PARTY = {"SwiftMath": "SwiftMath"}
+
+# Networking in code (Swift and C spellings). The app connects only to a WebDAV server the
+# user sets up (docs/appstore/privacy-policy.md, docs/release/app-store.md section 3); the
+# files that may do so are NETWORK_ALLOWED below. Handing a URL to the
+# system (openURL, Link) is not the app connecting, and is not matched.
+NETWORK_PATTERN = re.compile(
+    r"\bURLSession\w*\b|\bNSURLSession\w*\b|\bNSURLConnection\b|\bURLRequest\b|\bNSURLRequest\b"
+    r"|^\s*(@\w+\s+)*import\s+(Network|CloudKit|MultipeerConnectivity|WebKit|SafariServices|AuthenticationServices"
+    r"|NetworkExtension|FoundationNetworking)\b"
+    r"|\bNW(Connection|Listener|Browser|PathMonitor|Endpoint|Parameters)\b|\bnw_\w+\s*\("
+    r"|\bCK(Container|Database)\b|\bWKWebView\b|\bSFSafariViewController\b|\bASWebAuthenticationSession\b"
+    r"|\bCF\w*Stream\w*Socket\w*\b|\bCFSocket\w*\b|\bCFNetwork\b"
+    r"|(?<![.\w])(socket|getaddrinfo|gethostbyname|connect)\s*\(")
+
+# The only shipping files that may contain networking, and why. Each is described in the
+# privacy policy (both copies), docs/release/app-store.md and DESIGN.md "Network"; adding one
+# means updating them in the same PR.
+NETWORK_ALLOWED = {
+    # WebDAV vaults (docs/io.md "WebDAV vaults in the app"): connections only to the server the user
+    # enters, uploading the already encrypted vault (push-only); the privacy policy says so.
+    "Apps/Sempere/SempereApp/WebDAVRemote.swift",
+    "Sources/SempereWebDAV/Transport.swift",
+    "Sources/SempereWebDAV/WebDAVClient.swift",
+    # The handwritten-math model downloader (URLSessionModelFetcher): runs only when the user
+    # taps Download on a MathModelCatalog entry, and the catalogue is empty (checked below).
+    "Apps/Sempere/SempereApp/MathModels.swift",
+}
+
+# Where the downloader's catalogue lives; it must stay empty while the documents say the
+# downloader is inert (docs/release/app-store.md section 3).
+MATH_CATALOG = ("Sources/SempereRender/MathModel.swift",
+                re.compile(r"public\s+static\s+let\s+entries\s*:\s*\[MathModelCatalogEntry\]\s*=\s*\[\s*\]"))
 
 # Targets that ship (the bundle the user installs), their source folders and privacy manifest.
 SHIPPING = {
@@ -269,6 +318,7 @@ def scan(dirs):
                             uses[c].append(f"{rel(p)}:{i}")
     return uses
 
+declared_by_target = {}
 for target, spec in SHIPPING.items():
     linked = target_products(target)
     if linked is None:
@@ -307,6 +357,7 @@ for target, spec in SHIPPING.items():
             if r not in APPLE_REASONS[cat]:
                 errors.append(f"{rel(mpath)}: {cat} reason {r!r} is not one of Apple's ({sorted(APPLE_REASONS[cat])})")
         declared[cat] = reasons
+    declared_by_target[target] = declared
     for cat, where in uses.items():
         if where and cat not in declared:
             errors.append(f"{target} uses {cat} ({where[0]}{' and %d more' % (len(where) - 1) if len(where) > 1 else ''}) "
@@ -319,6 +370,127 @@ for target, spec in SHIPPING.items():
         for cat, where in uses.items():
             for w in where:
                 print(f"{cat.replace('NSPrivacyAccessedAPICategory', '')}\t{w}")
+
+# --- Networking ------------------------------------------------------------------------
+
+def code_lines(p):
+    for i, line in enumerate(read(p).splitlines(), 1):
+        code = line.split("//", 1)[0]
+        if code.strip() and not code.lstrip().startswith("*"):
+            yield i, code
+
+def network_uses(dirs):
+    found = []
+    for d in dirs:
+        for dirpath, dirnames, filenames in os.walk(d):
+            dirnames.sort()
+            for fn in sorted(filenames):
+                if fn.endswith((".swift", ".c", ".h", ".m", ".mm", ".cpp")):
+                    p = os.path.join(dirpath, fn)
+                    found += [(p, i) for i, code in code_lines(p) if NETWORK_PATTERN.search(code)]
+    return found
+
+# Every folder of Apps/Sempere except the test targets ships or may ship: a new folder is
+# scanned without anyone remembering to add it. Plus the Sources/ targets any target links.
+shipping_dirs = [os.path.join(app_dir, d) for d in sorted(os.listdir(app_dir))
+                 if os.path.isdir(os.path.join(app_dir, d)) and not d.endswith(("Tests", ".xcodeproj"))]
+for prod in sorted(products):
+    shipping_dirs += [os.path.join(root, "Sources", s) for s in PRODUCT_SOURCES.get(prod, [])]
+net = network_uses(sorted(set(shipping_dirs)))
+for p, i in net:
+    if rel(p) not in NETWORK_ALLOWED:
+        errors.append(f"{rel(p)}:{i}: networking in the shipping app; the privacy policy names the only "
+                      "connections the app makes (NETWORK_ALLOWED in scripts/release-check.sh, docs/release/app-store.md "
+                      "section 3)")
+for allowed in sorted(NETWORK_ALLOWED - {rel(p) for p, _ in net}):
+    warnings.append(f"{allowed} is in NETWORK_ALLOWED but has no networking (left over? update the privacy documents)")
+
+cat_path = os.path.join(root, MATH_CATALOG[0])
+if not os.path.isfile(cat_path) or not MATH_CATALOG[1].search(read(cat_path)):
+    errors.append(f"{MATH_CATALOG[0]}: MathModelCatalog.entries is not `[]`: that makes the model downloader reachable, "
+                  "which the privacy policy (both copies), docs/release/app-store.md and DESIGN.md call inert. Update "
+                  "them, add com.apple.security.network.client to the Mac entitlements and its allow-list, then this rule")
+
+# --- Package pins: an exact version in the project resolves to that version -------------
+
+resolved_path = os.path.join(app_dir, "Sempere.xcodeproj", "project.xcworkspace", "xcshareddata", "swiftpm",
+                             "Package.resolved")
+def repo_key(url):
+    return re.sub(r"(\.git)?/?$", "", url.strip().lower())
+pins = {}
+try:
+    for pin in json.loads(read(resolved_path)).get("pins", []):
+        pins[repo_key(pin.get("location", ""))] = pin
+except FileNotFoundError:
+    errors.append(f"{rel(resolved_path)} is missing: the app's package versions are not pinned")
+except Exception as e:
+    errors.append(f"{rel(resolved_path)}: not valid JSON ({e})")
+remote_refs = re.findall(r"isa = XCRemoteSwiftPackageReference;\s*repositoryURL = \"([^\"]+)\";\s*"
+                         r"requirement = \{(.*?)\};", pbx, re.S)
+for url, req in remote_refs:
+    kind = re.search(r"kind = (\w+);", req)
+    version = re.search(r"version = ([\w.\-]+);", req)
+    if not kind or kind.group(1) != "exactVersion" or not version:
+        continue
+    pin = pins.get(repo_key(url))
+    got = (pin or {}).get("state", {}).get("version")
+    if pins and got != version.group(1):
+        errors.append(f"{url} is pinned to exactly {version.group(1)} in project.pbxproj but "
+                      f"{rel(resolved_path)} resolves {got or 'nothing'}")
+
+# --- Third-party checkouts (--checkouts): no networking, required-reason APIs declared ---
+
+if checkouts:
+    app_declared = declared_by_target.get("SempereApp", {})
+    for prod, folder in sorted(THIRD_PARTY.items()):
+        if prod not in products:
+            continue
+        match = [d for d in os.listdir(checkouts) if d.lower() == folder.lower()]
+        if not match:
+            errors.append(f"--checkouts {checkouts}: no {folder} checkout (resolve the app's packages first)")
+            continue
+        base = os.path.join(checkouts, match[0])
+        src = [os.path.join(base, d) for d in sorted(os.listdir(base))
+               if os.path.isdir(os.path.join(base, d)) and not d.startswith(".") and "test" not in d.lower()]
+        for p, i in network_uses(src):
+            errors.append(f"{prod}: {os.path.relpath(p, checkouts)}:{i}: networking in a third-party package the app links")
+        manifests = []
+        for dirpath, dirnames, filenames in os.walk(base):
+            dirnames[:] = [d for d in dirnames if d != ".git"]
+            manifests += [os.path.join(dirpath, f) for f in filenames if f.endswith(".xcprivacy")]
+        own = {}
+        for m in manifests:
+            try:
+                with open(m, "rb") as f:
+                    man = plistlib.load(f)
+            except Exception as e:
+                errors.append(f"{prod}: {os.path.relpath(m, checkouts)} is not a valid plist ({e})")
+                continue
+            if man.get("NSPrivacyTracking") is True or man.get("NSPrivacyCollectedDataTypes"):
+                errors.append(f"{prod}: {os.path.relpath(m, checkouts)} declares tracking or collected data")
+            for entry in man.get("NSPrivacyAccessedAPITypes", []):
+                own[entry.get("NSPrivacyAccessedAPIType")] = entry.get("NSPrivacyAccessedAPITypeReasons", [])
+        used = scan(src)
+        for cat, where in used.items():
+            # Linked statically into the app binary, so the app's manifest covers it too.
+            if where and cat not in own and cat not in app_declared:
+                errors.append(f"{prod} uses {cat} ({os.path.relpath(where[0], root) if where[0].startswith(root) else where[0]}) "
+                              "and neither its manifest nor SempereApp/PrivacyInfo.xcprivacy declares it")
+        pin = pins.get(repo_key(next((u for u, _ in remote_refs if repo_key(u).endswith("/" + folder.lower())), "")), {})
+        want = pin.get("state", {}).get("revision")
+        head = None
+        try:
+            head = subprocess.run(["git", "-C", base, "rev-parse", "HEAD"], capture_output=True, text=True,
+                                  timeout=30).stdout.strip() or None
+        except Exception:
+            pass
+        if want and head and head != want:
+            errors.append(f"{prod}: checkout is at {head}, Package.resolved pins {want}")
+        uses_list = sorted(c.replace("NSPrivacyAccessedAPICategory", "") for c, w in used.items() if w)
+        print(f"{prod} ({pin.get('state', {}).get('version', '?')}, {head or 'revision unknown'}): "
+              f"privacy manifest {'present: ' + ', '.join(os.path.relpath(m, base) for m in manifests) if manifests else 'absent'}; "
+              f"required-reason APIs: {', '.join(uses_list) or 'none'}; networking: "
+              f"{'see errors' if network_uses(src) else 'none'}")
 
 # --- Privacy policy: the Pages copy and the Markdown copy carry the same date ----------
 

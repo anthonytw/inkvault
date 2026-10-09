@@ -43,10 +43,18 @@ the privacy policy or `ci.yml`, and always on `main`. It takes seconds and needs
 | An entitlements file has a key outside the allow-list, a referenced entitlements file is missing, or the Mac build has no sandbox | Section 6. |
 | `DERIVE_MACCATALYST_PRODUCT_BUNDLE_IDENTIFIER = YES`, a Mac-only bundle id, the app's bundle id changed, or an extension id not prefixed by the app's | Universal purchase needs one bundle id (section 6). |
 | `ITSAppUsesNonExemptEncryption` is missing or not a boolean | [export-compliance.md](export-compliance.md). A `YES` without `ITSEncryptionExportComplianceCode` is a warning. |
+| Networking (`URLSession`, `URLRequest`, Network.framework, sockets, CFNetwork streams, WebKit, Safari views, CloudKit, Multipeer, `FoundationNetworking`) in any non-test folder of `Apps/Sempere` or a `Sources/` target the app links, outside `NETWORK_ALLOWED` (the WebDAV client and `SempereApp/MathModels.swift`) | The privacy policy names the only connections the app makes (section 3, "Network code, exactly"). An allow-listed file with no networking left is a warning. Not caught: `Data(contentsOf:)` or `AVPlayer` on a remote URL (code review). |
+| `MathModelCatalog.entries` is not `[]` | That makes the allowed model downloader reachable; the privacy documents call it inert. |
+| A package pinned with an exact version in `project.pbxproj` resolves to another version in the project's `Package.resolved` (or that file is missing) | The version the privacy review looked at is the one that ships (SwiftMath, section 2). |
+| With `--checkouts DIR` (CI's `app` job, after the packages resolve): SwiftMath uses networking, a required-reason API that neither its manifest nor the app's declares, or its checkout is not the pinned revision | Section 2, "Dependencies". The step prints its findings on one line. |
 
 What it cannot check: the archive's own privacy report (Xcode → Organizer → the archive →
-Generate Privacy Report), which also covers the binary's frameworks and SwiftMath. Run that once
-per release (checklist, section 8).
+Generate Privacy Report), which also covers the binary's frameworks and SwiftMath's compiled form.
+Run that once per release (checklist, section 8).
+
+The CLI's release (`.github/workflows/release.yml`, [docs/releasing.md](../releasing.md)) has its
+own guard: `scripts/changelog-section.sh` refuses a CHANGELOG section that still holds
+`TODO(user)` or has no date in its heading.
 
 ## 2. Privacy manifests
 
@@ -108,9 +116,19 @@ changes.
 - **swift-crypto 4.5.2** ships a `PrivacyInfo.xcprivacy` in each target (`Crypto`,
   `CCryptoBoringSSL`, …), each with no API types, no tracking and no collected data. On Apple
   platforms `Crypto` is a layer over CryptoKit, and the BoringSSL targets are not built there.
-- **SwiftMath 1.7.3** (app only): TODO(maintainer): check whether it ships a manifest. It is a
-  typesetting library with bundled fonts and no known required-reason use; the archive's privacy
-  report will show it.
+- **SwiftMath 1.7.3** (app only): pinned with an exact version in `project.pbxproj`, resolved to
+  1.7.3 (revision `fa8244ed`) in the project's own
+  `Sempere.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved` (the root
+  `Package.resolved` is the CLI package's and does not list it); `release-check.sh` fails if the
+  two disagree. Its manifest and API use are checked from its sources: CI's `app` job runs
+  `release-check.sh --checkouts .build/xcode/SourcePackages/checkouts` once the packages are
+  resolved, which prints whether SwiftMath ships a `PrivacyInfo.xcprivacy`, lists the
+  required-reason categories its sources use, fails on networking in it or on a category that
+  neither its manifest nor the app's declares (it is linked statically, so the app's manifest
+  covers it), and checks the checkout is the pinned revision. Read that line in the `app` log
+  when bumping it; the archive's privacy report (step 8 below) is the final word. Result for
+  1.7.3 (CI of #130): `privacy manifest absent; required-reason APIs: none; networking: none`,
+  so it needs no manifest of its own and adds nothing to the app's.
 - Apple frameworks (PencilKit, Vision, Speech, AVFoundation, PDFKit) are covered by Apple.
 
 ## 3. App Privacy ("nutrition label")
@@ -121,13 +139,32 @@ then shows **Data Not Collected**.
 Apple's definition: data is "collected" when it is transmitted off the device in a way that lets
 the developer or its third-party partners access it for longer than needed to service the
 request in real time. Sempere has no server and no account, contains no analytics, advertising
-or crash-reporting SDK. Its network code is the WebDAV client (`SempereWebDAV`, used by
-`Apps/Sempere/SempereApp/WebDAVRemote.swift`), plus the math-model downloader
-(`MathModels.swift`), which never runs while `MathModelCatalog.entries` is empty. The WebDAV
-client connects only to a server the user enters,
-with the user's own credentials, and uploads the user's already encrypted vault files there;
-the developer runs no server and never receives anything. What leaves the device goes only
-where the user puts it, encrypted with the user's key, which the developer never has:
+or crash-reporting SDK. What leaves the device goes only where the user puts it, encrypted with the
+user's key, which the developer never has.
+
+**Network code, exactly.** The shipping app (every non-test folder of `Apps/Sempere` and the
+`Sources/` targets it links) has networking in two places:
+
+- WebDAV vaults (`SempereApp/WebDAVRemote.swift` and the `SempereWebDAV` target it links,
+  `docs/io.md` "WebDAV vaults in the app"): it connects only to the server URL the user enters,
+  over HTTPS (plain HTTP to the device itself only; a self-signed certificate only after the user
+  pins it), with the user's own credentials, and uploads the user's already encrypted vault files
+  there (push-only). The developer runs no server and receives nothing. This is why the Mac build
+  has `network.client`.
+- `SempereApp/MathModels.swift`, the handwritten-math model downloader (`URLSessionModelFetcher`,
+  an HTTPS `GET` of a model's manifest and files, each checked against the SHA-256 the catalogue
+  pins). It is inert: it runs only from a Download button in Settings → Handwritten Math, one per
+  `MathModelCatalog.entries` entry, and that catalogue is empty
+  (`Sources/SempereRender/MathModel.swift`), so the button never appears and there is no URL to
+  fetch. "Add Model from Files" in the same section copies a model folder or zip the user picks
+  (`MathModelImport`, #127): a local file, no connection.
+
+`scripts/release-check.sh` fails on networking anywhere else in those folders (`NETWORK_ALLOWED`)
+and on a non-empty catalogue. Offering a model is a release decision that changes these answers:
+name the download host in the privacy policy (both copies) and here, and update DESIGN.md
+"Network"; the answer to the question above stays No (the request carries no user data and
+nothing is kept by the developer), but the review notes must mention the download.
+
 
 | Apple data type | Why it is not collected |
 | --- | --- |
@@ -281,7 +318,9 @@ for iPad and Mac.
 Permissions are asked only when a feature needs them: camera (photo/video into a note,
 iPad and iPhone), microphone (recording), speech recognition (on-device transcription),
 Face ID (remembered keys). Nothing is sent to the developer; the only connections the app makes
-are to a WebDAV server the user configures (Open from WebDAV), to upload the encrypted vault.
+are to a WebDAV server the user configures (Open from WebDAV), to upload the encrypted vault. (It
+also contains a downloader for an optional on-device handwriting-to-math model, but this version
+offers no model, so it never connects.)
 
 Encryption: the open "age" format (ML-KEM-768 + X25519, ChaCha20-Poly1305, HKDF, scrypt)
 for the user's own data. Standard published algorithms, mass-market; the app is not
@@ -461,7 +500,7 @@ In order; none of this can be done from the repository.
    both on hardware (iPad on 26.7.1; a Mac).
 8. [ ] In Xcode's Organizer, Generate Privacy Report for each archive; check it lists only
    UserDefaults (CA92.1) and FileTimestamp (C617.1, 3B52.1), plus empty manifests for
-   swift-crypto (and SwiftMath, if it has one).
+   swift-crypto (SwiftMath 1.7.3 ships none and needs none: section 2).
 9. [ ] iOS version page: screenshots (iPad 13", iPhone 6.9"), promotional text, description,
    keywords, support and marketing URLs, What's New, build, copyright, App Review
    Information (contact, notes from section 7, no sign-in), version release (manual or

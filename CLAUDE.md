@@ -209,6 +209,12 @@ Branch per task, PR to `main`, squash merge, CI green. Commit messages:
   targets it links) but not declared in its `PrivacyInfo.xcprivacy` (app: `SempereApp/`, widget:
   `SempereWidgets/`). A new entitlement, package product or API category means updating the
   script's tables, the manifest and `docs/release/app-store.md` in the same PR.
+  It also fails on networking (`URLSession`, Network.framework, sockets, WebKit, …) in any
+  non-test folder of `Apps/Sempere` or a linked `Sources/` target outside `NETWORK_ALLOWED` (the
+  WebDAV client: `WebDAVRemote.swift`, `SempereWebDAV`'s transport and client; and the dormant
+  math-model downloader, `MathModels.swift`) and on a non-empty `MathModelCatalog.entries`: the
+  privacy policy names the only connections (a WebDAV server the user sets up; DESIGN.md "Network"). The CLI release refuses a CHANGELOG section with `TODO(user)` or no date
+  (`scripts/changelog-section.sh`); never fill in the release date yourself.
   `ITSAppUsesNonExemptEncryption` stays `NO` while France is excluded
   (`docs/release/export-compliance.md`). The privacy policy has two copies
   (`docs/privacy/index.html` for Pages, `docs/appstore/privacy-policy.md`): edit both, same date.
