@@ -1,6 +1,7 @@
 import ArgumentParser
 import Foundation
 import Sempere
+import SempereRender
 
 struct SearchHit: Encodable {
     var noteId: String
@@ -41,6 +42,8 @@ struct SearchHit: Encodable {
         var text: String
         /// `[x, y, w, h]` in page points.
         var box: [Double]
+        /// The text box the match is in (a `text` hit's); absent for recognised handwriting.
+        var itemId: String?
     }
 
     /// Where the hit is, for the table: `p3`, `p3 text` or `rec 12:03`.
@@ -62,6 +65,11 @@ struct SearchHit: Encodable {
 }
 
 struct SearchCommand: ParsableCommand {
+    /// Where the words fall inside text boxes, laid out by the CLI's shaper (`--show-boxes`).
+    static let textBoxes: TextBoxMatcher = { words, item in
+        TextMatchBoxes.boxes(of: words, in: item, shaper: cliTextShaper)
+    }
+
     static let configuration = CommandConfiguration(
         commandName: "search",
         abstract: "Search the recognised handwriting, typed text, equations, PDF page text and (with --transcripts) transcripts of all notes.",
@@ -115,7 +123,7 @@ struct SearchCommand: ParsableCommand {
             guard !state.deleted else { continue }
             title = state.meta.title
             let noteId = id.uuidString.lowercased()
-            let located = showBoxes ? SearchMatches.matches(needle, in: state.pages) : []
+            let located = showBoxes ? SearchMatches.matches(needle, in: state.pages, textBoxes: Self.textBoxes) : []
             for (index, page) in state.pages.enumerated() {
                 let pageId = page.id.uuidString.lowercased()
                 if let rec = page.recognition {
@@ -125,7 +133,7 @@ struct SearchCommand: ParsableCommand {
                             tokens.contains { w.text.range(of: $0, options: [.caseInsensitive, .diacriticInsensitive]) != nil }
                         }
                         let locations: [SearchHit.Location]? = showBoxes
-                            ? located.enumerated().filter { $0.element.pageId == page.id }.map {
+                            ? located.enumerated().filter { $0.element.pageId == page.id && $0.element.item == nil }.map {
                                 .init(n: $0.offset + 1, of: located.count, text: $0.element.text,
                                       box: [$0.element.box.x, $0.element.box.y, $0.element.box.w, $0.element.box.h])
                             } : nil
@@ -162,11 +170,20 @@ struct SearchCommand: ParsableCommand {
                     guard let text = item.text?.string else { continue }
                     let found = RecognitionSearch.ranges(of: needle, in: text)
                     guard let first = found.first else { continue }
-                    hits.append(SearchHit(noteId: noteId, title: title, notebook: state.meta.notebook, page: index + 1,
-                                          pageId: pageId, snippet: RecognitionSearch.snippet(text, around: first),
-                                          matches: found.count, source: "text", engine: nil, words: [],
-                                          itemId: item.id.uuidString.lowercased(),
-                                          box: [item.frame.x, item.frame.y, item.frame.w, item.frame.h]))
+                    var hit = SearchHit(noteId: noteId, title: title, notebook: state.meta.notebook, page: index + 1,
+                                        pageId: pageId, snippet: RecognitionSearch.snippet(text, around: first),
+                                        matches: found.count, source: "text", engine: nil, words: [],
+                                        itemId: item.id.uuidString.lowercased(),
+                                        box: [item.frame.x, item.frame.y, item.frame.w, item.frame.h])
+                    if showBoxes {
+                        // The words inside the box (laid out like an export), numbered among all the note's matches.
+                        hit.locations = located.enumerated().filter { $0.element.item == item.id }.map {
+                            .init(n: $0.offset + 1, of: located.count, text: $0.element.text,
+                                  box: [$0.element.box.x, $0.element.box.y, $0.element.box.w, $0.element.box.h],
+                                  itemId: item.id.uuidString.lowercased())
+                        }
+                    }
+                    hits.append(hit)
                 }
             }
             if transcripts {

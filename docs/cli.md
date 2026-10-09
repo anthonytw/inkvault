@@ -1334,7 +1334,13 @@ does: every recognised word containing a word of the term, numbered across the
 note (pages in order, words in reading order). Human output adds one line per
 match (`NOTE p.PAGE  N of M  WORD  [x, y, w, h]`); with `--json` every hit gains
 `locations`, a list of `{n, of, text, box}` for the matches on that hit's page
-(`n` counts from 1 over the whole note, `of` is the note's total).
+(`n` counts from 1 over the whole note, `of` is the note's total). Words inside
+a text box are located too (a `text` hit gets its own `locations`, each with the
+box's `itemId`): the box's text is laid out with the fonts `export` draws with
+and each match is the glyph extent of the matched letters, `0.8 × size` above the
+baseline to `0.25 × size` below it, turned with the item (a right-to-left line
+highlights the whole line). Within a page, recognised words come first, then text
+boxes in drawing order; the app's highlights step through the same list.
 
 ### Handwriting recognition
 

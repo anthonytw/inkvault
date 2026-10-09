@@ -1821,6 +1821,54 @@
         }
       }
     },
+    "%lld transcripts could not be read" : {
+      "comment" : "Transcript search: transcripts that failed to load",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld transcript could not be read"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld transcripts could not be read"
+                }
+              }
+            }
+          }
+        },
+        "es" : {
+          "variations" : {
+            "plural" : {
+              "many" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "No se pudieron leer %lld de transcripciones"
+                }
+              },
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "No se pudo leer %lld transcripción"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "No se pudieron leer %lld transcripciones"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "%lld unchanged, %lld not exported so far" : {
       "comment" : "Bulk export progress: notes skipped, notes that failed [not-plural]",
       "extractionState" : "manual",
@@ -6364,6 +6412,18 @@
         }
       }
     },
+    "In Recordings" : {
+      "comment" : "Section of the search results: matches in recording transcripts",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "En grabaciones"
+          }
+        }
+      }
+    },
     "In Use" : {
       "comment" : "Settings ▸ Handwritten Math: this model reads handwriting",
       "extractionState" : "manual",
@@ -9850,6 +9910,18 @@
         }
       }
     },
+    "Reads and decrypts every transcript of the notes searched, on this device." : {
+      "comment" : "Caption under the transcript search toggle",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lee y descifra en este dispositivo todas las transcripciones de las notas buscadas."
+          }
+        }
+      }
+    },
     "Reads the handwriting of pages Notability never recognised, on this device, right after the import." : {
       "comment" : "Footer of the Notability import options",
       "extractionState" : "manual",
@@ -11369,6 +11441,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Guardando la nota de voz…"
+          }
+        }
+      }
+    },
+    "Search Recording Transcripts" : {
+      "comment" : "Toggle above the search results: also search what was said in recordings",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Buscar en transcripciones de grabaciones"
           }
         }
       }

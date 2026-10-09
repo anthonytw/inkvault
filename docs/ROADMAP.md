@@ -242,9 +242,9 @@ Existing rows were not touched.
 | Items | CLI edit of a text box's text and style (`items text`, on `NoteOps.setText`) | M | GA-03 | 📋 |
 | Settings | Notebook for quick voice notes in New Notes does nothing; one field should drive capture | S | GA-04 | 📋 |
 | Settings | Transcription model download button never appears (`TranscriptionSettings.downloader` is never set) | M | GA-05 | 📋 |
-| Search | Transcripts in the app's search; highlights on text boxes | M | GA-06, GA-07 | 📋 |
-| Import | App Notability import: show the report and the CLI's options | M | GA-08 | 📋 |
-| Import | Notability transcripts as transcript blobs; GIF/TIFF/WebP handling checked against the doc | S | GA-09, GA-10 | 📋 |
+| Search | Transcripts in the app's search (`TranscriptSearch`, shared with the CLI); highlights on text boxes (`TextMatchBoxes`, CLI `search --show-boxes` too) | M | GA-06, GA-07 | 🚧 #134 (not yet tried on the iPad) |
+| Import | App Notability import: options sheet (attachments, photo metadata, PDF text, folder tags, read handwriting) and the full report | M | GA-08 | 🚧 #134 (not yet tried on the iPad) |
+| Import | Notability transcripts as transcript blobs (layout a hypothesis: no real sample); GIF and TIFF converted to PNG, WebP left out and counted | S | GA-09, GA-10 | 🚧 #134 |
 | Transcription | `DictationTranscriber` step in the fallback chain | S | GA-11 | 📋 |
 | Recording | Live transcript while recording; faded ink playback mode | L | GA-12 | 💡 |
 | Mac | Shortcuts for item actions and recording; Note menu entries for toolbar-only commands | M | GA-13, GA-14 | 📋 |

@@ -1631,8 +1631,11 @@ synthetic `.note` fixture so CI covers the mapping.
   `Tests/SempereTests/Fixtures/text/line-breaks.json` (Latin with styles,
   Japanese, Arabic, tabs and an empty paragraph) are checked by the CLI shaper,
   `sempere export` (SVG) and the app's canvas layout, PDF and SVG. The CLI's
-  `attach text` stores `breaks` from its own fonts. Not done: search hits
-  highlighted on the page; the style bar is an input accessory view, which Mac
+  `attach text` stores `breaks` from its own fonts. Search hits inside a text
+  box are highlighted on the page (GA-07): `TextMatchBoxes` (SempereRender) lays the
+  box out with the caller's shaper — CoreText in the app, the export fonts in
+  `sempere search --show-boxes` — and boxes the matched letters; the cursor steps
+  through them with the recognised words. Not done: the style bar is an input accessory view, which Mac
   Catalyst does not show (⌘B/⌘I/⌘U work there); emoji are left out of app
   exports (reported).
 - **E3 — PDF import and backgrounds:** import as a new note or insert pages,
@@ -1716,9 +1719,15 @@ synthetic `.note` fixture so CI covers the mapping.
   word or time to play from it. Settings lists each engine's availability for
   the device language (`SpeechTranscription.availability`; the CLI's
   `transcribe --check`). DictationTranscriber (fallback 1 above) is not used.
-  Not done: the availability matrix on the user's iPad (run Settings or
-  `sempere transcribe --check` there and record it here); transcripts in the
-  app's search (the CLI has `search --transcripts`).
+  Transcripts are searched in the app (GA-06): a "Search Recording
+  Transcripts" switch above the results (per device, off by default, as the
+  CLI's `--transcripts`: it reads and decrypts each transcript, in iCloud
+  downloading it) adds an "In Recordings" section with `TranscriptSearch`'s hits
+  (the CLI's phrase rules, checked against the web viewer's golden files); a tap
+  opens the note and moves its player to the segment, paused. `NoteSummary.transcribed`
+  lists the transcript blobs (summary cache schema 10). Not done: the availability
+  matrix on the user's iPad (run Settings or `sempere transcribe --check` there
+  and record it here).
 - **E6 — Settings panel:** one Settings screen (sheet from the library) with
   the sections of §15: recording (codec, quality, sample rate, channels,
   size per hour), photos (privacy and HEIC), transcription (opt-in, locale),
