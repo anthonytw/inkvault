@@ -93,6 +93,7 @@ struct TranscribeCommand: ParsableCommand {
         }
         if !dryRun && !SpeechTranscription.isSupported { throw Self.unavailable }
         let vault = try access.openVault(.required)
+        if !dryRun { try vault.requireWritable() }   // format.md §7.3: exit 7, not a failure per recording
         let ids: [UUID]
         if all {
             ids = try vault.summaries(of: nil).filter { !$0.deleted && $0.recordings > 0 }.map(\.id)
