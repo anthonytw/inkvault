@@ -4,6 +4,7 @@
 // files come from the browser's cache when they are there) and kept in this
 // tab's memory only; matches follow the CLI's rules (src/format/phrasesearch.ts).
 
+import { t, tn } from "../i18n/index.ts";
 import { type JSONObject } from "../format/json.ts";
 import { foldedText, mayContain, trimTerm } from "../format/occurrences.ts";
 import { type PhraseHit, type TranscriptRead, phraseQuery, transcriptHits } from "../format/phrasesearch.ts";
@@ -45,8 +46,8 @@ export class TranscriptSearch {
     this.box = h("input", { attrs: { type: "checkbox" } });
     this.box.addEventListener("change", () => this.changed());
     this.element = h("div", { class: "transcript-search" },
-      h("label", { class: "check", title: "Reads and decrypts every recording's transcript in this tab (like sempere search --transcripts)" },
-        this.box, " Also search recording transcripts"),
+      h("label", { class: "check", title: t("Reads and decrypts every recording's transcript in this tab (like sempere search --transcripts)") },
+        this.box, ` ${t("Also search recording transcripts")}`),
       this.status,
       h("details", { class: "warning", attrs: { hidden: "" } }, h("summary", {}), this.problems));
   }
@@ -92,7 +93,7 @@ export class TranscriptSearch {
             this.indexed.set(id, entry);
           }
           done++;
-          this.status.textContent = ` Reading transcripts: ${done} of ${batch.length} notes…`;
+          this.status.textContent = ` ${t("Reading transcripts: {done} of {total} notes…", { done, total: batch.length })}`;
           if (done % 8 === 0) this.changed();
         });
       }
@@ -113,15 +114,15 @@ export class TranscriptSearch {
         else if (r.error !== undefined) bad.push({ title: n.title, recording: r.recording, error: r.error });
       }
     }
-    this.status.textContent = ` ${count} transcript${count === 1 ? "" : "s"} searched`
-      + (this.failedNotes ? ` · ${this.failedNotes} note${this.failedNotes === 1 ? "" : "s"} could not be read` : "");
+    this.status.textContent = ` ${[tn("{count} transcripts searched", count),
+      ...(this.failedNotes ? [tn("{count} notes could not be read", this.failedNotes)] : [])].join(" · ")}`;
     const details = this.problems.parentElement;
     if (!details) return;
     details.hidden = bad.length === 0;
     const summary = details.querySelector("summary");
-    if (summary) summary.textContent = `${bad.length} transcript${bad.length === 1 ? "" : "s"} could not be read`;
+    if (summary) summary.textContent = tn("{count} transcripts could not be read", bad.length);
     this.problems.replaceChildren(...bad.map((b) => h("li", {},
-      `${b.title || "Untitled"}, ${typeof b.recording.title === "string" && b.recording.title ? b.recording.title : "recording"}: ${b.error}`)));
+      `${b.title || t("Untitled")}, ${typeof b.recording.title === "string" && b.recording.title ? b.recording.title : t("recording")}: ${b.error}`)));
   }
 
   private candidates(t: Transcript, term: Parameters<typeof mayContain>[1]): Transcript {

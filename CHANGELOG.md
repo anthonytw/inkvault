@@ -18,6 +18,11 @@ The section for a version is the body of its GitHub Release (`docs/releasing.md`
 - iPhone: the overflow menu's Pages submenu has the page layout switch, Add Page After This One / at
   End, Insert PDF at this page, Duplicate, Delete, Undo Delete and the page thumbnails; swiping left or
   right turns pages while reading; the paper picker has a compact layout.
+- Web viewer in Spanish: the interface is in English or Spanish, taken from the browser's language list
+  with a Language selector (Automatic, English, Español) that overrides it and is remembered in the
+  browser. Notes, notebook and tag names, recording titles and transcripts are shown as written; dates,
+  numbers and sizes follow the language; the usual errors (wrong key or passphrase, passkey refusals) are
+  worded in it. A test fails when a string lacks Spanish. `docs/web-viewer.md` "Languages".
 - Recordings in exports, finished (C4): "PDF + attachments" ends with an attachment list (kind, title,
   pages, duration, size of every recording, transcript and video clip), each row linked to its
   embedded file and to the page it is on; `sempere export --recordings list` adds the page alone.

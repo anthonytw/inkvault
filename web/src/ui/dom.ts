@@ -2,6 +2,8 @@
 // node is created with createElement / createElementNS and text is set as
 // text, so note content can never become markup or script.
 
+import { locale } from "../i18n/index.ts";
+
 type Child = Node | string | null | undefined | false;
 
 export interface Props {
@@ -64,5 +66,5 @@ export function clear(el: Element): void {
 
 export function formatDate(ms: number | undefined): string {
   if (ms === undefined) return "";
-  return new Date(ms).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+  return new Date(ms).toLocaleString(locale(), { dateStyle: "medium", timeStyle: "short" });
 }
