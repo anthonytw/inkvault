@@ -236,4 +236,70 @@ final class MarkersAuthTests: VaultTestCase {
         XCTAssertEqual(after.recipients.map(\.key), [a.recipient.string])
         XCTAssertTrue(after.manifest.features.contains(VaultManifest.signedLinkFeature))
     }
+
+    /// Attack, then `recipients confirm` (review of #125): confirming the
+    /// device list never clears a format or feature downgrade. Each markers
+    /// reason is refused, the status stays tampered, and the trust record is
+    /// left as it was.
+    func testConfirmNeverClearsTamperedMarkers() throws {
+        let store = MemoryRecipientsTrustStore()
+        let v = try setUpVault(store)
+        let original = try Data(contentsOf: manifestURL(v))
+        let older = original
+        _ = try v.writeBlob(note: UUID(), Data("x".utf8), type: "image/png")   // adds attachments
+        try Vault.open(at: v.url, identities: [a], trust: store).requireWritable()   // the record learns it
+        let current = try Data(contentsOf: manifestURL(v))
+        let tampers: [(RecipientsProblem.Reason, () throws -> Void)] = [
+            (.markersMismatch, { try self.edit(v) { m in m.features.removeAll { $0 == VaultManifest.signedLinkFeature } } }),
+            (.markersRemoved, { try self.edit(v) { m in m.markersTag = nil } }),
+            (.markersRolledBack, { try older.write(to: self.manifestURL(v)) }),
+        ]
+        for (expected, tamper) in tampers {
+            try current.write(to: manifestURL(v))
+            try tamper()
+            let recordBefore = try store.record(for: v.vaultId)
+            var opened = try Vault.open(at: v.url, identities: [a], trust: store)
+            XCTAssertEqual(reason(opened), expected)
+            XCTAssertThrowsError(try opened.confirmRecipients(), "\(expected)") {
+                guard case .recipientsNotRepairable? = $0 as? VaultError else { return XCTFail("\($0)") }
+            }
+            XCTAssertEqual(reason(opened), expected, "still tampered")
+            XCTAssertEqual(try store.record(for: v.vaultId), recordBefore, "the record is untouched")
+            XCTAssertEqual(reason(try Vault.open(at: v.url, identities: [a], trust: store)), expected)
+        }
+    }
+
+    /// Confirming another problem never accepts markers that do not check:
+    /// with this device's record unreadable, a list whose markers were also
+    /// changed is reported as the markers problem and cannot be confirmed.
+    func testConfirmOfAnUnreadableRecordChecksTheMarkers() throws {
+        let store = MemoryRecipientsTrustStore()
+        let v = try setUpVault(store)
+        try edit(v) { m in m.features.removeAll { $0 == VaultManifest.signedLinkFeature } }
+        store.markUnreadable(v.vaultId, "damaged")
+        var opened = try Vault.open(at: v.url, identities: [a], trust: store)
+        XCTAssertEqual(reason(opened), .markersMismatch)
+        XCTAssertThrowsError(try opened.confirmRecipients())
+        XCTAssertThrowsError(try store.record(for: v.vaultId), "not rewritten")
+    }
+
+    /// A restored backup from before both tags (the list's and the markers'):
+    /// confirming the list restores the markers this device verified, tagged,
+    /// rather than accepting fewer (or leaving both repairs refusing).
+    func testConfirmingAnOlderBackupRestoresTheMarkers() throws {
+        let store = MemoryRecipientsTrustStore()
+        let v = try setUpVault(store)
+        try edit(v) { m in
+            m.recipientsTag = nil; m.markersTag = nil
+            m.features.removeAll { [VaultManifest.recipientsTagFeature, VaultManifest.markersTagFeature,
+                                    VaultManifest.signedLinkFeature].contains($0) }
+        }
+        var opened = try Vault.open(at: v.url, identities: [a], trust: store)
+        XCTAssertEqual(reason(opened), .tagRemoved)
+        try opened.confirmRecipients()
+        let after = try Vault.open(at: v.url, identities: [a], trust: store)
+        XCTAssertEqual(after.recipientsStatus, .verified(.unchanged))
+        XCTAssertNotNil(after.manifest.markersTag)
+        XCTAssertTrue(after.manifest.features.contains(VaultManifest.signedLinkFeature), "the record's features come back")
+    }
 }

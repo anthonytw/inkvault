@@ -361,7 +361,10 @@ Each fix has a regression test that encodes the attack and expects it refused.
 - **The reader's key ring** (`Vault.captureKeyRing`, `format.md` §11.2): the tag is streamed once under the
   vault capture key and the device capture key of every recipient of a list that checks (`readCapture` now
   refuses a tampered list, `untrustedRecipients`); the key that verifies attributes the file. The work is
-  the file's size times the length of an authenticated list.
+  at most four streamed HMACs per capture: the reader tries the vault capture keys and the keys of the device
+  the manifest claims (a bounded byte scan of its first line before the tag, `CaptureFile.claimedDevices`); the
+  claim only picks keys, the tag and the parsed `recipient` decide. Transcripts (bounded, no claim) take the
+  whole ring.
 - **Stored on adoption:** `captured: {device, recipient}` on the recording (`format.md` §8.3.1), immutable,
   read leniently (a malformed value is absent). Older readers keep it as an unknown field (§7.5).
   The delta is still the adopter's: revision names carry a per-device `seq` that concurrent adopters, or the
@@ -425,6 +428,9 @@ Each fix has a regression test that encodes the attack and expects it refused.
 - **Web viewer:** checks and reports the tag (`checkRecipients`), knows the feature.
 - Limit: readers older than this change ignore the tag and can still be downgraded; a device with no
   trust record cannot tell a vault stripped of both tag and feature from one written before them.
+- `recipients confirm` refuses each markers reason, and when it confirms a list problem it restores
+  markers that do not check (as a repair) instead of accepting them (found by the external review of #125;
+  `MarkersAuthTests.testConfirmNeverClearsTamperedMarkers`, `CLIMarkersTests.testRecipientsConfirmRefusesEveryMarkersProblem`).
 - Tests: `MarkersAuthTests` (known-answer vector computed independently from the spec, also in
   `web/test/markers.test.ts`; downgraded format, stripped tag, replayed manifest, repair, first-write
   tagging, sync), `CLIMarkersTests`, `RecipientsAlertTests.markersAlertPointsToTheMarkersRepair`.

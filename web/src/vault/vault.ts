@@ -4,10 +4,11 @@
 
 import { Decrypter, armor, identityToRecipient } from "age-encryption";
 import { DecodeError, arr, isObject, obj, opt, reqWith, str, uuid } from "../format/json.ts";
-import { parseRevisionName, revisionFilename } from "../format/ids.ts";
+import { cmpUTF8, parseRevisionName, revisionFilename } from "../format/ids.ts";
 import { type Revision, decodeRevision } from "../format/model.ts";
 import { formatMajor, majorOf, manifestReadOnlyReasons, revisionMarkersNewer } from "../format/newer.ts";
 import { parseRFC3339 } from "../format/rfc3339.ts";
+import { concat } from "./bytes.ts";
 import { gunzip } from "./gzip.ts";
 import { type SecretLink, linkConnects, parseSecretLink } from "./link.ts";
 
@@ -160,15 +161,6 @@ export function parseIdentity(text: string): string {
 
 const encoder = new TextEncoder();
 
-function concat(parts: Uint8Array[]): Uint8Array {
-  const out = new Uint8Array(parts.reduce((n, p) => n + p.length, 0));
-  let at = 0;
-  for (const p of parts) {
-    out.set(p, at);
-    at += p.length;
-  }
-  return out;
-}
 
 const magic = [0x53, 0x4d, 0x50, 0x52];
 const headerSize = 37;
@@ -240,11 +232,6 @@ function equalStrings(given: string, expected: string): boolean {
   return diff === 0;
 }
 
-function compareBytes(a: Uint8Array, b: Uint8Array): number {
-  for (let i = 0; i < Math.min(a.length, b.length); i++) if (a[i] !== b[i]) return (a[i] ?? 0) - (b[i] ?? 0);
-  return a.length - b.length;
-}
-
 /**
  * `markersTag` (lowercase hex) of `format` and `features` (format.md §2.1
  * "Version markers": the distinct features sorted by UTF-8 bytes); undefined
@@ -252,12 +239,8 @@ function compareBytes(a: Uint8Array, b: Uint8Array): number {
  */
 export async function markersTag(vaultId: string, format: string, features: string[], secret: Uint8Array): Promise<string | undefined> {
   if (format.includes("\0") || features.some((f) => f.includes("\0"))) return undefined;
-  const distinct = new Map<string, Uint8Array>();   // by UTF-8 bytes, as in Swift
-  for (const f of features) {
-    const b = encoder.encode(f);
-    distinct.set(hex(b), b);
-  }
-  const sorted = [...distinct.values()].sort(compareBytes);
+  // Code point order is UTF-8 byte order (as Swift sorts them).
+  const sorted = [...new Set(features)].sort(cmpUTF8).map((f) => encoder.encode(f));
   const parts: Uint8Array[] = [encoder.encode("sempere/1"), Uint8Array.of(0), encoder.encode("markers"), Uint8Array.of(0),
     encoder.encode(vaultId.toLowerCase()), Uint8Array.of(0), encoder.encode(format)];
   for (const f of sorted) parts.push(Uint8Array.of(0), f);

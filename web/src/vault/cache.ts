@@ -8,6 +8,7 @@
 // Nothing decrypted, and never the key, is stored (docs/web-viewer.md).
 
 import { isLowercaseUUID } from "../format/json.ts";
+import { concat } from "./bytes.ts";
 import { boundedStream, SourceError, type VaultSource, isRevisionFile } from "./source.ts";
 
 /** Where the cached bytes live: IndexedDB in the browser, memory in tests. */
@@ -152,13 +153,7 @@ export async function cacheNamespace(label: string, vaultId: string, sealedSecre
   const secret = new Uint8Array(await crypto.subtle.digest("SHA-256", enc.encode(sealedSecret)));
   const parts = [secret];
   if (journal) parts.push(new Uint8Array(await crypto.subtle.digest("SHA-256", journal as Uint8Array<ArrayBuffer>)));
-  const all = new Uint8Array(parts.reduce((n, p) => n + p.length, 0));
-  let at = 0;
-  for (const p of parts) {
-    all.set(p, at);
-    at += p.length;
-  }
-  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", all));
+  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", concat(parts) as Uint8Array<ArrayBuffer>));
   const fingerprint = [...digest].map((b) => b.toString(16).padStart(2, "0")).join("");
   return `${label}\n${vaultId}\n${fingerprint}`;
 }

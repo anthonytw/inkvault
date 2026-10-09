@@ -296,7 +296,10 @@ sempere vault summaries [--out PATH|-] [--plaintext] [--no-cache]
   offline for two or more key changes), an
   untagged copy older than the tag (a restored backup), which it tags again,
   or a trust record of this machine that no longer reads (it is written again).
-  Never for a tag that does not verify. Confirming a list an attacker wrote
+  Never for a tag that does not verify, and never for changed version markers
+  (`markersMismatch`, `markersRemoved`, `markersRolledBack`: exit 1, use
+  `markers repair`); markers that do not check behind a list problem are
+  written back as `markers repair` would. Confirming a list an attacker wrote
   lets them read what this machine writes.
 - `link` (or `link status`) shows the form of `vault.json`'s `secretLink`
   (`none`, `signed`, `legacy` HMAC, `malformed`), whether the vault is marked

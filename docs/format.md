@@ -212,7 +212,11 @@ markers explicitly (`sempere vault markers repair`) by writing the larger of
 the markers on disk and those of its trust record (the higher major, every
 feature of either), tagged under the current secret; a repair that would
 name a format or feature it does not implement is refused (restore
-`vault.json` with that version instead). The tag protects readers of this
+`vault.json` with that version instead). Confirming the recipients list
+(§2.1 "Repair") never clears a markers problem: it is refused for each of
+the three, and when it confirms a list problem while the markers do not
+check either (the list's problems are decided first), it writes the
+markers back the same way as a repair, never the ones on disk as they are. The tag protects readers of this
 version and later ones only: a reader written before it ignores
 `markersTag` and could still be downgraded (§7.3 applies per note to marked
 revisions in any case).
@@ -2989,9 +2993,22 @@ no longer listed has no key in the ring, so the captures of a removed device
 never verify, also while the rewrap of its removal is unfinished; nor do
 unattributed files sealed under the outgoing secret, which only the run
 that rotated it re-tags (§3.3.1 step 3). A file that fails is untrusted
-input (§9): reported, kept, never adopted. Hashing a file once per key, the
-work is bounded by the file's size times the length of an authenticated
-list. The whole plaintext is at
+input (§9): reported, kept, never adopted.
+
+So that the work does not grow with the list, a reader tries for a
+`capture` file only the vault capture keys and the device capture keys of
+the device its manifest **claims**: before the tag is checked it scans the
+first 64 KiB of the JSON line (up to its `0x0A`), as bytes and without
+parsing it, for `"recipient"`, optional JSON whitespace, `:`, optional
+whitespace and a string of 64 lowercase hex digits, and takes at most two
+such claims. Writers therefore write `recipient` without escapes and keep
+what sorts before it short (the `notebook` at most 300 characters and 1200
+scalars, as adopted). The claim only chooses keys: the tag decides, and a
+manifest whose parsed `recipient` is not the verifying key's is rejected
+(above); a wrong or missing claim only makes the file fail. That is at most
+four streamed HMACs per file whatever the list's length. A `transcript`
+file names no device and is tried under the whole ring; its bound (below)
+keeps that cost small. The whole plaintext is at
 most 256 MiB for a `capture` and, for a `transcript`, 37 bytes plus one JSON
 line of at most 64 MiB (§8.3.2), `0x0A` and 64 hex digits; a reader checks
 the file's size against its kind's bound before decrypting. The tag covers

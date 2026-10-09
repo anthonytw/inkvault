@@ -67,4 +67,35 @@ final class CLIMarkersTests: CLITestCase {
         XCTAssertEqual(try cli(["notes", "new", "Again"] + access).status, 6)
         XCTAssertEqual(try cli(["vault", "markers", "tag"] + access).status, 6, "tag never launders a removal")
     }
+
+    /// `vault recipients confirm` never clears tampered markers (review of
+    /// #125): each of the three reasons exits non-zero, and writes stay refused.
+    func testRecipientsConfirmRefusesEveryMarkersProblem() throws {
+        try XCTSkipUnless(postQuantumAvailable)
+        let (vault, _, keyPath) = try makeVault()
+        let access = ["--vault", vault.url.path, "--identity", keyPath]
+        let older = try Data(contentsOf: manifestURL(vault))
+        // A feature added after `older` (a blob), which a CLI write then records on this machine,
+        // so that putting `older` back is a rollback.
+        _ = try vault.writeBlob(note: UUID(), Data("x".utf8), type: "image/png")
+        let write = try cli(["notes", "new", "Plan"] + access)
+        XCTAssertEqual(write.status, 0, write.err)
+        XCTAssertTrue((try status(access)["recorded"] as? [String: Any])?["features"].map { "\($0)".contains("attachments") } == true)
+        let current = try Data(contentsOf: manifestURL(vault))
+        let tampers: [(String, () throws -> Void)] = [
+            ("markersMismatch", { try self.edit(vault) { m in m.features.removeAll { $0 == VaultManifest.signedLinkFeature } } }),
+            ("markersRemoved", { try self.edit(vault) { m in m.markersTag = nil } }),
+            ("markersRolledBack", { try older.write(to: self.manifestURL(vault)) }),
+        ]
+        for (reason, tamper) in tampers {
+            try current.write(to: manifestURL(vault))
+            try tamper()
+            XCTAssertEqual(try status(access)["reason"] as? String, reason)
+            let confirm = try cli(["vault", "recipients", "confirm"] + access)
+            XCTAssertNotEqual(confirm.status, 0, "\(reason): \(confirm.out)")
+            XCTAssertTrue(confirm.err.contains("vault markers repair"), confirm.err)
+            XCTAssertEqual(try status(access)["reason"] as? String, reason, "still reported")
+            XCTAssertEqual(try cli(["notes", "new", "Again"] + access).status, 6, "\(reason): writes stay refused")
+        }
+    }
 }

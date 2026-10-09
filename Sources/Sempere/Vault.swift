@@ -936,6 +936,12 @@ public struct Vault: Sendable {
         guard problem.reason != .tagMismatch else {
             throw VaultError.recipientsNotRepairable("the tag does not verify: repair the list instead")
         }
+        // Version markers changed without the key are never confirmed away:
+        // only `repairMarkers` restores them (format.md §2.1 "Version markers").
+        guard !problem.reason.isMarkers else {
+            throw VaultError.recipientsNotRepairable("the vault's format or features were changed without its key: "
+                + "repair them instead (sempere vault markers repair)")
+        }
         // A device whose trust record is unreadable confirms only a list it
         // can check: tagged under the secret it holds, or untagged (then
         // tagged now), never a tag that does not verify (R5).
@@ -952,6 +958,22 @@ public struct Vault: Sendable {
                 throw VaultError.recipientsNotRepairable("the vault's secret was replaced and its list carries no tag that "
                     + "verifies: restore vault.json from a backup or another device")
             }
+        }
+        // Nor does confirming the list accept markers that do not check: the
+        // list's problems are decided before the markers are looked at (N3).
+        // They are restored instead, as a repair would: the larger of those on
+        // disk and this device's record, tagged (markers only grow, so this
+        // never lowers them; a backup older than both tags needs it).
+        let secret = try requireSecret()
+        let recorded = (try? trustStore?.record(for: vaultId)) ?? nil
+        if RecipientsAuth.markersProblem(manifest, secret: secret, record: recorded) != nil {
+            let m = try Self.readManifest(FileIO.read(manifestURL, maxBytes: BoundedRead.maxManifestBytes))
+            guard m.recipients.map(\.key) == manifest.recipients.map(\.key), m.vaultSecret == manifest.vaultSecret else {
+                throw VaultError.manifestCorrupt("vault.json changed since it was opened; open the vault again")
+            }
+            try requireNotReadOnly()
+            manifest = try Self.writeManifest(try Self.restoringMarkers(m, recorded: recorded?.markers), to: manifestURL,
+                                              replacing: true, secret: secret)
         }
         if manifest.recipientsTag == nil { manifest = try tagOnDisk() }   // a tag removed: written again for this list
         recipientsStatus = .verified(.unchanged)

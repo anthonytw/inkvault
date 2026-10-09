@@ -82,15 +82,12 @@ final class CaptureAttributionTests: VaultTestCase {
         var p = try profile(vault, as: b)
         p.recipient = CaptureKey.fingerprint(of: a.recipient.string)   // the claim; the key stays B's
         let claimed = try store(p, in: vault)
-        XCTAssertThrowsError(try vault.readCapture(claimed)) {
-            guard case .invalidContent? = $0 as? CaptureError else { return XCTFail("\($0)") }
-        }
+        // The claim picks A's key, under which B's tag does not verify.
+        XCTAssertThrowsError(try vault.readCapture(claimed)) { XCTAssertEqual($0 as? CaptureError, .badTag) }
         // Nor can it pass as unattributed with its device key.
         p.recipient = nil
         let unattributed = try store(p, in: vault)
-        XCTAssertThrowsError(try vault.readCapture(unattributed)) {
-            guard case .invalidContent? = $0 as? CaptureError else { return XCTFail("\($0)") }
-        }
+        XCTAssertThrowsError(try vault.readCapture(unattributed)) { XCTAssertEqual($0 as? CaptureError, .badTag) }
         XCTAssertNotNil(vault.adoptCapture(claimed, deviceState: deviceState(), app: "t").error)
         XCTAssertEqual(try vault.inboxEntries().count, 2, "refused captures are kept")
     }
@@ -225,5 +222,31 @@ final class CaptureAttributionTests: VaultTestCase {
         XCTAssertThrowsError(try tampered.readCapture(id)) {
             guard case .untrustedRecipients? = $0 as? VaultError else { return XCTFail("\($0)") }
         }
+    }
+
+    /// The work of verifying a capture is bounded (review of #125): its
+    /// manifest's device claim picks the keys tried, so a long device list
+    /// costs nothing more. A capture still verifies with 20 devices listed.
+    func testTheClaimBoundsTheKeysTried() throws {
+        try XCTSkipUnless(postQuantumAvailable)
+        let many = (0..<20).map { _ in pqIdentity() }
+        let v = try Vault.create(at: vaultURL("Many"), recipients: [a.recipient] + many.map(\.recipient),
+                                 labels: ["Mac"] + many.indices.map { "D\($0)" }, identities: [a])
+        let p = try profile(v, as: many[13])
+        let id = try store(p, in: v)
+        XCTAssertEqual(try v.readCapture(id).recipient, p.recipient)
+        // The scan finds the claim the writer wrote, and only well-formed ones.
+        let fp = try XCTUnwrap(p.recipient)
+        XCTAssertEqual(CaptureFile.claimedDevices(in: Data(#"{"notebook":"x","recipient":"\#(fp)","title":"y"}"#.utf8)), [fp])
+        XCTAssertEqual(CaptureFile.claimedDevices(in: Data(#"{"recipient" : "\#(fp)"}"#.utf8)), [fp])
+        XCTAssertEqual(CaptureFile.claimedDevices(in: Data(#"{"title":"\"recipient\":\"\#(fp)\""}"#.utf8)), [], "inside a string")
+        XCTAssertEqual(CaptureFile.claimedDevices(in: Data(#"{"recipient":"\#(fp.uppercased())"}"#.utf8)), [])
+        XCTAssertEqual(CaptureFile.claimedDevices(in: Data("{}\n{\"recipient\":\"\(fp)\"}".utf8)), [], "after the line")
+        XCTAssertEqual(CaptureFile.claimedDevices(in: Data(repeating: 0x22, count: 1 << 20)), [])
+        // A long notebook is bounded by the writer, so the claim stays in the window.
+        var long = p
+        long.notebook = String(repeating: "\"", count: 100_000)
+        let far = try store(long, in: v)
+        XCTAssertEqual(try v.readCapture(far).recipient, p.recipient)
     }
 }

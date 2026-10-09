@@ -438,6 +438,47 @@ public enum CaptureFile {
         for (x, y) in zip(a, b) { diff |= x ^ y }
         return diff == 0
     }
+
+    /// How much of a capture's JSON line is scanned for its device claim:
+    /// the keys before `recipient` (sorted, InkJSON) are short, except
+    /// `notebook`, which writers bound (`CaptureAdoption.boundedName`: at most
+    /// 1200 scalars, under 10 KB even JSON-escaped).
+    static let claimWindow = 64 << 10
+    /// At most this many claims are taken (a writer makes one).
+    static let maxClaims = 2
+
+    /// The device fingerprints a capture's JSON line claims, before its tag
+    /// is checked (format.md §11.2): each `"recipient":"<64 lowercase hex>"`
+    /// (JSON whitespace allowed around the colon) in the first `claimWindow`
+    /// bytes, up to the first newline, at most `maxClaims`. A byte scan, not a
+    /// JSON parse: it only picks which device capture keys the reader tries,
+    /// so that the work is bounded by the vault capture keys and one device's,
+    /// not by the length of the list (review of #125). The tag and the parsed
+    /// manifest's `recipient` stay the authority; a claim that is wrong only
+    /// makes the file fail.
+    static func claimedDevices<D: DataProtocol>(in bytes: D) -> Set<String> {
+        var b = Array(bytes.prefix(claimWindow))
+        if let nl = b.firstIndex(of: 0x0A) { b = Array(b[..<nl]) }
+        let needle = Array("\"recipient\"".utf8)
+        func isSpace(_ c: UInt8) -> Bool { c == 0x20 || c == 0x09 || c == 0x0D }
+        func isHex(_ c: UInt8) -> Bool { (0x30...0x39).contains(c) || (0x61...0x66).contains(c) }
+        var out = Set<String>()
+        var i = 0
+        while i + needle.count <= b.count, out.count < maxClaims {
+            guard Array(b[i..<i + needle.count]) == needle else { i += 1; continue }
+            var j = i + needle.count
+            while j < b.count, isSpace(b[j]) { j += 1 }
+            guard j < b.count, b[j] == 0x3A else { i += 1; continue }
+            j += 1
+            while j < b.count, isSpace(b[j]) { j += 1 }
+            guard j + 66 <= b.count, b[j] == 0x22, b[j + 65] == 0x22, b[(j + 1)...(j + 64)].allSatisfy(isHex) else {
+                i += 1; continue
+            }
+            out.insert(String(decoding: b[(j + 1)...(j + 64)], as: UTF8.self))
+            i = j + 66
+        }
+        return out
+    }
 }
 
 /// A sealed inbox file: its name and its bytes (an age file).
@@ -480,7 +521,8 @@ public struct CaptureWriter: Sendable {
     public func seal(audio: Data, type: String = "audio/mp4", started: Date, info: AudioInfo? = nil, title: String? = nil,
                      id: UUID = UUID(), created: Date = Date()) throws -> SealedCapture {
         let manifest = CaptureManifest(id: id, device: profile.device, vault: profile.vaultId, created: created, started: started,
-                                       title: title ?? Self.defaultTitle(started), notebook: profile.notebook,
+                                       title: title ?? Self.defaultTitle(started),
+                                       notebook: CaptureAdoption.boundedName(profile.notebook),
                                        audio: BlobRef(content: audio, type: type), info: info, recipient: profile.recipient)
         let name = CaptureFile.name(id, .capture)
         let plain = try CaptureFile.frame(line: try InkJSON.encoder().encode(manifest), payload: audio, filename: name, key: key)
@@ -660,7 +702,6 @@ extension Vault {
         // Captures are attributed against the authenticated device list (format.md §2.1, §11.2).
         try requireTrustedRecipients()
         let ring = try captureKeyRing()
-        let keys = ring.map(\.key)
         var pending = PendingCapture(id: id, files: [])
         for kind in CaptureFile.Kind.allCases {
             let name = CaptureFile.name(id, kind)
@@ -675,7 +716,7 @@ extension Vault {
                 // The tag first, streamed in constant memory: only a file that
                 // verifies is then read whole (security review 2026-10, C5).
                 // The key that verifies says which device sealed it (C2).
-                entry = ring[try verifyInboxFile(url, name: name, kind: kind, keys: keys)]
+                entry = try verifyInboxFile(url, name: name, kind: kind, ring: ring)
             } catch let e as CaptureError {
                 if let backoff, let mark { backoff.recordFailure(vault: vaultId, name: name, mark: mark, error: e.description, now: now) }
                 throw e
@@ -736,7 +777,7 @@ extension Vault {
     ///
     /// - Throws: `CaptureError` (`tooLarge`, `notCapture`, `badTag`) for the
     ///   file's own faults; `VaultError.io` when it cannot be read.
-    func verifyInboxFile(_ url: URL, name: String, kind: CaptureFile.Kind, keys: [CaptureKey]) throws -> Int {
+    func verifyInboxFile(_ url: URL, name: String, kind: CaptureFile.Kind, ring: [CaptureKeyEntry]) throws -> CaptureKeyEntry {
         let sealedCap = CaptureFile.maxSealedBytes(kind), plainCap = CaptureFile.maxPlaintextBytes(kind)
         if let size = (try? FileManager.default.attributesOfItem(atPath: url.path))?[.size] as? NSNumber,
            size.intValue > sealedCap {
@@ -750,7 +791,20 @@ extension Vault {
         }
         defer { try? handle.close() }
         var head = Data()
-        var hmacs = keys.map { CaptureFile.tagHMAC($0, filename: name) }
+        // A capture's keys are chosen once the start of its JSON line is in
+        // (`CaptureFile.claimedDevices`); until then the bytes wait here. A
+        // transcript (small, and it names no device) gets the whole ring.
+        var waiting: Data? = kind == .capture ? Data() : nil
+        var chosen: [CaptureKeyEntry] = kind == .capture ? [] : ring
+        var hmacs = chosen.map { CaptureFile.tagHMAC($0.key, filename: name) }
+        func choose() {
+            guard let bytes = waiting else { return }
+            let claims = CaptureFile.claimedDevices(in: bytes)
+            chosen = ring.filter { $0.recipient.map(claims.contains) ?? true }
+            hmacs = chosen.map { CaptureFile.tagHMAC($0.key, filename: name) }
+            if !bytes.isEmpty { for i in hmacs.indices { hmacs[i].update(data: bytes) } }
+            waiting = nil
+        }
         var total = 0
         while true {
             let chunk: Data?
@@ -770,13 +824,20 @@ extension Vault {
                     guard head[4] == CaptureFile.version else { throw CaptureError.notCapture("unknown version \(head[4])") }
                 }
             }
-            if !rest.isEmpty { for i in hmacs.indices { hmacs[i].update(data: rest) } }
+            guard !rest.isEmpty else { continue }
+            if waiting != nil {
+                waiting?.append(contentsOf: rest)
+                if let w = waiting, w.count >= CaptureFile.claimWindow || w.contains(0x0A) { choose() }
+                continue
+            }
+            for i in hmacs.indices { hmacs[i].update(data: rest) }
         }
+        choose()
         guard head.count == CaptureFile.headerSize, total > CaptureFile.headerSize else {
             throw CaptureError.notCapture("too short")
         }
         let stored = Data(head.suffix(32))
-        for (i, h) in hmacs.enumerated() where CaptureFile.constantTimeEqual(Data(h.finalize()), stored) { return i }
+        for (i, h) in hmacs.enumerated() where CaptureFile.constantTimeEqual(Data(h.finalize()), stored) { return chosen[i] }
         throw CaptureError.badTag
     }
 
@@ -903,7 +964,6 @@ extension Vault {
         let dir = inboxURL
         guard FileIO.isDirectory(dir) else { return }
         let ring = try captureKeyRing(legacyPrevious: legacyPrevious)
-        let keys = ring.map(\.key)
         let expected = Self.expectedStanzas(recipients)
         for name in try FileIO.entries(dir) where CaptureFile.parse(name: name) != nil {
             let path = "\(CaptureFile.folderName)/\(name)"
@@ -912,7 +972,7 @@ extension Vault {
             // The tag is checked streamed first: a file that verifies under
             // neither key is skipped without being read whole (C5).
             let entry: CaptureKeyEntry
-            do { entry = ring[try verifyInboxFile(file, name: name, kind: kind, keys: keys)] } catch is CaptureError {
+            do { entry = try verifyInboxFile(file, name: name, kind: kind, ring: ring) } catch is CaptureError {
                 report.inboxSkipped.append(path); continue
             } catch {
                 report.failures[path] = .unreadable("\(error)"); continue
