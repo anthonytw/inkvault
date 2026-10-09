@@ -63,7 +63,7 @@ struct PageStackView: UIViewRepresentable {
 /// the scale is baked in (`bake`): the transform goes back to identity and
 /// every page canvas is laid out again at the new scale, so PencilKit draws
 /// the ink sharp. `scale` is screen points per page point between pinches.
-final class PageStackHost: UIView, UIScrollViewDelegate {
+final class PageStackHost: UIView, UIScrollViewDelegate, UIGestureRecognizerDelegate {
     /// What the stack shows (`PageStackView`'s properties).
     struct Configuration {
         var editor: NoteEditor
@@ -133,6 +133,15 @@ final class PageStackHost: UIView, UIScrollViewDelegate {
         content.accessibilityIdentifier = "pageStack.content"
         scroller.addSubview(content)
         addSubview(scroller)
+        // A swipe to the left or right turns the page while an iPhone is only reading
+        // (`PhoneReading.swipeTurnsPages`); the recognizers do nothing otherwise.
+        for direction in [UISwipeGestureRecognizer.Direction.left, .right] {
+            let swipe = UISwipeGestureRecognizer(target: self, action: #selector(swiped(_:)))
+            swipe.direction = direction
+            swipe.delegate = self
+            swipe.name = direction == .left ? "pageSwipeLeft" : "pageSwipeRight"
+            scroller.addGestureRecognizer(swipe)
+        }
         footerButton.isHidden = true
         footerButton.accessibilityIdentifier = "pageFooter"
         var config = UIButton.Configuration.bordered()
@@ -378,6 +387,38 @@ final class PageStackHost: UIView, UIScrollViewDelegate {
         let pan = scroller.panGestureRecognizer
         pan.allowedTouchTypes = Self.panTouchTypes(drawing: drawing, isMac: Platform.isMac)
         pan.minimumNumberOfTouches = Self.minimumPanTouches(drawing: drawing, fingersDraw: fingersDraw)
+    }
+
+    // MARK: - Swipe to turn pages (iPhone, reading)
+
+    /// Whether a swipe turns the page now.
+    var swipeTurnsPages: Bool {
+        PhoneReading.swipeTurnsPages(isPhone: Platform.isPhone, drawingSuspended: configuration?.drawingSuspended ?? false,
+                                     zoomed: scroller.zoomScale > 1.001 || !fitted, pageCount: configuration?.pageIDs.count ?? 0)
+    }
+
+    func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+        guard gestureRecognizer is UISwipeGestureRecognizer else { return true }
+        return swipeTurnsPages
+    }
+
+    /// The vertical scroll and a pinch go on while the swipe is being recognised.
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
+                           shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
+        gestureRecognizer is UISwipeGestureRecognizer
+    }
+
+    @objc private func swiped(_ swipe: UISwipeGestureRecognizer) {
+        turnPage(towardsLeft: swipe.direction == .left)
+    }
+
+    /// Shows the next page (a swipe to the left) or the previous one; nothing at the ends or
+    /// where swiping does not turn pages.
+    func turnPage(towardsLeft: Bool) {
+        guard swipeTurnsPages, let editor, let count = configuration?.pageIDs.count,
+              let target = PhoneReading.pageAfterSwipe(from: editor.pageIndex, towardsLeft: towardsLeft,
+                                                        pageCount: count) else { return }
+        editor.selectPage(target)
     }
 
     /// Frames equal up to UIKit's rounding (a frame set reads back a few ulps off).

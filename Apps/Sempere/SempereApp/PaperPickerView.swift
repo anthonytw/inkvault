@@ -2,6 +2,32 @@ import Sempere
 import SwiftUI
 import UIKit
 
+/// How the picker lays itself out (the iPhone pass, GA-16): on a phone, and in any narrow or
+/// short window, the kinds are one scrolling strip, the preview is capped so the controls are
+/// not a screen away, and "Use as Default" scrolls with the controls instead of making the
+/// pinned bar three buttons tall. A sheet over a page can rest at half height, so the page
+/// behind shows the paper being edited live (`onPreview`).
+struct PaperPickerLayout: Equatable, Sendable {
+    var compact: Bool
+
+    init(horizontal: UserInterfaceSizeClass?, vertical: UserInterfaceSizeClass?) {
+        compact = horizontal != .regular || vertical == .compact
+    }
+
+    init(compact: Bool) { self.compact = compact }
+
+    /// The kinds in one horizontal strip (else a wrapping grid).
+    var kindsInStrip: Bool { compact }
+    /// Preview and controls side by side.
+    var sideBySide: Bool { !compact }
+    /// The preview's tallest height in points (nil: as the width gives it).
+    var previewMaxHeight: Double? { compact ? 240 : nil }
+    /// "Use as Default for New Notes" in the pinned bar (else at the end of the controls).
+    var defaultButtonPinned: Bool { !compact }
+    /// The sheet may rest at half height (only over a page: a new note's picker has no page behind it).
+    func restsAtHalfHeight(page: Bool) -> Bool { compact && page }
+}
+
 /// Visual paper picker: a grid of live thumbnails (one per kind, drawn with
 /// `PaperRenderer` through `PaperImage`), a large preview of the selection and
 /// controls for its parameters. Used for a new note (`.newNote`) and for the
@@ -30,6 +56,7 @@ struct PaperPickerView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.displayScale) private var displayScale
     @Environment(\.horizontalSizeClass) private var sizeClass
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
     @State private var draft: PaperDraft
     @State private var savedAsDefault = false
 
@@ -45,8 +72,12 @@ struct PaperPickerView: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
-                    kindGrid
-                    if sizeClass == .regular {
+                    if layout.kindsInStrip {
+                        ScrollView(.horizontal, showsIndicators: false) { kindGrid.padding(.vertical, 4) }
+                    } else {
+                        kindGrid
+                    }
+                    if layout.sideBySide {
                         HStack(alignment: .top, spacing: 32) {
                             preview
                             controls.frame(maxWidth: .infinity)
@@ -54,6 +85,7 @@ struct PaperPickerView: View {
                     } else {
                         preview.frame(maxWidth: .infinity)
                         controls
+                        if !layout.defaultButtonPinned { defaultButton }
                     }
                 }
                 .padding()
@@ -65,6 +97,7 @@ struct PaperPickerView: View {
             }
             .safeAreaInset(edge: .bottom) { actions }
         }
+        .presentationDetents(layout.restsAtHalfHeight(page: isPage) ? [.medium, .large] : [.large])
         .onChange(of: draft.paper) { _, paper in
             savedAsDefault = false
             onPreview(paper)
@@ -72,10 +105,28 @@ struct PaperPickerView: View {
         .onDisappear { onPreview(nil) }
     }
 
+    private var layout: PaperPickerLayout { PaperPickerLayout(horizontal: sizeClass, vertical: verticalSizeClass) }
+
+    private var isPage: Bool {
+        if case .page = purpose { return true }
+        return false
+    }
+
     // MARK: Kinds
 
+    @ViewBuilder
     private var kindGrid: some View {
-        LazyVGrid(columns: [GridItem(.adaptive(minimum: 104, maximum: 150), spacing: 14)], spacing: 14) {
+        if layout.kindsInStrip {
+            HStack(alignment: .top, spacing: 14) { kindButtons }
+        } else {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 104, maximum: 150), spacing: 14)], spacing: 14) {
+                kindButtons
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var kindButtons: some View {
             ForEach(PaperKind.allCases, id: \.self) { kind in
                 Button { draft.select(kind) } label: {
                     VStack(spacing: 6) {
@@ -83,6 +134,7 @@ struct PaperPickerView: View {
                         Text(kind.localizedTitle).font(.caption).foregroundStyle(.primary)
                             .multilineTextAlignment(.center)
                     }
+                    .frame(width: layout.kindsInStrip ? 96 : nil)
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(kind.localizedTitle)
@@ -109,7 +161,7 @@ struct PaperPickerView: View {
         Image(uiImage: PaperImage.image(for: draft.paper, size: CGSize(width: 340, height: 440), scale: displayScale))
             .resizable()
             .aspectRatio(612.0 / 792.0, contentMode: .fit)
-            .frame(maxWidth: 340)
+            .frame(maxWidth: 340, maxHeight: layout.previewMaxHeight.map { CGFloat($0) })
             .clipShape(RoundedRectangle(cornerRadius: 4))
             .overlay(RoundedRectangle(cornerRadius: 4).stroke(SwiftUI.Color.secondary.opacity(0.5), lineWidth: 1))
             .shadow(radius: 6, y: 2)
@@ -212,6 +264,10 @@ struct PaperPickerView: View {
             Button("Apply to All Pages") { choose(.allPages) }
                 .buttonStyle(.bordered)
         }
+        if layout.defaultButtonPinned { defaultButton }
+    }
+
+    private var defaultButton: some View {
         Button(LocalizedStringKey(savedAsDefault ? "Saved as Default" : "Use as Default for New Notes"),
                systemImage: savedAsDefault ? "checkmark" : "star") {
             PaperPreference.save(draft.paper)

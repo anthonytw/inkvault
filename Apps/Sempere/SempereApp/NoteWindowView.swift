@@ -13,6 +13,8 @@ struct NoteWindowView: View {
     @Environment(\.dismissWindow) private var dismissWindow
     @Environment(\.scenePhase) private var scenePhase
     @AppStorage(ToolPalette.visibleKey) private var paletteVisible = true
+    @AppStorage(ToolPalette.compactKey) private var paletteCompact = false
+    @AppStorage(PageStrip.visibleKey) private var pageStripVisible = false
     @State private var ui = WindowUI()
     @State private var failure: String?
 
@@ -46,6 +48,10 @@ struct NoteWindowView: View {
                             Button("Save Version…", systemImage: "bookmark") { ui.saveVersionNoteID = note.id }
                                 .disabled(note.deleted)
                                 .help("Save this version of the note under a name; saved versions are never thinned")
+                        }
+                        ToolbarItem(placement: .secondaryAction) {
+                            Button("Version History…", systemImage: "clock.arrow.circlepath") { ui.historyNoteID = note.id }
+                                .help("Browse earlier versions of the note and restore one")
                         }
                         ToolbarItem(placement: .primaryAction) {
                             Button("Tags", systemImage: note.tags.isEmpty ? "tag" : "tag.fill") { ui.tagsNoteID = note.id }
@@ -147,6 +153,8 @@ struct NoteWindowView: View {
         EditorCommands.fill(&context, from: editor)
         let exportIDs = note.map { [$0.id] } ?? []
         WindowCommands.fill(&context, model: model, exportIDs: exportIDs)
+        context.paletteCompact = paletteCompact
+        context.pageStripVisible = pageStripVisible
         return CommandRouter(context: context, recents: library.recents.map { RecentItem(id: $0.id, name: $0.name) },
                              paletteVisible: paletteVisible, exportIDs: exportIDs, windowID: ui.id) { command in
             guard !EditorCommands.perform(command, editor: editor, ui: ui) else { return }
@@ -155,6 +163,7 @@ struct NoteWindowView: View {
             case .renameNote: ui.renameNoteID = value.noteID
             case .editTags: ui.tagsNoteID = value.noteID
             case .saveVersion: ui.saveVersionNoteID = value.noteID
+            case .versionHistory: ui.historyNoteID = value.noteID
             case .deleteNote:
                 let id = value.noteID
                 Task { await model.report { try await model.deleteNote(id) } }
