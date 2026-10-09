@@ -175,7 +175,7 @@ jobs:
   macos:
     name: macOS
     needs: changes
-    if: false  # TEMP-DEBUG
+    if: needs.changes.outputs.package == 'true'
     runs-on: macos-26
     steps:
       - uses: actions/checkout@v4
@@ -273,7 +273,7 @@ jobs:
       - name: Tooltips on icon-only controls
         run: scripts/check-help.py --self-test && scripts/check-help.py
       - name: Test on an iPad simulator
-        timeout-minutes: 25
+        timeout-minutes: 40
         shell: bash
         run: mkdir -p build && scripts/app.sh test 2>&1 | tee build/app-test.log
       # The iPhone suites on an iPhone simulator: the build products are the iPad run's,
@@ -283,14 +283,14 @@ jobs:
       # Real drags onto the sidebar (SidebarDropUITests): the drop delegate needs a drag session.
       # Also the launch smoke tests' iPad layouts (LaunchSmokeUITests: fresh state, unlock sheet).
       - name: UI tests on the iPad simulator
-        if: false  # TEMP-DEBUG
+        if: ${{ !cancelled() }}
         timeout-minutes: 25
         shell: bash
         run: mkdir -p build && scripts/app.sh test-ui 2>&1 | tee build/app-test-ui.log
       # Layout in double-length, right-to-left and Spanish text (docs/localization.md "Checking
       # layouts"); the build products are test-ui's, so this adds 18 launches of the demo vault.
       - name: Pseudo-language layout tests on the iPad simulator
-        if: false  # TEMP-DEBUG
+        if: ${{ !cancelled() }}
         timeout-minutes: 25
         shell: bash
         run: mkdir -p build && scripts/app.sh pseudo 2>&1 | tee build/app-test-pseudo.log
@@ -298,7 +298,7 @@ jobs:
       # (LaunchSmokeUITests; a build that crashed there shipped). Every run, PRs included:
       # a Catalyst build of the app and its UI tests, then four launches (docs/HANDOFF.md "CI").
       - name: Launch smoke tests on Mac Catalyst
-        if: false  # TEMP-DEBUG
+        if: ${{ !cancelled() }}
         timeout-minutes: 20
         shell: bash
         run: mkdir -p build && scripts/app.sh test-mac-smoke 2>&1 | tee build/app-test-mac-smoke.log
@@ -309,12 +309,12 @@ jobs:
       # The Mac suites and UI tests on Mac Catalyst (ad-hoc signed, sandboxed like the
       # shipped app): main and dispatch runs (`gh workflow run CI --ref <branch>`).
       - name: Test on Mac Catalyst
-        if: false  # TEMP-DEBUG
+        if: ${{ !cancelled() && github.event_name != 'pull_request' }}
         timeout-minutes: 45
         shell: bash
         run: mkdir -p build && scripts/app.sh test-mac 2>&1 | tee build/app-test-mac.log
       - name: UI tests on Mac Catalyst
-        if: false  # TEMP-DEBUG
+        if: ${{ !cancelled() && github.event_name != 'pull_request' }}
         timeout-minutes: 20
         shell: bash
         run: mkdir -p build && scripts/app.sh test-mac-ui 2>&1 | tee build/app-test-mac-ui.log

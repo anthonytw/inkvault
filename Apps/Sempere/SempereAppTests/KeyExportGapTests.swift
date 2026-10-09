@@ -54,7 +54,9 @@ struct KeyExportGapTests {
         #expect(pdf.path.hasPrefix(model.exportFolder.path))
         model.close()
         #expect(!FileManager.default.fileExists(atPath: pdf.path))
-        #expect(!FileManager.default.fileExists(atPath: model.exportFolder.path))
+        // `purge` empties the model's folder; the empty folder itself may remain.
+        let left = (try? FileManager.default.contentsOfDirectory(atPath: model.exportFolder.path)) ?? []
+        #expect(left.isEmpty)
     }
 
     /// The share sheet's key folder: purging when nothing was staged is harmless,
