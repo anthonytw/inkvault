@@ -386,6 +386,17 @@ final class CLIAttachTests: CLITestCase {
         XCTAssertEqual(json[0]["box"] as? [Double], [36, 36, 540, 43.2])
         XCTAssertEqual((json[0]["words"] as? [Any])?.count, 0)
         XCTAssertEqual((try cli(["search", "unicode", "--json"] + args).json as? [[String: Any]])?.count, 1, "accents are ignored")
+        // --show-boxes: where the words are inside the text box (GA-07), in the box's frame.
+        let boxed = try XCTUnwrap(try cli(["search", "kangaroo", "--show-boxes", "--json"] + args).json as? [[String: Any]])
+        let locations = try XCTUnwrap(boxed.first?["locations"] as? [[String: Any]])
+        XCTAssertEqual(locations.count, 1)
+        XCTAssertEqual(locations[0]["text"] as? String, "kangaroo")
+        XCTAssertEqual(locations[0]["itemId"] as? String, item["id"] as? String)
+        XCTAssertEqual(locations[0]["n"] as? Int, 1)
+        let box = try XCTUnwrap(locations[0]["box"] as? [Double])
+        XCTAssertTrue(box[0] >= 36 && box[0] + box[2] <= 36 + 540 && box[1] > 36 + 10, "second line, inside the frame: \(box)")
+        let table = try cli(["search", "kangaroo", "--show-boxes"] + args)
+        XCTAssertEqual(table.status, 0, table.err)
         // A deleted note is not searched.
         _ = try ok(["notes", "delete", physics] + args)
         XCTAssertEqual((try cli(["search", "kangaroo", "--json"] + args).json as? [Any])?.count, 0)

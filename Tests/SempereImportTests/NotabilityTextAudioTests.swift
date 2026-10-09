@@ -191,6 +191,122 @@ final class NotabilityTextAudioTests: XCTestCase {
         XCTAssertTrue(r.warnings.contains { $0.contains("read as milliseconds") })
     }
 
+    func testDroppedKindsNameEveryCounter() {
+        var d = NotabilityImporter.Dropped()
+        XCTAssertTrue(d.nonZero.isEmpty)
+        d.media = 2; d.pdfTextPages = 3; d.dashedStrokes = 5
+        XCTAssertEqual(d.nonZero.map(\.kind), [.media, .dashedStrokes, .pdfTextPages])
+        XCTAssertEqual(d.nonZero.map(\.count), [2, 5, 3])
+        // Every counter has a kind: a Dropped with each field set once lists them all.
+        var all = NotabilityImporter.Dropped()
+        all.typedTextCharacters = 1; all.pdfs = 1; all.pdfPages = 1; all.media = 1; all.pdfHighlights = 1; all.templatePDFs = 1
+        all.recLinks = 1; all.recordings = 1; all.dashedStrokes = 1; all.unknownStyleStrokes = 1
+        all.defaultedAttributeStrokes = 1; all.unsupportedShapes = 1; all.unsupportedStrokes = 1; all.clampedStrokes = 1
+        all.bundleRecordsWithoutFile = 1; all.bundleFilesUnreferenced = 1; all.pdfTextPages = 1
+        XCTAssertEqual(all.nonZero.count, NotabilityImporter.Dropped.Kind.allCases.count)
+        XCTAssertTrue(NotabilityImporter.Dropped.Kind.allCases.allSatisfy { !$0.english.isEmpty })
+    }
+
+    // MARK: Notability's own transcripts (GA-09)
+
+    static let transcriptEntry = lectureEntry + """
+        <key>locale</key><string>en_US</string>\
+        <key>transcript</key><array>\
+        <dict><key>text</key><string>Hello class</string><key>start</key><real>0.5</real><key>duration</key><real>1.5</real></dict>\
+        <dict><key>text</key><string>Today: limits</string><key>start</key><real>2</real><key>end</key><real>4.25</real></dict>\
+        <dict><key>text</key><string>   </string><key>start</key><real>5</real></dict>\
+        </array>
+        """
+
+    func testNotabilityTranscriptBecomesATranscriptBlob() throws {
+        let pkg = Self.recordingPackage(library: AttachmentFixtures.library([("rec-0", Self.transcriptEntry)]),
+                                        files: [("Recordings/Recording 1.m4a", AttachmentFixtures.m4a(seconds: 12.5))])
+        let identity = try NativeIdentity.generate(.postQuantum)
+        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("sempere-trn-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        let vault = try Vault.create(at: tmp.appendingPathComponent("V.sempere"), recipients: [identity.recipient],
+                                     identities: [identity])
+        let path = tmp.appendingPathComponent("N.note")
+        try pkg.write(to: path)
+        var clock = HybridClock()
+        let r = try XCTUnwrap(NotabilityImporter.import(paths: [path], into: vault, device: DeviceID("0a0b0c0d")!,
+                                                        clock: &clock).notes.first)
+        XCTAssertEqual(r.status, .ok)
+        XCTAssertEqual(r.attachments.transcripts, 1)
+        let id = try XCTUnwrap(r.noteId)
+        let rec = try XCTUnwrap(try vault.reconstruct(noteId: id).recordings.first)
+        let ref = try XCTUnwrap(rec.transcript)
+        XCTAssertEqual(ref.type, BlobRef.transcriptType)
+        let t = try Transcript.decode(try vault.readBlob(note: id, ref))
+        XCTAssertEqual(t.recording, rec.id)
+        XCTAssertEqual(t.language, "en-US")
+        XCTAssertTrue(t.engine.hasPrefix("notability-"), t.engine)
+        XCTAssertEqual(t.segments.map(\.text), ["Hello class", "Today: limits"])
+        XCTAssertEqual(t.segments.map(\.start), [0.5, 2])
+        XCTAssertEqual(t.segments.map(\.end), [2, 4.25])
+        // The same bytes on a second import of the same note (ids and dates derive from the note).
+        XCTAssertEqual(r.attachments.blobs, 2)
+    }
+
+    func testTranscriptFormsAndLimits() throws {
+        // A plain string spans the recording; milliseconds are recognised against the duration.
+        let plain = TranscriptRead.parse(.string("All of it"), duration: 12.5, field: "transcript")
+        XCTAssertEqual(plain?.segments.first.map { [$0.start, $0.end] }, [0, 12.5])
+        let ms = TranscriptRead.parse(.array([.dict(["text": .string("a"), "start": .int(1000), "end": .int(2000)]),
+                                              .dict(["text": .string("b"), "start": .int(2000), "end": .int(9000)])]),
+                                      duration: 12.5, field: "t")
+        XCTAssertEqual(ms?.segments.map(\.end), [2, 9])
+        XCTAssertEqual(ms?.milliseconds, true)
+        // Overlap is pushed apart, out-of-order items sorted, non-finite and empty items dropped.
+        let messy = TranscriptRead.parse(.array([.dict(["text": .string("late"), "start": .real(5), "end": .real(6)]),
+                                                 .dict(["text": .string("early"), "start": .real(1), "end": .real(5.5)]),
+                                                 .dict(["text": .string("bad"), "start": .real(.nan)])]),
+                                         duration: 20, field: "t")
+        XCTAssertEqual(messy?.segments.map(\.text), ["early", "late"])
+        XCTAssertNil(try messy.map { Transcript(recording: UUID(), engine: "e", language: "en", created: Date(), segments: $0.segments).validationError }.flatMap { $0 })
+        XCTAssertNil(TranscriptRead.parse(.dict(["x": .int(1)]), duration: nil, field: "t"))
+        // Bounded: a hostile array never yields more than the cap.
+        let many = PlistValue.array((0..<50_000).map { .dict(["text": .string("w"), "start": .int(Int64($0))]) })
+        XCTAssertLessThanOrEqual(TranscriptRead.parse(many, duration: nil, field: "t")?.segments.count ?? 0, TranscriptRead.maxSegments)
+    }
+
+    /// Review of #134: 20 000 segments of 8 192 characters made a blob far past `Transcript.maxSize`, which
+    /// `Transcript.decode` refuses, so the import wrote a transcript no reader could open. The text kept is
+    /// now budgeted, and what is kept encodes to a blob that decodes.
+    func testTranscriptTextIsBudgetedSoTheBlobDecodes() throws {
+        let long = String(repeating: "é", count: TranscriptRead.maxTextLength)   // 2 bytes each in UTF-8
+        let huge = PlistValue.array((0..<TranscriptRead.maxSegments).map {
+            .dict(["text": .string(long), "start": .int(Int64($0)), "end": .int(Int64($0) + 1)])
+        })
+        let read = try XCTUnwrap(TranscriptRead.parse(huge, duration: nil, field: "t"))
+        XCTAssertLessThan(read.segments.count, TranscriptRead.maxSegments, "cut by the byte budget")
+        let total = read.segments.reduce(0) { $0 + $1.text.utf8.count + TranscriptRead.segmentOverhead }
+        XCTAssertLessThanOrEqual(total, TranscriptRead.maxTotalBytes)
+        let data = try Transcript(recording: UUID(), engine: "notability-1", language: "en", created: Date(),
+                                  segments: read.segments).encoded()
+        XCTAssertLessThanOrEqual(data.count, Transcript.maxSize)
+        XCTAssertEqual(try Transcript.decode(data).segments.count, read.segments.count)
+        // Characters JSON escapes (six bytes each) still give a blob that decodes.
+        let control = String(repeating: "\u{1}", count: TranscriptRead.maxTextLength)
+        let escaped = PlistValue.array((0..<TranscriptRead.maxSegments).map {
+            .dict(["text": .string("a" + control + "b"), "start": .int(Int64($0))])
+        })
+        let kept = try XCTUnwrap(TranscriptRead.parse(escaped, duration: nil, field: "t"))
+        let blob = try Transcript(recording: UUID(), engine: "e", language: "en", created: Date(), segments: kept.segments).encoded()
+        XCTAssertLessThanOrEqual(blob.count, Transcript.maxSize)
+        XCTAssertNoThrow(try Transcript.decode(blob))
+    }
+
+    func testUnreadableTranscriptFieldIsReported() throws {
+        let entry = Self.lectureEntry + "<key>transcriptData</key><integer>3</integer>"
+        let pkg = Self.recordingPackage(library: AttachmentFixtures.library([("rec-0", entry)]),
+                                        files: [("Recordings/Recording 1.m4a", AttachmentFixtures.m4a(seconds: 12.5))])
+        let (_, a) = try resolve(pkg)
+        XCTAssertTrue(a.transcripts.isEmpty)
+        XCTAssertTrue(a.warnings.contains { $0.contains("transcriptData") && $0.contains("no readable text") }, "\(a.warnings)")
+    }
+
     func testCAFDurationFromTheFileAndOrderPairing() throws {
         // The entry names no file: the one audio file is paired with it; no duration in the library.
         let pkg = Self.recordingPackage(library: AttachmentFixtures.library([("a", "<key>title</key><string>Talk</string>")]),

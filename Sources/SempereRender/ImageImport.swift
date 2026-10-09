@@ -4,8 +4,9 @@ import Foundation
 /// the stored type is sniffed from the bytes, never taken from a file name;
 /// JPEG and PNG are stored with their metadata stripped (unless asked to keep
 /// it), with the EXIF orientation moved into the item's `orientation`; HEIC is
-/// stored as is (this package cannot convert it); anything else is refused, so
-/// the caller can report it.
+/// stored as is (this package cannot convert it); GIF (first frame) and TIFF are
+/// decoded and stored as PNG (`LegacyImage`); anything else (WebP, BMP, AVIF) is
+/// refused, so the caller can report it.
 public enum ImageImport {
     /// What the bytes are, by their signature.
     public enum Format: String, Hashable, Sendable {
@@ -34,12 +35,20 @@ public enum ImageImport {
         public var orientation: Int?
         /// True when metadata was removed from the bytes.
         public var strippedMetadata: Bool
+        /// The format the bytes were converted from (GIF, TIFF → PNG); nil when stored as they were.
+        public var convertedFrom: Format?
+
+        public init(data: Data, type: String, width: Int, height: Int, orientation: Int?, strippedMetadata: Bool,
+                    convertedFrom: Format? = nil) {
+            self.data = data; self.type = type; self.width = width; self.height = height
+            self.orientation = orientation; self.strippedMetadata = strippedMetadata; self.convertedFrom = convertedFrom
+        }
     }
 
     /// Why an image is not stored.
     public enum Failure: Error, Hashable, Sendable, CustomStringConvertible {
-        /// A format the vault does not store (GIF, TIFF, WebP, …); converting
-        /// it needs the app (ImageIO).
+        /// A format the vault does not store and this package cannot convert
+        /// (WebP, BMP, AVIF, …); converting it needs the app (ImageIO).
         case unsupportedFormat(Format)
         /// The bytes claim a stored format but do not parse.
         case invalid(Format, String)
@@ -47,7 +56,7 @@ public enum ImageImport {
         public var description: String {
             switch self {
             case .unsupportedFormat(let f):
-                return f == .unknown ? "not an image format the vault stores" : "\(f.rawValue.uppercased()) image (only JPEG, PNG and HEIC are stored)"
+                return f == .unknown ? "not an image format the vault stores" : "\(f.rawValue.uppercased()) image (only JPEG, PNG, HEIC, GIF and TIFF are read)"
             case .invalid(let f, let why): return "invalid \(f.rawValue.uppercased()) image: \(why)"
             }
         }
@@ -113,6 +122,19 @@ public enum ImageImport {
             guard let (w, h) = HEIF.imageSize(data) else { throw Failure.invalid(.heic, "no image size (ispe)") }
             return Prepared(data: data, type: "image/heic", width: w, height: h, orientation: nil,
                             strippedMetadata: false)
+        case .gif, .tiff:
+            // Not stored as they are: decoded and stored as a PNG (the first frame of a GIF).
+            let image: RGBAImage
+            do {
+                image = f == .gif ? try LegacyImage.gif(data, maxPixels: ImageLimits.maxPixels)
+                    : try LegacyImage.tiff(data, maxPixels: ImageLimits.maxPixels)
+            } catch { throw Failure.invalid(f, "\(error)") }
+            let png: Data
+            do { png = try PNGEncoder.encode(width: image.width, height: image.height, rgba: image.pixels) } catch {
+                throw Failure.invalid(f, "cannot convert to PNG: \(error)")
+            }
+            return Prepared(data: png, type: "image/png", width: image.width, height: image.height, orientation: nil,
+                            strippedMetadata: true, convertedFrom: f)
         default:
             throw Failure.unsupportedFormat(f)
         }
