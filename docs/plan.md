@@ -40,8 +40,8 @@ need a hand test on a real Mac (`docs/mac.md` "To try by hand"); build 7 polish 
 
 ## Phase 3 — nice to have
 
-Built-in WebDAV client (`sempere sync webdav`, `docs/io.md`; the iPad app UI
-is still open 📋, planned for the first release); compaction UI (✅ #74 thinning setting and "Thin Now");
+Built-in WebDAV client (`sempere sync webdav`, `docs/io.md`; the app's WebDAV
+vaults, a local copy pushed push-only, 🔀 #137); compaction UI (✅ #74 thinning setting and "Thin Now");
 ~~PNG export~~ (done: `sempere export --format png [--dpi N]`, pure-Swift rasterizer in
 `Sources/SempereRender`, `docs/cli.md`); page backgrounds (PDF and image attachments: in the reference
 Notability backup 26 of 130 notes are annotated PDFs and 4 hold images, all

@@ -155,6 +155,9 @@ struct RootView: View {
             if let progress = model.cloudProgress {
                 CloudProgressView(progress: progress) { model.cancelCloudDownload() }
             }
+            if let name = model.webdavDownloading {
+                WebDAVDownloadOverlay(name: name)
+            }
         }
         .sheet(isPresented: $creatingVault) {
             NewVaultView()

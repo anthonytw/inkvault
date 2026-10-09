@@ -122,4 +122,86 @@ final class CLIWebDAVTests: CLITestCase {
         XCTAssertTrue(bad.err.contains("401"), bad.err)
         XCTAssertFalse(bad.err.contains("wrong-pw"))
     }
+
+    func testKeepServerChangesNeedsPushOnly() throws {
+        let vault = try copyFixtureVault()
+        let r = try cli(["sync", "webdav", "https://dav.example.com/v/", "--vault", vault, "--keep-server-changes"])
+        XCTAssertEqual(r.status, 2, r.err)
+        XCTAssertTrue(r.err.contains("--keep-server-changes needs --push-only"), r.err)
+    }
+
+    func testCheckRefusesInsecureURLsAndMissingPasswords() throws {
+        let plain = try cli(["webdav", "check", "http://dav.example.com/v/"])
+        XCTAssertEqual(plain.status, 2, plain.err)
+        XCTAssertTrue(plain.err.contains("refusing plain http"), plain.err)
+        let inURL = try cli(["webdav", "check", "https://me:pw@dav.example.com/v/"])
+        XCTAssertEqual(inURL.status, 2, inURL.err)
+        XCTAssertFalse(inURL.err.contains("pw@"), inURL.err)
+        let noPassword = try cli(["webdav", "check", "https://dav.example.com/v/", "--user", "me", "--password-env", "NOPE_NOT_SET"])
+        XCTAssertEqual(noPassword.status, 2, noPassword.err)
+        XCTAssertTrue(noPassword.err.contains("NOPE_NOT_SET"), noPassword.err)
+    }
+
+    /// Nothing listens on the port: the server is unreachable, reported as offline.
+    func testCheckReportsAnUnreachableServer() throws {
+        let r = try cli(["webdav", "check", "http://127.0.0.1:9/", "--json"])
+        XCTAssertEqual(r.status, 1, r.err)
+        let json = try XCTUnwrap(r.json as? [String: Any], r.out)
+        XCTAssertEqual(json["reachable"] as? Bool, false)
+        XCTAssertEqual(json["problem"] as? String, "offline", r.out)
+        XCTAssertEqual(json["url"] as? String, "http://127.0.0.1:9/")
+        let text = try cli(["webdav", "check", "http://127.0.0.1:9/"])
+        XCTAssertEqual(text.status, 1)
+        XCTAssertTrue(text.err.contains("server not reachable"), text.err)
+    }
+
+    /// Needs a live server (scripts/test-webdav.sh): `webdav check` finds what `sync webdav` put there,
+    /// and `--keep-server-changes` keeps a manifest someone else changed.
+    func testCheckAndKeepServerChangesAgainstRealServer() throws {
+        let env = ProcessInfo.processInfo.environment
+        guard let base = env["SEMPERE_WEBDAV_TEST_URL"], let user = env["SEMPERE_WEBDAV_TEST_USER"],
+              let password = env["SEMPERE_WEBDAV_TEST_PASSWORD"] else { throw XCTSkip("no WebDAV test server") }
+        let parent = base + "cli-check-\(UUID().uuidString.lowercased())/"
+        let url = parent + "Notes.sempere/"
+        let vault = try copyFixtureVault(as: "checked.sempere")
+        let e = ["TEST_DAV_PW": password]
+        let login = ["--user", user, "--password-env", "TEST_DAV_PW"]
+
+        let none = try cli(["webdav", "check", base, "--json"] + login, env: e)
+        XCTAssertTrue([0, 1].contains(none.status), none.err)
+        XCTAssertEqual((none.json as? [String: Any])?["reachable"] as? Bool, true, none.out)
+
+        let up = try cli(["sync", "webdav", url, "--vault", vault, "--push-only", "--keep-server-changes"] + login, env: e)
+        XCTAssertEqual(up.status, 0, up.err)
+        let below = try cli(["webdav", "check", parent, "--json"] + login, env: e)
+        XCTAssertEqual(below.status, 0, below.err)
+        let json = try XCTUnwrap(below.json as? [String: Any])
+        XCTAssertEqual(json["outcome"] as? String, "vaults-below")
+        let vaults = try XCTUnwrap(json["vaults"] as? [[String: Any]])
+        XCTAssertEqual(vaults.map { $0["name"] as? String }, ["Notes"])
+        XCTAssertEqual(vaults.first?["path"] as? [String], ["Notes.sempere"])
+        let itself = try cli(["webdav", "check", url] + login, env: e)
+        XCTAssertEqual(itself.status, 0, itself.err)
+        XCTAssertTrue(itself.out.contains("reachable; a vault"), itself.out)
+
+        // Another writer changes the server's vault.json: kept, exit 3, nothing local changes.
+        let other = path("other.sempere")
+        XCTAssertEqual(try cli(["sync", "webdav", url, "--vault", other] + login, env: e).status, 0)
+        let manifest = URL(fileURLWithPath: other).appendingPathComponent("vault.json")
+        var obj = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: manifest)) as? [String: Any])
+        obj["labels"] = ["changed by another device"]
+        try JSONSerialization.data(withJSONObject: obj).write(to: manifest)
+        XCTAssertEqual(try cli(["sync", "webdav", url, "--vault", other, "--push-only"] + login, env: e).status, 0)
+        let before = try Data(contentsOf: URL(fileURLWithPath: vault).appendingPathComponent("vault.json"))
+        let kept = try cli(["sync", "webdav", url, "--vault", vault, "--push-only", "--keep-server-changes", "--json"] + login, env: e)
+        XCTAssertEqual(kept.status, 3, kept.err)
+        let conflicts = try XCTUnwrap((kept.json as? [String: Any])?["conflicts"] as? [[String: Any]])
+        XCTAssertEqual(conflicts.map { $0["path"] as? String }, ["vault.json"])
+        XCTAssertEqual(try Data(contentsOf: URL(fileURLWithPath: vault).appendingPathComponent("vault.json")), before)
+
+        let wrong = try cli(["webdav", "check", url, "--json"] + login, env: ["TEST_DAV_PW": "wrong-pw"])
+        XCTAssertEqual(wrong.status, 1)
+        XCTAssertEqual((wrong.json as? [String: Any])?["problem"] as? String, "unauthorized", wrong.out)
+        XCTAssertFalse(wrong.out.contains("wrong-pw") || wrong.err.contains("wrong-pw"))
+    }
 }

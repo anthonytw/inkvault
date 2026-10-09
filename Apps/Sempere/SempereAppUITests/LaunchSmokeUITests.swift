@@ -13,7 +13,8 @@ import XCTest
 /// does. Then, in each column layout, the library window must show what that
 /// layout shows (sidebar, note list, the note), and on the Mac the other
 /// windows and sheets must open: Settings (⌘,), Vault Keys (⌥⌘K), a note
-/// window (⌥⌘N), Export… (⇧⌘E), Export Notes… and Restore from Backup….
+/// window (⌥⌘N), Export… (⇧⌘E), Export Notes…, Restore from Backup… and, after
+/// Close Vault, Open from WebDAV….
 ///
 /// Run by `scripts/app.sh test-ui` (iPad simulator: the two sidebar and list layouts) and `test-mac-smoke`
 /// (Mac Catalyst), on every CI run of the app job (docs/HANDOFF.md "CI").
@@ -132,6 +133,16 @@ final class LaunchSmokeUITests: XCTestCase {
         requireSheet("bulkExportSheet", titled: "Export", "bulk export sheet", in: app)
         app.typeKey(XCUIKeyboardKey.escape.rawValue, modifierFlags: [])
         requireRunning(app, "bulk export sheet")
+
+        // Close Vault (⇧⌘W), then Open from WebDAV… on the welcome screen.
+        focusLibrary(app)
+        app.typeKey("w", modifierFlags: [.command, .shift])
+        let webdav = app.buttons["openWebDAV"].firstMatch
+        require(webdav, "Open from WebDAV… button", in: app)
+        webdav.click()
+        requireSheet("webdavConnectSheet", titled: "Open from WebDAV", "Open from WebDAV sheet", in: app)
+        app.typeKey(XCUIKeyboardKey.escape.rawValue, modifierFlags: [])
+        requireRunning(app, "webdav sheet")
         #endif
     }
 

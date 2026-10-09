@@ -1980,7 +1980,7 @@ device id and clock from `$XDG_STATE_HOME/sempere/device.json` (default
 ```
 sempere sync webdav URL --vault V [--user U --password-env VAR] [--device NAME]
                          [--max-blob-mib N] [--web-viewer] [--dry-run] [--json] [--identity FILE | --passphrase-env VAR]
-                         [--push-only [--delete-extraneous]] [--retry-quarantined]
+                         [--push-only [--delete-extraneous] [--keep-server-changes]] [--retry-quarantined]
                          [--max-notes N] [--max-entries N] [--max-download-mib N] [--max-minutes N]
 ```
 
@@ -2072,6 +2072,35 @@ local copy may merely be evicted from iCloud. On the first sync to a server
 `--delete-extraneous` only lists them (as skipped) and removes them on a later
 run; use `--dry-run` first when the local vault may not be fully downloaded.
 `--delete-extraneous` needs `--push-only`, and `--push-only` an existing vault.
+
+**`--keep-server-changes`** (with `--push-only`) keeps a server `vault.json` or
+`rewrap-journal.json` that changed since this machine's last sync instead of
+replacing it: someone else wrote it (another device's key change, say), and a
+mirror that replaced it would undo that on the server. It is reported as a
+conflict (`conflicts`, `remoteCopy` null: nothing is written locally) and the
+exit code is 3; revisions and blobs still upload. Without a sync state for the
+server, any differing copy is kept. A copy only this machine changed (the
+server still holds what it last synced) is replaced as usual. This is how the
+app pushes a WebDAV vault (`docs/io.md`, "WebDAV vaults in the app").
+
+```
+sempere webdav check URL [--user U --password-env VAR] [--json]
+```
+
+Tests a WebDAV URL and lists the vaults there, as the app's "Test Connection"
+and vault list do: a vault when `URL` holds a `vault.json`, otherwise the
+vaults in the folders directly below it (at most 64 folders are looked into).
+Same URL and password rules as `sync webdav`; the server's certificate must be
+trusted by the system (the CLI has no certificate pinning: add a self-signed
+CA to the system's trust store). Nothing is written. Text output: a line
+saying what is there, then `<vault id>  <name>  <url>` per vault. `--json`:
+`{url, reachable: true, outcome: "vault" | "vaults-below" | "no-vault", vaults:
+[{path, name, vaultId, format, url}], foldersChecked, foldersSkipped,
+unreadable}`, or on failure `{url, reachable: false, problem, message}` with
+`problem` one of `offline`, `unauthorized`, `certificate`, `not-found`,
+`redirect`, `failed`. Names from the server are escaped and shortened. Exit 0
+when at least one vault was found, 1 otherwise (no vault, or the server could
+not be used), 2 usage.
 
 Output: one line per action, then
 `N uploaded, N downloaded, N deleted, N conflicts, N errors` (`-q` hides the

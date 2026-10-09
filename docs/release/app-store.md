@@ -43,7 +43,7 @@ the privacy policy or `ci.yml`, and always on `main`. It takes seconds and needs
 | An entitlements file has a key outside the allow-list, a referenced entitlements file is missing, or the Mac build has no sandbox | Section 6. |
 | `DERIVE_MACCATALYST_PRODUCT_BUNDLE_IDENTIFIER = YES`, a Mac-only bundle id, the app's bundle id changed, or an extension id not prefixed by the app's | Universal purchase needs one bundle id (section 6). |
 | `ITSAppUsesNonExemptEncryption` is missing or not a boolean | [export-compliance.md](export-compliance.md). A `YES` without `ITSEncryptionExportComplianceCode` is a warning. |
-| Networking (`URLSession`, `URLRequest`, Network.framework, sockets, CFNetwork streams, WebKit, Safari views, CloudKit, Multipeer, `FoundationNetworking`) in any non-test folder of `Apps/Sempere` or a `Sources/` target the app links, outside `NETWORK_ALLOWED` (only `SempereApp/MathModels.swift`) | The privacy policy says the app makes no connections of its own (section 3, "Network code, exactly"). An allow-listed file with no networking left is a warning. Not caught: `Data(contentsOf:)` or `AVPlayer` on a remote URL (code review). |
+| Networking (`URLSession`, `URLRequest`, Network.framework, sockets, CFNetwork streams, WebKit, Safari views, CloudKit, Multipeer, `FoundationNetworking`) in any non-test folder of `Apps/Sempere` or a `Sources/` target the app links, outside `NETWORK_ALLOWED` (the WebDAV client and `SempereApp/MathModels.swift`) | The privacy policy names the only connections the app makes (section 3, "Network code, exactly"). An allow-listed file with no networking left is a warning. Not caught: `Data(contentsOf:)` or `AVPlayer` on a remote URL (code review). |
 | `MathModelCatalog.entries` is not `[]` | That makes the allowed model downloader reachable; the privacy documents call it inert. |
 | A package pinned with an exact version in `project.pbxproj` resolves to another version in the project's `Package.resolved` (or that file is missing) | The version the privacy review looked at is the one that ships (SwiftMath, section 2). |
 | With `--checkouts DIR` (CI's `app` job, after the packages resolve): SwiftMath uses networking, a required-reason API that neither its manifest nor the app's declares, or its checkout is not the pinned revision | Section 2, "Dependencies". The step prints its findings on one line. |
@@ -139,26 +139,32 @@ then shows **Data Not Collected**.
 Apple's definition: data is "collected" when it is transmitted off the device in a way that lets
 the developer or its third-party partners access it for longer than needed to service the
 request in real time. Sempere has no server and no account, contains no analytics, advertising
-or crash-reporting SDK, and the app opens no connections of its own (WebDAV sync is CLI-only).
-What leaves the device goes only where the user puts it, encrypted with the user's key, which the
-developer never has.
+or crash-reporting SDK. What leaves the device goes only where the user puts it, encrypted with the
+user's key, which the developer never has.
 
 **Network code, exactly.** The shipping app (every non-test folder of `Apps/Sempere` and the
-`Sources/` targets it links) has one file with networking: `SempereApp/MathModels.swift`,
-the handwritten-math model downloader (`URLSessionModelFetcher`, an HTTPS `GET` of a model's
-manifest and files, each checked against the SHA-256 the catalogue pins). It is inert: it runs
-only from a Download button in Settings → Handwritten Math, one per `MathModelCatalog.entries`
-entry, and that catalogue is empty (`Sources/SempereRender/MathModel.swift`), so the button
-never appears and there is no URL to fetch; the Mac build also lacks `network.client`, so the
-sandbox would refuse it. "Add Model from Files" in the same section copies a model folder or zip the
-user picks (`MathModelImport`, #127): a local file, no connection. `scripts/release-check.sh` fails on networking anywhere else in those
-folders (`NETWORK_ALLOWED`) and on a non-empty catalogue. Offering a model is a release
-decision that changes these answers: add `network.client` (Mac) to the entitlements and their
-allow-list, name the download host in the privacy policy (both copies) and here, and update
-DESIGN.md "Network"; the answer to the question above stays No (the request carries no user
-data and nothing is kept by the developer), but the review notes must mention the download.
+`Sources/` targets it links) has networking in two places:
 
-| Apple data type | Why it is not collected |
+- WebDAV vaults (`SempereApp/WebDAVRemote.swift` and the `SempereWebDAV` target it links,
+  `docs/io.md` "WebDAV vaults in the app"): it connects only to the server URL the user enters,
+  over HTTPS (plain HTTP to the device itself only; a self-signed certificate only after the user
+  pins it), with the user's own credentials, and uploads the user's already encrypted vault files
+  there (push-only). The developer runs no server and receives nothing. This is why the Mac build
+  has `network.client`.
+- `SempereApp/MathModels.swift`, the handwritten-math model downloader (`URLSessionModelFetcher`,
+  an HTTPS `GET` of a model's manifest and files, each checked against the SHA-256 the catalogue
+  pins). It is inert: it runs only from a Download button in Settings → Handwritten Math, one per
+  `MathModelCatalog.entries` entry, and that catalogue is empty
+  (`Sources/SempereRender/MathModel.swift`), so the button never appears and there is no URL to
+  fetch. "Add Model from Files" in the same section copies a model folder or zip the user picks
+  (`MathModelImport`, #127): a local file, no connection.
+
+`scripts/release-check.sh` fails on networking anywhere else in those folders (`NETWORK_ALLOWED`)
+and on a non-empty catalogue. Offering a model is a release decision that changes these answers:
+name the download host in the privacy policy (both copies) and here, and update DESIGN.md
+"Network"; the answer to the question above stays No (the request carries no user data and
+nothing is kept by the developer), but the review notes must mention the download.
+
 
 | Apple data type | Why it is not collected |
 | --- | --- |
@@ -249,8 +255,8 @@ and a recording's start time; no key, no vault, no note; `docs/quick-capture.md`
 ID and the widget's App ID need the App Groups capability with that group in the developer
 portal (automatic signing registers it). Nothing else: the Keychain uses the app's default
 access group, folders come through the document picker, and there is no iCloud container
-(vaults are user-picked folders, `docs/HANDOFF.md`). The Mac build has the first five below
-and no App Group (the Catalyst build has no widgets); the six are exactly
+(vaults are user-picked folders, `docs/HANDOFF.md`). The Mac build has the first six below
+and no App Group (the Catalyst build has no widgets); the seven are exactly
 `release-check.sh`'s allow-list, and the App Group may only name that one group:
 
 | Entitlement | Why it is needed | What breaks without it |
@@ -260,13 +266,11 @@ and no App Group (the Catalyst build has no widgets); the six are exactly
 | `com.apple.security.files.bookmarks.app-scope` | Recent vaults are reopened from security-scoped bookmarks across launches (`VaultLibrary`). | Reopening the last vault after a relaunch without picking it again. |
 | `com.apple.security.print` | Printing the recovery kit (the key's paper copy). | The print panel; the sandbox refuses to print. |
 | `com.apple.security.device.audio-input` | Recording audio into notes and quick voice notes. | The microphone is silent under the sandbox. |
+| `com.apple.security.network.client` (Mac build only; iOS needs no entitlement) | WebDAV vaults: the app connects to the WebDAV server the user configures (`docs/io.md`, "WebDAV vaults in the app"). | Open from WebDAV and every push on a Mac: the sandbox refuses outgoing connections. |
 | `com.apple.security.application-groups` (iOS app and widget extension only) | The widgets and the control read the quick voice note status the app writes (`VoiceNoteStatusStore`). | The widgets show the plain record button whatever the state (no Stop, no "Set Up"). |
 
 Deliberately absent:
 
-- `network.client`: the app opens no connections. Speech model downloads are made by the system.
-  The dormant model downloader (section 3, "Network code, exactly") would need it on the Mac; it
-  is added only together with the first catalogue entry.
 - `device.camera`: the camera is offered on iPad and iPhone only (`InsertOptions.camera`).
 - iCloud containers.
 - `keychain-access-groups`: the default access group is enough.
@@ -313,8 +317,9 @@ for iPad and Mac.
 
 Permissions are asked only when a feature needs them: camera (photo/video into a note,
 iPad and iPhone), microphone (recording), speech recognition (on-device transcription),
-Face ID (remembered keys). Nothing is sent anywhere; the app makes no network connections. (It
-contains a downloader for an optional on-device handwriting-to-math model, but this version
+Face ID (remembered keys). Nothing is sent to the developer; the only connections the app makes
+are to a WebDAV server the user configures (Open from WebDAV), to upload the encrypted vault. (It
+also contains a downloader for an optional on-device handwriting-to-math model, but this version
 offers no model, so it never connects.)
 
 Encryption: the open "age" format (ML-KEM-768 + X25519, ChaCha20-Poly1305, HKDF, scrypt)

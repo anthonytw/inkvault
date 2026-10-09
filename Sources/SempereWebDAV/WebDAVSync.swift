@@ -28,6 +28,12 @@ public struct WebDAVSyncOptions: Sendable {
     /// Push-only: also remove from the server what the local vault does not
     /// have and nothing explains (reported in `SyncReport.extraneous` either way).
     public var deleteExtraneous = false
+    /// Push-only: a `vault.json` or `rewrap-journal.json` whose server copy
+    /// changed since this device's last sync (another writer, e.g. another
+    /// device's key change) is kept there and reported in `conflicts` instead
+    /// of being replaced by the local copy. Without a record of a last sync,
+    /// any differing server copy is kept. Revisions and blobs still upload.
+    public var keepServerChanges = false
     /// Create the server's `sempere-index.json` and `sempere-summaries.sealed`
     /// (format.md §12), what the web viewer lists a vault from, when it has
     /// none; existing ones are kept current either way (the summaries need the

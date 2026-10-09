@@ -9,6 +9,19 @@ The section for a version is the body of its GitHub Release (`docs/releasing.md`
 
 ### Added
 
+- WebDAV vaults in the app: Open from WebDAV… (server folder URL, user, password, Test Connection, the
+  vaults found there). The vault is downloaded into a copy on the device, which works offline, and
+  every change is pushed to the server shortly after it is made, when the app comes back and every five
+  minutes; the server is never trusted to change the vault (push-only). The password stays in the
+  Keychain only; https only, and a self-signed server needs an explicit "Trust This Certificate" with
+  its fingerprint, after which only that certificate is accepted. The note list shows the sync state
+  (Offline, changes not uploaded, a problem and what to do) with Sync Now, Download Again… (to get other
+  devices' notes) and Server Settings…. CLI: `sempere webdav check` and `sync webdav --push-only
+  --keep-server-changes`. The Mac build may now make outgoing connections (`network.client`), only to
+  the server you configure.
+- Vaults in another app's Files provider storage (Proton Drive) are read and written through file
+  coordination even when the provider does not report its files as cloud items, so they are fetched and
+  uploaded; what still needs a device test is listed in `docs/io.md` ("Other Files providers").
 - Web viewer in Spanish: the interface is in English or Spanish, taken from the browser's language list
   with a Language selector (Automatic, English, Español) that overrides it and is remembered in the
   browser. Notes, notebook and tag names, recording titles and transcripts are shown as written; dates,
