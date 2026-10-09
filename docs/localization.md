@@ -134,6 +134,8 @@ the pseudo-language check below uses 2×.
 
 ## Checking layouts
 
+- CI runs `scripts/app.sh pseudo` on an iPad simulator in the `app` job (`SEMPERE_PSEUDO_DEVICE=iPhone`
+  runs it at phone width, by hand).
 - `scripts/app.sh pseudo` runs the UI test `PseudoLanguageUITests` on the simulator three times: with
   the **double-length** pseudo-language (`-NSDoubleLocalizedStrings YES`), with the **right-to-left**
   pseudo-language (`-AppleTextDirection YES -NSForceRightToLeftWritingDirection YES`) and in Spanish

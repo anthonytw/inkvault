@@ -258,8 +258,8 @@ Existing rows were not touched.
 | Security | Open review findings: P3, P4 (web), P5 (`vault summaries` file mode), C2, C8 | S–M | GA-28, GA-30, GA-31, GA-34 | 📋 |
 | Security | Open review findings needing a format change: C3 (removed device's captures), N3 (`format`/`features` outside `recipientsTag`) | L | GA-32, GA-33 | 💡 |
 | Release | Privacy policy (both copies), App Store answers and `DESIGN.md` say "no network"; add a `release-check.sh` rule for `URLSession` in `Apps/`; replace the CHANGELOG `TODO(user)` date; SwiftMath privacy manifest | M | GA-40 to GA-42 | 📋 |
-| CI | Run the WebDAV integration tests (a server container); the pseudo-language layout test; all web smoke scripts; fail instead of skip for zbar, zip, pdftotext, `BidiTest.txt`, macOS poppler | M | GA-50 to GA-52, GA-61 | 📋 |
-| Tests | CLI: exit 7 for every write command, untested flags, Linux errors for `recognize` and `attach video --from-clip` | M | GA-53, GA-65, GA-66 | 📋 |
-| Tests | App: `writeEpoch`, `summaryEpochs`, `DerivedLists`, `validateVault`, `backgroundTimeExpired`, quick-capture intents and Live Activity, menu handlers, iPhone toolbar, key export, PDF-drag purge | M | GA-54 to GA-59 | 📋 |
-| Tests | Library-level only: `--retry-quarantined`, restore resume marker, fixture vault with items, settings confirmations | S | GA-60, GA-63, GA-64 | 📋 |
+| CI | WebDAV integration tests (`webdav` job, wsgidav), the pseudo-language layout test (iPad simulator, in the `app` job), all six web smoke scripts (`web-smoke` job, with summaries and index for `smoke-cache`), and `SEMPERE_REQUIRE_TOOLS` (zbar, zip, pdftotext, `BidiTest.txt`; poppler and zbar installed on macOS) so a missing tool fails instead of skipping | M | GA-50 to GA-52, GA-61 | 🚧 (#133) |
+| Tests | CLI: exit 7 for every write command, untested flags, Linux errors for `recognize` and `attach video --from-clip` | M | GA-53, GA-65, GA-66 | 🚧 (#133) |
+| Tests | App: `writeEpoch`, `summaryEpochs`, `DerivedLists`, `validateVault`, `backgroundTimeExpired`, quick-capture intents and Live Activity, menu handlers, iPhone toolbar, key export, PDF-drag purge | M | GA-54 to GA-59 | 🚧 (#133) |
+| Tests | Library-level only: `--retry-quarantined`, restore resume marker, fixture vault with items, settings confirmations | S | GA-60, GA-63, GA-64 | 🚧 (#133) |
 | Device | Hand tests still owed: Mac list in `docs/mac.md`, a physical iPhone, the "not yet tried on the iPad" rows, sandboxed bookmark reopen on Catalyst | M | GA-70 to GA-73 | 📋 (needs devices) |
