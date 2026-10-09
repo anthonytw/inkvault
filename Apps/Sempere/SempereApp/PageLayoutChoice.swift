@@ -45,6 +45,11 @@ enum PageStrip {
     /// `@AppStorage` key: the strip is shown beside the canvas.
     static let visibleKey = "Sempere.pageStripVisible"
 
+    /// Whether the strip is shown (default no).
+    static func isVisible(in defaults: UserDefaults = .standard) -> Bool {
+        defaults.bool(forKey: visibleKey)
+    }
+
     /// The final index of a row SwiftUI's `onMove` moves from `from` to
     /// `toOffset` (an insertion point before the move, so moving down lands
     /// one above it).

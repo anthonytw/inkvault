@@ -249,9 +249,9 @@ behaviour and testing on a real Mac.
 | Mac App Store build (same bundle, universal purchase) | ✅ #113: project checked (one bundle id, sandbox, entitlements allow-list in `scripts/release-check.sh`), steps in `docs/release/app-store.md` §6; the submission is 📋 |
 | Mac App Store screenshots (Catalyst, 2880 × 1800, best effort) | ✅ #53 |
 | Keyboard shortcuts for item actions (duplicate, front, delete) and for recording (GA-13, S) | 📋 |
-| Menu parity: Version History, page duplicate / delete / undo delete, Add Page After This One, layout toggle, Show Pages, Text and Select tools, eraser size and Compact Palette as Note / Tools / View entries (GA-14, M) | 📋 |
+| Menu parity: Version History, page duplicate / delete / undo delete, Add Page After This One, layout toggle, Show Pages, Text and Select tools, eraser size and Compact Palette as Note / Tools / View entries (GA-14, M) | ✅ #136 (not yet tried on a Mac) |
 | CI: run the Mac Catalyst app suites on PRs, not only on `main` and dispatch (GA-62, S; a decision on macOS runner time) | 📋 (needs the maintainer) |
-| Menu-bar item for quick capture (today only Shortcuts and Siri) (GA-23, M) | 📋 |
+| Menu-bar item for quick capture: File > Start/Stop Voice Note (⇧⌘M); Catalyst has no status-bar icon (GA-23, M) | ✅ #136 (not yet tried on a Mac) |
 
 ## iPhone and web
 
@@ -264,8 +264,8 @@ behaviour and testing on a real Mac.
 | WebDAV mirror for the viewer | ✅ CLI part #97 (`sync webdav --push-only`); the push-only mirror and Caddy are set up on the maintainer's side | A WebDAV share on the NAS behind Caddy, plus a macOS `launchd` agent running `sempere sync webdav --push-only` every few minutes from the iCloud vault, so the NAS can never feed back a changed recipient list. #63 documents the Caddy + `sync webdav` setup (`docs/web-viewer.md`); static hosts use `sempere vault index`. The setup itself lives in the sysadmin repo, outside this one. |
 | WebDAV as a vault location in the app | 📋 | Only for users with no Mac and no iCloud. iPadOS cannot sync in the background, so for mirroring the CLI job is better. It would wrap the same `SempereWebDAV` library. |
 | Proton Drive in the Files app | 📋 (needs the maintainer) | It probably already works through the folder picker. The download checks are tuned for iCloud, so it needs a test pass with a Proton Drive account. Google Drive, Dropbox, OneDrive and Nextcloud are not planned. |
-| iPhone: page layout switch, Duplicate / Delete / Undo Delete Page, Add Page After This One, Insert PDF at page and the thumbnail strip on the phone toolbar (GA-15, M) | 📋 | `iphone.md:44-51`; today they are in `fullToolbar` (iPad and Mac) only. |
-| iPhone: swipe to turn pages, search-hit highlights on the phone, paper picker layout pass (GA-16, M) | 📋 | `iphone.md:104-106` admits them missing. |
+| iPhone: page layout switch, Duplicate / Delete / Undo Delete Page, Add Page After This One, Insert PDF at page and the thumbnail strip on the phone toolbar (GA-15, M) | ✅ #136 (not yet tried on an iPhone) | The Pages submenu of the overflow menu (`PhonePageMenu`). |
+| iPhone: swipe to turn pages, search-hit highlights on the phone, paper picker layout pass (GA-16, M) | ✅ #136 (not yet tried on an iPhone) | Swipe and the compact paper picker added; the highlights already worked (shared canvas code), now tested at phone size. |
 | iPhone: tests of the overflow menu and Annotate, the "wide landscape ignores the stored column" and pageless one-screen rules at phone size (GA-58, M) | 📋 | `PhoneLayoutTests.swift`. |
 | iPhone: hand test on a physical iPhone (Face ID, folder picker, finger annotation) (GA-71, M) | 📋 (needs the maintainer) | Needs a phone. |
 | Web viewer: cache ciphertext from before a rewrap stays openable by a removed key (P4) (GA-28, S) | 📋 (#125) | `web/src/vault/cache.ts`; `security-review-2026-10.md`. |

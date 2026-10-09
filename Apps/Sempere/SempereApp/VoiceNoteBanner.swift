@@ -126,8 +126,7 @@ private struct PulsingDot: View {
 
 extension View {
     /// Shows `VoiceNoteBanner` above this view's content while a voice note
-    /// records, saves or has just been saved. Not on the Mac: it has no Live
-    /// Activity or widgets, its voice notes start from Shortcuts.
+    /// records, saves or has just been saved (`VoiceNoteBannerRule`).
     func voiceNoteBanner() -> some View {
         modifier(VoiceNoteBannerPlacement())
     }
@@ -139,14 +138,23 @@ private struct VoiceNoteBannerPlacement: ViewModifier {
     @AppModelEnvironment private var model
 
     private var shows: Bool {
-        guard !Platform.isMac else { return false }
         let capture = model.quickCapture
-        return capture.state == .recording || capture.state == .saving || capture.notice != nil
+        return VoiceNoteBannerRule.shows(state: capture.state, hasNotice: capture.notice != nil)
     }
 
     func body(content: Content) -> some View {
         content.safeAreaInset(edge: .top, spacing: 0) {
             if shows { VoiceNoteBanner() }
         }
+    }
+}
+
+/// When a window shows `VoiceNoteBanner`: while a voice note records or saves, and while
+/// its notice ("saved to …", a failure) is up. On a Mac too: File > Start Voice Note
+/// (`VoiceNoteMenu`) records from the app, which has no Live Activity there, so the banner
+/// is the only sign in the window that the microphone is on, and its Stop the nearest.
+enum VoiceNoteBannerRule {
+    static func shows(state: QuickCapture.State, hasNotice: Bool) -> Bool {
+        state == .recording || state == .saving || hasNotice
     }
 }

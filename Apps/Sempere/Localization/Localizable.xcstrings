@@ -5837,6 +5837,17 @@
         }
       }
     },
+    "Go to another page, add, duplicate or delete one, or show the thumbnails" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ir a otra página, añadir, duplicar o eliminar una, o mostrar las miniaturas"
+          }
+        }
+      }
+    },
     "Go to another page, or add one" : {
       "comment" : "Help tag of the Pages menu (iPhone)",
       "extractionState" : "manual",
@@ -6903,6 +6914,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Grande"
+          }
+        }
+      }
+    },
+    "Larger Object Eraser" : {
+      "comment" : "Tools menu",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Borrador de objetos más grande"
           }
         }
       }
@@ -12081,6 +12104,18 @@
         }
       }
     },
+    "Smaller Object Eraser" : {
+      "comment" : "Tools menu",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Borrador de objetos más pequeño"
+          }
+        }
+      }
+    },
     "Smooth Mouse Strokes" : {
       "comment" : "Settings ▸ General (Mac): picker for smoothing strokes drawn with a mouse or trackpad",
       "extractionState" : "manual",
@@ -12232,6 +12267,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Inicio"
+          }
+        }
+      }
+    },
+    "Start Voice Note" : {
+      "comment" : "File menu: record a quick voice note into the inbox",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Iniciar nota de voz"
           }
         }
       }
@@ -12564,6 +12611,30 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Área de resumen"
+          }
+        }
+      }
+    },
+    "Switch to Paged Layout" : {
+      "comment" : "Note menu: make a pageless note into pages",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cambiar a diseño por páginas"
+          }
+        }
+      }
+    },
+    "Switch to Pageless Layout" : {
+      "comment" : "Note menu: make the note one infinite page",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cambiar a diseño sin páginas"
           }
         }
       }
@@ -15115,6 +15186,30 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Actualizar «%@»"
+          }
+        }
+      }
+    },
+    "Use Compact Palette" : {
+      "comment" : "Tools menu: the short tool palette",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Usar paleta compacta"
+          }
+        }
+      }
+    },
+    "Use Full Palette" : {
+      "comment" : "Tools menu: back from the compact palette",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Usar paleta completa"
           }
         }
       }
