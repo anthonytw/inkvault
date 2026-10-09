@@ -106,10 +106,15 @@ enum ItemRendering {
         var files: [String: URL] = [:]
         // A video is drawn as its poster: the clip itself is read only when it plays (format.md §8.2.7);
         // anything else from its own blobs (an equation from its render, §8.2.8).
-        let blobs = item.kind == .video ? (item.poster.map { [$0] } ?? []) : item.blobReferences
+        // A Markdown box only from the renders of the formulas its source draws (§8.5.4); one that
+        // cannot be read is that formula's placeholder, not the whole box's.
+        let markdown = item.text.map { $0.isMarkdown } ?? false
+        let blobs = item.kind == .video ? (item.poster.map { [$0] } ?? [])
+            : markdown ? (item.text.map { MarkdownText.usedFormulas($0).compactMap(\.math.render) } ?? []) : item.blobReferences
         if let cache {
             for ref in blobs {
                 do { files[ref.sha256] = try await cache.acquire(note: note, ref: ref) } catch {
+                    if markdown, !isTransient(error) { continue }
                     for held in blobs where files[held.sha256] != nil { await cache.release(note: note, ref: held) }
                     // Not here yet (iCloud), or the cache went away: still loading, tried again later.
                     return .placeholder(isTransient(error) ? .loading : .unavailable("\(error)"))
@@ -122,8 +127,9 @@ enum ItemRendering {
                                         imageDecoder: ImageIODecoder(), shaper: CoreTextShaper())
             do {
                 let r = try ItemRaster.render(item, scale: key.scale, maxPixels: ItemRendering.maxPixels, paper: key.paper, options: options)
-                // A video without a poster is its placeholder under the play mark, as exports draw it.
-                if let reason = r.placeholder, reason != .noPoster { return .failed(reason.description) }
+                // A video without a poster is its placeholder under the play mark, as exports draw it; a
+                // Markdown box with a formula that cannot be drawn shows that formula's placeholder.
+                if let reason = r.placeholder, reason != .noPoster, !markdown { return .failed(reason.description) }
                 return .pixels(r.image, r.bounds)
             } catch {
                 return .failed("\(error)")
