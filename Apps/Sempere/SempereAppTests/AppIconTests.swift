@@ -48,6 +48,16 @@ struct AppIconTests {
         #expect(Set(alternates.keys) == Set(AppIconChoice.alternateNames))
     }
 
+    /// The picker is hidden on a Mac (Catalyst, or the iPad app on a Mac) and wherever iOS
+    /// offers no alternate icons; on this runner it follows the same rule.
+    @MainActor @Test func pickerIsHiddenOnTheMacAndWithoutAlternateIcons() {
+        #expect(!AppIconSettingsSection.isSupported(isMac: true, supportsAlternateIcons: true))
+        #expect(!AppIconSettingsSection.isSupported(isMac: false, supportsAlternateIcons: false))
+        #expect(AppIconSettingsSection.isSupported(isMac: false, supportsAlternateIcons: true))
+        #expect(AppIconSettingsSection.isSupported == (!Platform.isMac && UIApplication.shared.supportsAlternateIcons))
+        if Platform.isMac { #expect(!AppIconSettingsSection.isSupported) }
+    }
+
     @Test func choiceFromReportedName() {
         #expect(AppIconChoice(alternateName: nil) == .keyholeNib)
         #expect(AppIconChoice(alternateName: "InkWind") == .inkWind)

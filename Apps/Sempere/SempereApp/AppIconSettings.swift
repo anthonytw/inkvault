@@ -63,12 +63,15 @@ struct AppIconSettingsSection: View {
     @State private var current = AppIconChoice(alternateName: UIApplication.shared.alternateIconName)
     @State private var failed = false
 
+    /// Shown only where iOS can switch icons, and never on a Mac (the Mac app uses the
+    /// default icon). `Platform.isMac`, not `#if targetEnvironment(macCatalyst)`: the
+    /// simulator CI then compiles and tests the Mac path too (CLAUDE.md).
     static var isSupported: Bool {
-        #if targetEnvironment(macCatalyst)
-        false
-        #else
-        UIApplication.shared.supportsAlternateIcons
-        #endif
+        isSupported(isMac: Platform.isMac, supportsAlternateIcons: UIApplication.shared.supportsAlternateIcons)
+    }
+
+    static func isSupported(isMac: Bool, supportsAlternateIcons: Bool) -> Bool {
+        !isMac && supportsAlternateIcons
     }
 
     var body: some View {
