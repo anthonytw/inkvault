@@ -62,7 +62,7 @@ public struct SyncReport: Codable, Hashable, Sendable {
 
     /// `text` with control characters escaped as `\u{XX}`, so a name or
     /// header chosen by the server cannot drive the terminal it is printed on.
-    static func printable(_ text: String) -> String {
+    public static func printable(_ text: String) -> String {
         var out = ""
         for u in text.unicodeScalars {
             if u.properties.generalCategory == .control {
