@@ -1601,6 +1601,12 @@ so new item kinds and fields can be added without a version bump:
 - An item `layer` value without a defined meaning is ordered by its number
   (§8.2.3).
 
+*New: Markdown text.* `markup`, `layout` and `math` on a text value
+(§8.2.4) are unknown fields to older readers: they draw and search the
+Markdown source as plain text, and an older editor that edits it keeps the
+fields, which is why `layout` carries the hash of the text it belongs to
+and `math` entries are matched by their formula.
+
 *New: authenticated recipients.* `recipientsTag` and `secretLink` (§2.1)
 are a compatible extension: older readers ignore both fields and keep
 reading, and the `"recipients-tag"` feature keeps older writers from writing
@@ -2044,7 +2050,8 @@ across export pages like a stroke.
 - `runs`: the text, possibly empty. Each run has `t` (the run's text, any
   Unicode scalar values except C0 controls other than `\n` and `\t`) and
   optionally `b` (bold), `i` (italic), `u` (underline), `s`
-  (strikethrough), all `false` when absent, and `color`, `size` and `lang`,
+  (strikethrough), all `false` when absent, and `color`, `size`, `lang`
+  and `font` (a generic family as above; unknown values are the box's),
   which override the box's. The item's text is the concatenation of every
   `t` in logical (typing) order; `\n` is a hard line break (writers store no
   other line terminator). Writers store text in NFC and merge adjacent runs
@@ -2064,6 +2071,65 @@ The whole `text` object is one register: concurrent edits do not merge
 character by character, and `breaks` always belongs to the text it was
 computed for. The item's text is part of the page's searchable text, beside
 `recognition` (§5.5); it is never copied into `recognition`.
+
+##### Markdown text
+
+*New: Markdown text boxes (maintainer request 2026-10-09).* A text box can
+hold Markdown source with LaTeX math, drawn rendered (§8.5.4):
+
+```json
+{ "kind": "text", "layer": 100, "frame": [72, 90, 300, 61.2], "z": "a1",
+  "text": {
+    "font": "sans", "size": 12, "color": "#1A1A1AFF", "markup": "markdown",
+    "runs": [ { "t": "# Lecture 3\n\nLet $f(x) = x^2$ and\n- **linear** maps" } ],
+    "layout": { "of": "5a1c09e2", "breaks": [] },
+    "math": [ { "latex": "f(x) = x^2", "display": false, "size": 12,
+                "color": "#1A1A1AFF", "depth": 4.1,
+                "render": { "sha256": "…", "size": 3072, "type": "application/pdf" },
+                "renderSize": [41.25, 16.5], "engine": "swiftmath-1.7.3" } ] } }
+```
+
+- `markup`: optional. `"markdown"`: the item's text (the runs' `t`,
+  concatenated) is Markdown source, rendered by §8.5.4. Absent: the runs are
+  styled text as above. A value the reader does not know is ignored: the
+  runs are drawn as styled text.
+- The source is stored as the item's text itself, so a reader that predates
+  this section draws it as plain text (Markdown is meant to be readable as
+  it is), searches it, and an older editor edits the source. Writers store
+  the source as one run without attribute overrides, and no `breaks` (they
+  would be breaks of the raw source; a reader that predates this section
+  then wraps the source itself). `font` is the body family (`sans` or
+  `serif`); `size`, `color`, `align`, `dir` and `lang` apply to the rendered
+  text as §8.5.4 says. Readers of this section ignore the run attributes and
+  any `breaks` of a Markdown box.
+- `layout`: optional, the writer's line breaks of the rendered text:
+  `{"of": h, "breaks": [...]}`, `h` the FNV-1a 32-bit hash of the UTF-8
+  bytes of the item's text, as 8 lowercase hexadecimal digits (offset basis
+  2166136261, prime 16777619), and `breaks` strictly increasing offsets, in
+  Unicode scalar values of the source, of the first character of every
+  rendered line that does not start a rendered paragraph or follow a hard
+  line break (§8.5.4). A `layout` whose `of` differs from the text's hash
+  was written for another text (an older editor changed the source and kept
+  the field, §7.5) and is ignored. Its `breaks` belong to the frame width,
+  as `breaks` do.
+- `math`: optional, at most 1 000 typeset formulas of the source, each a
+  math value (§8.2.8: `latex`, `display`, `size`, `color`, `render`,
+  `renderSize`, `engine`) with `render` present, plus `depth`: the distance
+  in points from the bottom of `render`'s page up to the formula's baseline,
+  from 0 to `renderSize`'s height. A formula of the source (§8.5.4) is drawn
+  from the first entry whose `latex`, `display`, `size` (to 3 decimals) and
+  `color` equal its own; entries no formula matches are ignored (they are
+  stale: blob collection still keeps them while they are in the value).
+  The CLI, which has no typesetter, writes no entries.
+
+These fields are part of the one `text` register: the whole value is
+replaced at once, so a rendering never pairs with another device's source.
+An item whose `markup`, `layout` or `math` has the wrong type or breaks
+these rules is invalid like any bad field of a defined kind (§8.2.1).
+
+For search (§5.5) and as the item's text in reports, a Markdown box's text
+is its plain text (§8.5.4): the source without markup. Text exports
+(Markdown) write the source as it is; HTML exports render it (§8.5.4).
 
 #### 8.2.5 Image
 
@@ -2503,6 +2569,7 @@ Writers must stay within, and readers may reject anything beyond:
 | blob content (any kind, including video) | 1 GiB (2^30 bytes) |
 | transcript content | 64 MiB |
 | text of one item | 65 536 UTF-8 bytes, 1 000 runs, 10 000 `breaks` |
+| typeset formulas of a Markdown text box (`math`) | 1 000 |
 | LaTeX source of a `math` item | 8 192 UTF-8 bytes; typeset only within 4 096 tokens and 64 levels (§8.2.8) |
 | items per page | 10 000 |
 | recordings per note | 1 000 |
@@ -2601,6 +2668,179 @@ fixed by the format and the line breaks are the writer's:
   renderer with no font for a character draws the missing-glyph box and
   reports which script was missing; an exporter must not produce an export
   that shows missing-glyph boxes without reporting it.
+
+#### 8.5.4 Markdown text
+
+A Markdown box (§8.2.4, `markup` `"markdown"`) is drawn from its source in
+four steps, the same in every renderer: parse the source into blocks, turn
+the blocks into rendered paragraphs (font independent), break those into
+lines (the writer's `layout`, else greedily), and draw. `s` below is the
+box `size`; every length is in points.
+
+**Dialect.** A subset of CommonMark with GitHub's strikethrough and task
+lists and Pandoc's math, line based so that it parses in linear time:
+
+- The source is split into lines at `\n`. A line is *blank* when it holds
+  only spaces and tabs. Its *indent* is the number of leading spaces, a tab
+  counting as 4. Up to 3 spaces of indent are ignored when a line is tested
+  for a block start below; indented code blocks, setext headings, HTML
+  blocks, link reference definitions and lazy continuation lines do not
+  exist (such lines are paragraph text).
+- **Blocks**, tested in this order on each line that is not blank:
+  1. *Fenced code*: 3 or more `` ` `` or `~`; the rest of the line (the info
+     string) is ignored. The block holds the following lines until a line
+     whose ignored indent is followed by at least as many of the same
+     character and then only spaces or tabs, or the end of the container.
+     Each content line loses up to as many leading spaces as the opening
+     fence had.
+  2. *Display math*: `$$`. If the rest of the line, trimmed of spaces and
+     tabs, ends with `$$` and is longer than that, the formula is what lies
+     between the two marks. Otherwise the formula is the rest of the line,
+     then every next line, until a line that, trimmed at its end, ends with
+     `$$` (its text before that `$$` belongs to the formula), or the end of
+     the container. The formula's lines are joined with `\n` and trimmed of
+     spaces, tabs and line feeds; an empty one is a paragraph `$$` instead.
+  3. *Heading*: 1 to 6 `#` followed by a space, a tab or the end of the
+     line. The text is the rest, trimmed, without a closing sequence (a run
+     of `#` at the end preceded by a space or tab, or making up the whole
+     rest).
+  4. *Thematic break*: 3 or more of one of `-`, `*`, `_`, with only spaces
+     and tabs between them and nothing else.
+  5. *Block quote*: `>`. The quote holds this line and every next line that
+     starts (after its ignored indent) with `>`, each with the `>` and one
+     space or tab after it removed; its content is parsed as blocks.
+  6. *List item*: a bullet `-`, `+` or `*`, or an ordered marker of 1 to 9
+     digits followed by `.` or `)`, then a space, a tab or the end of the
+     line. With `n` the line's indent, `m` the marker's length and `k` the
+     spaces after it (counted 1 when there are none, when the line ends there,
+     or when there are more than 4), the item's *content column* is
+     `n + m + k`. Its first line is the rest of the line after those `k`
+     spaces; it then holds every next line whose indent is at least the
+     content column (minus that many columns of indent) and every blank line
+     followed, after more blank lines, by such a line. Its content is parsed
+     as blocks. An item whose content starts with `[ ]`, `[x]` or `[X]`
+     followed by a space, a tab or the end is a *task*, unchecked or checked,
+     and that prefix (and one space after it) is removed. Consecutive items
+     (blank lines between them allowed) with the same bullet character, or
+     ordered with the same delimiter, make one list; an ordered list counts
+     from its first item's number (leading zeros ignored), each next item
+     one more.
+  7. *Paragraph*: the line and every next line that is not blank and does
+     not start a block of rules 1–6. Each line is trimmed of spaces and tabs
+     at both ends and loses one trailing `\`; a line break inside a
+     paragraph is a **hard line break** (unlike CommonMark: what is typed on
+     a new line shows on a new line).
+- Blocks nest at most 16 deep (quotes and list items); a line that would
+  open a deeper container is paragraph text.
+- **Inline content** (paragraphs and headings), scanned left to right:
+  - `\` before an ASCII punctuation character is that character, literally.
+  - A run of `n` backticks starts a *code span* that ends at the next run of
+    exactly `n` backticks; its content is literal, line feeds become spaces,
+    and if it starts and ends with a space and is not only spaces, one space
+    is removed at each end. Without a closing run, the backticks are text.
+  - `$$` starts *display-style math* that ends at the next `$$`; content
+    literal, not empty, else the `$$` is text.
+  - `$` not followed by a space, tab or line feed starts *math* that ends at
+    the next `$` that is not preceded by `\`, a space, a tab or a line feed,
+    and is not followed by an ASCII digit; content literal (backslashes
+    kept), not empty, else the `$` is text. So `$5 and $6` stays text.
+  - `[text](destination)` is a *link* and `![text](destination)` an
+    *image*: brackets balanced (escaped ones not counted), the destination
+    `<…>` or a run without spaces, tabs or line feeds and with balanced
+    parentheses, optionally followed by spaces and a title in `"…"`, `'…'`
+    or `(…)`, then `)`. Only the text is drawn: a link's text with the link
+    style, an image's text (its alternative text) as text. Nothing is ever
+    fetched.
+  - `<scheme:rest>` with a scheme of 2 to 32 characters (an ASCII letter,
+    then letters, digits, `+`, `.`, `-`) and no space, `<` or `>` in `rest`
+    is an *autolink*: the URL as link text.
+  - Runs of `*`, `_` (any length) and `~~` (exactly two; other runs of `~`
+    are text) are *delimiter runs*, matched as CommonMark §6.2 does
+    (left- and right-flanking runs, `_` not opening or closing inside a
+    word) without the "multiple of 3" rule: each closer, left to right,
+    matches the nearest earlier opener of the same character that can
+    open; they use 2 characters when both have at least 2 (`**`: bold) or
+    1 (`*`: italic), `~~` makes strikethrough, delimiters between them are
+    dropped (as text), and what is left of either run is matched again.
+    Unmatched delimiters are text.
+  - Anything else, HTML included, is text.
+
+**Rendered paragraphs.** Each heading, paragraph, code block, display
+formula and thematic break becomes one rendered paragraph, laid out in a
+*content column* `[x, x + w]`: the frame's, narrowed by its containers.
+
+- Containers: a block quote moves the column right by `s`, and draws a bar
+  `0.15 s` wide at its left edge + `0.25 s`, from its first paragraph's top
+  to its last paragraph's bottom, in the box colour at 40 % of its alpha. A
+  list item moves it right by `1.6 s`; its first paragraph gets the marker
+  in the space it leaves, on its first line: a bullet is a disc of diameter
+  `0.36 S` (`S` that line's size) centred `0.8 s` left of the column and
+  `0.32 S` above the baseline, filled in the box colour, a ring (stroke
+  `S/16`) at odd nesting depths of bullet lists (the second, fourth, …); a
+  task is a square of side `0.66 S`, stroke `S/14`, its right side
+  `0.35 s` left of the column and its bottom on the baseline, with a check
+  mark (a polyline through (0.18, 0.52), (0.42, 0.76), (0.82, 0.24) of the
+  square, stroke `S/9`) when checked; an ordered item's number and
+  delimiter (`3.`) is text in the box style, its right end `0.35 s` left of
+  the column on the baseline.
+- Gaps: a paragraph that follows another in the same box starts `0.5 s`
+  below it when one or more blank source lines lie between them, else
+  right below it.
+- Styles: text in the box style; a heading of level 1, 2, 3 at `1.6 s`,
+  `1.4 s`, `1.2 s`, levels 4–6 at `s`, bold; a code block and a code span
+  in font `mono` at the size around them; a code block is laid out without
+  alignment (`start`), `0.5 s` in from its column, with `0.25 s` more above
+  its first line and below its last, all of which (the column's width) is
+  filled with the box colour at 8 % of its alpha; a thematic break is one
+  empty line of size `s` with a line `s/12` thick across the column at
+  `0.6 s` below its top, colour as the quote bar; links are underlined and
+  `#1F6FEBFF`; bold, italic and strikethrough as runs' `b`, `i`, `s`
+  (§8.5.3).
+- Formulas: an inline formula has the size and colour of the text around
+  it; a display formula (a display-math block, drawn centred in its column)
+  has the paragraph's size and the box colour. A formula with a matching
+  `math` entry (§8.2.4) is one *box*: `renderSize` wide and high, its
+  baseline `depth` above its bottom, never broken, with a break
+  opportunity before and after it; drawn like a math item's render
+  (§8.2.8 step 1) without rotation of its own. A formula without one is its
+  `latex` as text in font `mono` (a display one as a paragraph in its
+  own right, centred), and the export reports it like an equation drawn as
+  its source.
+
+**Lines.** A rendered paragraph is cut into lines at its hard line breaks,
+then at the `layout`'s `breaks` when the `layout` is usable: its `of`
+matches; every offset is the source offset of a character or formula that
+is drawn (not markup), lies inside a rendered paragraph after its first
+item and not right after a hard line break, is not inside a formula box,
+and is a grapheme cluster boundary of the drawn text. Otherwise every
+paragraph is broken greedily, like §8.5.3 with its minimum break rules
+(after white space, after `-`, between wide characters, and around formula
+boxes), the widths being the renderer's. A line's metrics follow §8.5.3
+with boxes added: with `S` its largest text size, its ascent is the larger
+of `0.95 S` and every box's height minus its depth, its descent the larger
+of `0.25 S` and every box's depth; so a line without boxes is `1.2 S`
+high. The first paragraph's top is the frame's top. Lines are aligned in
+their column by the box `align` and `dir` (§8.5.3), display formulas
+centred.
+
+**Drawing.** Text lines are drawn as text items (§8.2.4, §8.5.3) with the
+lines decided above (never broken again), boxes as math renders, markers,
+bars, rules and code fills as filled or stroked shapes. A renderer that
+must draw a box line piece by piece puts the pieces left to right in
+logical order (right to left in a right-to-left paragraph). Writers store
+the frame height of the rendered lines (at least `1.2 s`), and a
+`layout` for the frame width, as they store `breaks` (§8.2.4).
+
+**Plain text** (search, reports): every rendered paragraph's text, with
+formulas as their `latex`, joined with `\n`; markers, markup, link
+destinations and the content of nothing else.
+
+**HTML exports** write the parsed blocks as HTML elements (`h1`–`h6`, `p`
+with `br`, `ul`/`ol` with `start`, `li` with a disabled checkbox for
+tasks, `blockquote`, `pre`/`code`, `hr`, `strong`, `em`, `del`, `code`, `a`
+for `http`, `https` and `mailto` destinations only, else the link text),
+every text escaped; formulas as their source between `\(`…`\)` or
+`\[`…`\]`, inside `span class="math"`.
 
 ## 9. Untrusted input
 
