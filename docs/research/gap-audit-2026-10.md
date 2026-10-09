@@ -1,9 +1,9 @@
 # Gap audit, October 2026
 
 What the docs promise against what `main` does. Docs-only audit, no feature code.
-Audited at `ecc62ec` (#119) on 2026-10-09. Statuses in `docs/ROADMAP.md` were not
-trusted: #121 is bringing them up to date, and several rows still show 🚧 for PRs
-that have merged (#92, #95, #100–#103, #107, #109, #110, #115, #117–#119).
+Audited at `ecc62ec` (#119) on 2026-10-09; `main` was merged in afterwards (#121, which
+brought the ROADMAP and plan statuses up to date, so the stale-status rows of the area
+audits no longer apply). Statuses in `docs/ROADMAP.md` were not trusted while auditing.
 
 ## Method and limits
 
@@ -23,7 +23,7 @@ that have merged (#92, #95, #100–#103, #107, #109, #110, #115, #117–#119).
   section A (rotation, favorites, voice notebook, transcription download, C4 modes,
   P5, network, changelog, CLI read-only and flag tests, `validateVault`); the rest is as reported by the area audits and cites
   `file:line` for the reader to confirm.
-- Open PRs that already cover a gap are named in the state column, not proposed again:
+- Open PRs that already cover a gap (at the time of writing) are named in the state column, not proposed again:
   #122 (recordings list page and `--format media`), #123 (mouse stroke smoothing).
 
 Size: S = under a day, one PR, little design; M = a PR with design choices or app and
@@ -120,7 +120,7 @@ the iPad); the sandboxed Catalyst bookmark question (`io.md:413-439`) — GA-73 
 
 | ID | Document | What is stale | Size |
 | --- | --- | --- | --- |
-| GA-80 | `docs/ROADMAP.md` | Header commit and many 🚧/🔀 rows for merged PRs (**#121 open**) | S (#121) |
+| GA-80 | `docs/ROADMAP.md` | Header commit and many 🚧/🔀 rows for merged PRs: fixed by #121; `vault summaries` is still listed twice | S |
 | GA-81 | `docs/attachments.md` | Tasks B1–E5 say "in review (#NN)"; G1/G2 headed "not scheduled"; "F: removing a placed item not done" but `items delete` exists (`Items.swift:356`); §11 "Unknowns to investigate" are all implemented; E7 has no status block | S |
 | GA-82 | `docs/import-notability.md:338-341` | Sample table lists images, template PDFs, typed text, `.ntb` PDF pages as "not imported"; they are imported | S |
 | GA-83 | `docs/format.md:2815-2817` (§10.1) | The `activity` file no longer holds Recently Recognized (`meta.recognized`, `RecentActivity.swift:~33-37`) | S |

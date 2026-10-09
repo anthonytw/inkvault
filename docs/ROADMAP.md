@@ -230,7 +230,7 @@ Promised-but-missing behaviour found by `docs/research/gap-audit-2026-10.md` (id
 are its rows, with evidence and `file:line`). Size: S under a day · M a PR with choices ·
 L a design question or an outside decision. Not repeated here: #122 (recordings list page,
 `--format media`), #123 (mouse smoothing), and the stale-document fixes (audit section F).
-Statuses above were not touched; #121 updates them.
+Existing rows were not touched.
 
 | Area | Gap | Size | Audit | Status |
 | --- | --- | --- | --- | --- |
