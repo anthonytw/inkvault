@@ -9,8 +9,8 @@ working state. Everything here is in scope for the first release (maintainer,
 2026-10-09), so 📋 means planned, "(needs the maintainer)" marks what only the maintainer can do
 (device hand tests, an account), and nothing is parked as future. Rows with a `GA-nn` id come from
 `docs/research/gap-audit-2026-10.md` (evidence and `file:line` there); size S under a day · M a PR with
-choices · L a design question or a format change. Dropped by the maintainer, not planned: GA-12,
-GA-11, GA-22, GA-24, GA-25, GA-26.
+choices · L a design question or a format change. Dropped by the maintainer, not planned: GA-11,
+GA-12, GA-22, GA-24, GA-25, GA-26.
 
 ## Order of work
 
