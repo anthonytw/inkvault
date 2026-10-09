@@ -72,7 +72,8 @@ case "${1:-}" in
   pseudo)
     # docs/localization.md "Checking layouts": PseudoLanguageUITests once per language, on the
     # screenshots scheme (it owns the UI test target). Screenshots land in the result bundles.
-    sim=$(pick_simulator)
+    # SEMPERE_PSEUDO_DEVICE=iPhone runs it at phone width (default: an iPad).
+    sim=$(pick_simulator ${SEMPERE_PSEUDO_DEVICE:-})
     status=0
     mkdir -p build/pseudo
     for mode in double rtl es; do
