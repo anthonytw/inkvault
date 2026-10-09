@@ -903,7 +903,9 @@ the best page and a snippet. `--notebook` (that notebook and below) and `--tag`
 narrow the search as selecting a notebook or tag in the sidebar does;
 `--deleted` searches Recently Deleted instead. `--json` gives `note`, `title`,
 `notebook`, `tags`, `fields` (`title`, `tag`, `notebook`, `text`), `page`
-(`number`, `id`), `snippet`, `matchedPages` and `score` per note. For every
+(`number`, `id`), `snippet`, `matchedPages` and `score` per note. The snippet quotes prose only, cut at word boundaries
+within one text segment (an equation's LaTeX source is searched but never
+quoted: a match inside an equation prints `[equation]`). For every
 occurrence of a phrase, with word boxes, use `sempere search`.
 
 #### Editing notes

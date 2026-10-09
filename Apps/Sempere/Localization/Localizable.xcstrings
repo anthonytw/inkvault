@@ -15702,6 +15702,18 @@
         }
       }
     },
+    "[equation]" : {
+      "comment" : "Search result: the match is inside an equation (its source is not quoted)",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "[ecuación]"
+          }
+        }
+      }
+    },
     "age1pq1…" : {
       "comment" : "Placeholder: the prefix of a post-quantum age recipient; not translated",
       "extractionState" : "manual",
