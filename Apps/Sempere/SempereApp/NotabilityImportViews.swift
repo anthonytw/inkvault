@@ -48,8 +48,8 @@ struct NotabilityImportOptionsSheet: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Import") {
-                        let urls = pick.urls, notebook = pick.notebook, options = options
-                        Task { await model.report { try await model.importNotability(urls, notebook: notebook, options: options) } }
+                        let urls = pick.urls, notebook = pick.notebook, chosen = options
+                        Task { await model.report { try await model.importNotability(urls, notebook: notebook, options: chosen) } }
                         dismiss()
                     }
                 }

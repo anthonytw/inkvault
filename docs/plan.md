@@ -14,6 +14,7 @@
 | 0.8 ✅ | Interop fixture vault committed under `Tests/Fixtures` with a throwaway key | tests | every target can load it |
 | 0.9 ✅ | CLI parity with the app (CLI-first rule, `CLAUDE.md`): `notes new/rename/tag/move/paper/delete/undelete`, `notebooks`, `tags`, `pages list/add` (done, `docs/cli.md`); page add/move/delete/duplicate and `notes layout` (done in #52); `recognize`, `import notability --recognize missing`, `notes search` (#78) | `Sources/SempereCLI`, `Sources/Sempere` | each app edit has a command with `--json` and CLI tests |
 | 0.10 ✅ | CLI for attachments (done, `docs/cli.md`): `attach image\|pdf\|text\|recording\|transcript`, `import pdf`, `search` over typed text and transcripts | `Sources/SempereCLI`, `Sources/Sempere` | end-to-end CLI tests in `Tests/CLITests/CLIAttachTests.swift` |
+| 0.11 🚧 | Gap audit, search and import (#134, `docs/research/gap-audit-2026-10.md`): GA-06 transcripts in the app's search (`TranscriptSearch`), GA-07 highlights inside text boxes (`TextMatchBoxes`, `search --show-boxes`), GA-08 the app's Notability import options and report, GA-09 Notability transcripts as blobs, GA-10 GIF and TIFF converted to PNG, GA-27 feasibility (`docs/research/ntb-undecoded-kinds.md`) | `Sources/Sempere`, `Sources/SempereRender`, `Sources/SempereImport`, `Apps/` | CLI and core tests green; the app job on CI |
 
 ## Phase 1 — iPad app
 

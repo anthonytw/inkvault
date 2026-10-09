@@ -76,12 +76,12 @@ extension AppModel {
             && !placeholderNoteIDs.contains(note.id) {
             for t in note.transcribed {
                 guard !Task.isCancelled, gen == generation else { return }
-                var transcript = cache.transcript(for: t.blob.sha256)
-                if transcript == nil {
-                    transcript = await loadTranscript(ref: t.blob, recording: t.recording, note: note.id)
-                    if let transcript { cache.store(transcript, for: t.blob.sha256) } else { problems += 1; continue }
+                var loaded = cache.transcript(for: t.blob.sha256)
+                if loaded == nil {
+                    loaded = await loadTranscript(ref: t.blob, recording: t.recording, note: note.id)
+                    if let fresh = loaded { cache.store(fresh, for: t.blob.sha256) }
                 }
-                guard let transcript else { continue }
+                guard let transcript = loaded else { problems += 1; continue }
                 let hits = await Task.detached(priority: .userInitiated) {
                     TranscriptSearch.hits(of: query, in: transcript, recording: t.recording, title: t.title)
                 }.value
