@@ -397,8 +397,12 @@ final class PageStackHost: UIView, UIScrollViewDelegate, UIGestureRecognizerDele
                                      zoomed: scroller.zoomScale > 1.001 || !fitted, pageCount: configuration?.pageIDs.count ?? 0)
     }
 
-    func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
-        guard gestureRecognizer is UISwipeGestureRecognizer else { return true }
+    /// One selector for both: `UIView`'s (this view's own recognizers) and the delegate's (the
+    /// page swipes on the scroller). Anything but a page swipe gets `UIView`'s answer.
+    override func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+        guard gestureRecognizer is UISwipeGestureRecognizer, gestureRecognizer.view === scroller else {
+            return super.gestureRecognizerShouldBegin(gestureRecognizer)
+        }
         return swipeTurnsPages
     }
 
