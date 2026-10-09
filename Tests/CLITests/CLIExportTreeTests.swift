@@ -1,3 +1,4 @@
+import CLITestSupport
 import Foundation
 #if canImport(FoundationXML)
 import FoundationXML

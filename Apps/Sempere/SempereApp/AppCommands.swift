@@ -214,7 +214,7 @@ enum WindowCommands {
     static func perform(_ command: MenuCommand, model: AppModel, ui: WindowUI, exportIDs: [UUID]) -> Bool {
         switch command {
         case .importPDF: ui.importingPDF = true
-        case .importNotability: ui.importingNotability = true
+        case .importFromApp: ui.importingFromApp = true
         case .exportNotes: model.requestExport(.pdf, ids: exportIDs, window: ui.id)
         case .toggleVoiceNote: Task { await model.toggleVoiceNote() }
         default: return false
@@ -253,12 +253,12 @@ final class WindowUI {
     var pdfPassword: PDFImportRequest?
     /// The file importer for a PDF to import as a new note.
     var importingPDF = false
-    /// The file importer for Notability notes or backups to import (`WindowSheets`, `AppModel+NotabilityImport`).
-    var importingNotability = false
-    /// Files picked for a Notability import, waiting for the options sheet (`NotabilityImportOptionsSheet`).
-    var notabilityPick: NotabilityPick?
-    /// The report of the last Notability import, shown from its result alert (`NotabilityReportView`).
-    var notabilityReport: NotabilityImportDetails?
+    /// The file importer for notes or a backup from another app (`WindowSheets`, `AppModel+Import`).
+    var importingFromApp = false
+    /// Files picked for such an import, waiting for the options sheet (`ImportOptionsSheet`).
+    var importPick: ImportPick?
+    /// The report of the last import, shown from its result alert (`ImportReportView`).
+    var importReport: ImportDetails?
     /// A menu command for the editor's Insert menu (`InsertRequest`), taken by the window's editor.
     var insertRequest: InsertRequest?
     /// A menu command for the editor's toolbar toggles (`ToolRequest`), taken by the window's editor.

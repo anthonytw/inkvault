@@ -110,7 +110,7 @@ public indirect enum PlistValue: Hashable, Sendable {
 
 extension PlistValue {
     /// Parses a binary property list (`bplist00`), or with `allowXML` also an
-    /// XML one. OpenStep plists are refused. Notability writes binary plists
+    /// XML one. OpenStep plists are refused. Apps write binary plists
     /// (every keyed archive is one), except for a few small XML ones such as
     /// `Recordings/library.plist`, which callers read with `allowXML`.
     ///
@@ -355,7 +355,7 @@ extension KeyedArchive.Node {
     /// True for `$null`.
     public var isNull: Bool { if case .null = self { return true }; return false }
     /// The string, if this decodes to one. `NSData` holding UTF-8 counts too
-    /// (Notability stores some names that way).
+    /// (some apps store names that way).
     public var string: String? {
         switch self {
         case .string(let s): return s
