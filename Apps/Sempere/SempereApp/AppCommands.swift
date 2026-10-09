@@ -226,6 +226,10 @@ final class WindowUI {
     var importingPDF = false
     /// The file importer for Notability notes or backups to import (`WindowSheets`, `AppModel+NotabilityImport`).
     var importingNotability = false
+    /// Files picked for a Notability import, waiting for the options sheet (`NotabilityImportOptionsSheet`).
+    var notabilityPick: NotabilityPick?
+    /// The report of the last Notability import, shown from its result alert (`NotabilityReportView`).
+    var notabilityReport: NotabilityImportDetails?
     /// A menu command for the editor's Insert menu (`InsertRequest`), taken by the window's editor.
     var insertRequest: InsertRequest?
     /// About Sempere, the quick tour or the key notice (`ExpectationsSheets`).

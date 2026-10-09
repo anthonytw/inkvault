@@ -142,7 +142,7 @@ enum QuickTour {
                 id: "find", symbol: "magnifyingglass",
                 title: String(localized: "Find It Again", comment: "Quick tour page 4 title"),
                 lines: [
-                    String(localized: "Search looks through titles, handwriting, typed text and the text of PDFs.", comment: "Quick tour page 4"),
+                    String(localized: "Search looks through titles, handwriting, typed text, the text of PDFs and recording transcripts.", comment: "Quick tour page 4"),
                     String(localized: "Handwriting is recognized on this device; it is not sent anywhere.", comment: "Quick tour page 4"),
                 ]),
             TourPage(
