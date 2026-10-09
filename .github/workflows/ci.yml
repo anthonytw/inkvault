@@ -126,6 +126,10 @@ jobs:
           key: ${{ steps.cachekey.outputs.key }}-${{ github.sha }}
       - name: Portability guard
         run: scripts/check-portability.sh
+      # Deleting the Notability importer's directory must leave a package that builds and passes its tests
+      # (docs/import-notability.md "Structure"); a step of this job so the rulesets need no change.
+      - name: Removable importers (build and test without Sources/SempereNotability)
+        run: scripts/check-removable-importers.sh
       # The static release build only matters for what ships: main and releases.
       - name: Release build of the CLI (static stdlib)
         if: github.event_name != 'pull_request'

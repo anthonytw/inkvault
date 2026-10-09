@@ -1,5 +1,6 @@
 import Foundation
 import FuzzSupport
+import ImportTestSupport
 import XCTest
 @testable import SempereImport
 
@@ -55,7 +56,7 @@ final class ZipArchiveTests: XCTestCase {
 
     func testWriterStoredDeflatedAndZip64() throws {
         for zip64 in [false, true] {
-            let data = ZipWriter.write(files.enumerated().map { i, f in .init(path: f.0, data: f.1, deflate: i % 2 == 0) },
+            let data = TestZip.write(files.enumerated().map { i, f in .init(path: f.0, data: f.1, deflate: i % 2 == 0) },
                                        zip64: zip64)
             let zip = try ZipArchive(data: data)
             XCTAssertEqual(zip.entries.map(\.path), files.map(\.0))
@@ -67,7 +68,7 @@ final class ZipArchiveTests: XCTestCase {
     }
 
     func testCorruptionIsReported() throws {
-        var data = ZipWriter.write([.init(path: "x", data: Data("payload payload payload".utf8), deflate: false)])
+        var data = TestZip.write([.init(path: "x", data: Data("payload payload payload".utf8), deflate: false)])
         let zip = try ZipArchive(data: data)
         let e = try XCTUnwrap(zip.entry("x"))
         // Flip a payload byte: CRC mismatch.

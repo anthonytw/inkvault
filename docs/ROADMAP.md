@@ -23,7 +23,7 @@ GA-12, GA-22, GA-24, GA-25, GA-26.
 | 5 | Attachments, batches of 3–4 cloud sessions along the §14 dependencies | math, video | ✅ every §14 task on `main` (video #93, math #96, E7 #95, L #92); open: C4's `--recordings list` and `--format media` 🔀 #122, handwriting → math has no model yet (#118) |
 | 6 | Mac polish → App Store submission (iPad + Mac) → `/ultrareview` | public release | 🚧 Mac polish ✅ #101, submission prep ✅ #113; the submission (the maintainer's) and `/ultrareview` 📋 |
 
-## Shared library (`Sources/`: Age, Sempere, SempereRender, SempereImport, SempereWebDAV)
+## Shared library (`Sources/`: Age, Sempere, SempereRender, SempereImport, SempereNotability, SempereWebDAV)
 
 | Area | Feature | Status |
 | --- | --- | --- |
@@ -69,6 +69,7 @@ GA-12, GA-22, GA-24, GA-25, GA-26.
 | Vault | Audio items: a recording placed on the page as a card (`format.md` §8.2.9) | ✅ #103 |
 | Vault | Recently Recognized shared across devices (stored in the vault) | ✅ #102 |
 | Render | Video in exports: poster with a play mark in PDF/SVG/PNG, clips embedded in "PDF + attachments" streamed from the vault (`PDFWriter.write(to:)`), clips written next to Markdown/HTML and linked | ✅ #93 |
+| Import | The Notability importer is a removable module: `SempereNotability`, a `VaultImporter` interface and registry, generic `import <id>` in the CLI and Import entry in the app, CI deletes the module and builds and tests the rest (docs/import-notability.md "Structure") | 🚧 #145 |
 | Import | Notability's own transcripts become transcript blobs (`engine: notability-<version>`); the library layout is a hypothesis, no real sample (GA-09, S) | 🚧 #134 |
 | Import | GIF (first frame) and baseline TIFF in a Notability bundle are converted to PNG; WebP, BMP and AVIF stay counted in `dropped.media` (GA-10, S) | 🚧 #134 |
 | Import | Undecoded `.ntb` stroke and shape kinds, dashed strokes imported solid, highlighter behind a PDF, pages of two heights (GA-27, M–L): feasibility in `docs/research/ntb-undecoded-kinds.md`; the report now names each unconverted kind; decoding needs samples from the backup, dashes a format change | 🚧 #134 (feasibility) |
@@ -281,4 +282,4 @@ Steps only the maintainer can take. None of them is code in this repo, so they a
 | --- | --- | --- |
 | Release shape: squash the whole history into one public "Initial commit", as kidsplay did. This repo, with its PRs, keeps the development history as a private archive repo; a fresh public `anthonytw/sempere` gets the single commit. Includes the CHANGELOG and version, the App Store submission, TestFlight → release, and the GitHub rulesets on the new repo | 📋 (needs the maintainer) | Related rows: App Store submission (iPad app Release and macOS app sections), CHANGELOG `TODO(user)` date (GA-41). |
 | Project website on GitHub Pages at `sempere.anthonywertz.com` (custom domain CNAME): capabilities, demo videos, spec sheet (formats, crypto, platforms), the security design, an in-browser web-viewer demo on a sample vault, download links, and hosting of the privacy policy and support URL the App Store needs | 📋 (needs the maintainer) | The privacy policy already has two copies (`docs/privacy/index.html` for Pages, `docs/appstore/privacy-policy.md`). The viewer demo reuses `web/` with the fixture vault; it must never send a key anywhere. |
-| Legal review of the Notability importer before release: reverse engineering and interoperability, Notability's terms of use, trademark use of the name. Option: ship the importer as a separate tool or repo | 📋 (needs the maintainer) | `Sources/SempereImport`, `docs/import-notability.md`. |
+| Legal review of the Notability importer before release: reverse engineering and interoperability, Notability's terms of use, trademark use of the name. Option: ship the importer as a separate tool or repo | 📋 (needs the maintainer) | `Sources/SempereNotability`, `docs/import-notability.md`. The importer is now a removable module (one directory, CI-checked), which keeps the options open. |

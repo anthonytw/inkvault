@@ -1,11 +1,12 @@
 import Sempere
 import SwiftUI
 import UniformTypeIdentifiers
+import SempereImport
 
 /// The notes matching the sidebar selection, with title search, sorting and
 /// per-note actions.
 struct NoteListView: View {
-    /// Whether the list's import buttons (PDF, Notability) can be used: the
+    /// Whether the list's import buttons (PDF, other apps) can be used: the
     /// same rule as File > Import… (`MenuCommand.importPDF`), an unlocked vault
     /// that can be written.
     static func importsEnabled(_ model: AppModel) -> Bool {
@@ -100,13 +101,17 @@ struct NoteListView: View {
                     .disabled(!Self.importsEnabled(model))
                     .help("Make a note from a PDF: one page per PDF page, to write on")
             }
-            // The iPad has no File menu: the Notability importer is here too (the Mac's File menu has it as well).
-            ToolbarItem(placement: secondary) {
-                Button("Import from Notability…", systemImage: "square.and.arrow.down.on.square") {
-                    ui.importingNotability = true
+            // The iPad has no File menu: the importer from another app is here too (the Mac's File menu has it as well).
+            if let importer = AppImporters.primary {
+                ToolbarItem(placement: secondary) {
+                    Button(String(localized: "Import from \(importer.displayName)…", comment: "Toolbar: import notes from another app (its name)"),
+                           systemImage: "square.and.arrow.down.on.square") {
+                        ui.importingFromApp = true
+                    }
+                    .disabled(!Self.importsEnabled(model) || model.isImporting)
+                    .help(String(localized: "Import notes or a backup from \(importer.displayName) (files, folders or zip archives) into this vault",
+                                 comment: "Tooltip of the import-from-another-app button (its name)"))
                 }
-                .disabled(!Self.importsEnabled(model) || model.isImportingNotability)
-                .help("Import Notability notes or a Notability backup (.note, .ntb, folders or zips) into this vault")
             }
             ToolbarItem {
                 Button("New Note", systemImage: "square.and.pencil") { ui.creatingNote = true }
