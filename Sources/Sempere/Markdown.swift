@@ -472,7 +472,9 @@ private struct BlockParser {
             next = j
         }
         let trim: Set<Unicode.Scalar> = [" ", "\t", "\n"]
-        while let f = chars.first, trim.contains(f.1) { chars.removeFirst() }
+        // One cut, not removeFirst per character (quadratic on a long blank run).
+        let first = chars.firstIndex { !trim.contains($0.1) } ?? chars.count
+        chars.removeFirst(first)
         while let l = chars.last, trim.contains(l.1) { chars.removeLast() }
         guard !chars.isEmpty else { return nil }
         let latex = String(String.UnicodeScalarView(chars.map(\.1)))
@@ -538,6 +540,10 @@ private struct InlineParser {
     }
 
     var toks: [Tok] = []
+    /// Emphasis matches: the tokens `[lo, hi)` between an opener and its
+    /// closer take `style`. Applied once when flattening, so nested emphasis
+    /// stays linear (styling the range at each match was quadratic).
+    var emphasis: [(lo: Int, hi: Int, style: MarkdownStyle)] = []
 
     func c(_ i: Int) -> Unicode.Scalar? { i >= 0 && i < chars.count ? chars[i].1 : nil }
 
@@ -741,6 +747,22 @@ private struct InlineParser {
                 i += 1
             }
         }
+        // Emphasis styles, from per-style coverage counts (a difference array each).
+        for style in [MarkdownStyle.bold, .italic, .strike] {
+            var delta = [Int](repeating: 0, count: toks.count + 1)
+            var any = false
+            for e in emphasis where e.style == style && e.lo < e.hi {
+                delta[e.lo] += 1
+                delta[e.hi] -= 1
+                any = true
+            }
+            guard any else { continue }
+            var depth = 0
+            for q in toks.indices {
+                depth += delta[q]
+                if depth > 0 { toks[q].style.insert(style) }
+            }
+        }
         // Flatten: unused delimiter characters are text.
         var out: [MarkdownAtom] = []
         out.reserveCapacity(toks.count)
@@ -789,7 +811,7 @@ private struct InlineParser {
             }
             toks[o].hi -= use
             toks[k].lo += use
-            for q in (o + 1)..<k { toks[q].style.insert(style) }
+            emphasis.append((o + 1, k, style))
             // Delimiters between them are text from now on.
             stack.removeLast(stack.count - at - 1)
             if toks[o].hi == toks[o].lo { stack.removeLast() }

@@ -154,6 +154,31 @@ final class MarkdownTests: XCTestCase {
         XCTAssertLessThan(Date().timeIntervalSince(start), 20)
     }
 
+    /// Matched emphasis nested many times: each match styled every token
+    /// between its opener and closer, so a 64 KiB box of `*a *a … a* a*` took
+    /// about 40 s to parse (quadratic). Styles are now applied once, from the
+    /// matches' ranges, and the nesting still styles what it did.
+    func testNestedEmphasisStaysLinear() {
+        XCTAssertEqual(describe("*a *b c* d*"), ["p:{i}a b c d"])
+        XCTAssertEqual(describe("**a *b ~~c~~ d* e**"), ["p:{b}a {bi}b {bis}c{bi} d{b} e"])
+        XCTAssertEqual(describe("_a _b c_ d_"), ["p:{i}a b c d"])
+        let n = TextContent.Limits.utf8Bytes - 8
+        let start = Date()
+        for s in [String(repeating: "*a ", count: n / 6) + String(repeating: "a* ", count: n / 6),
+                  String(repeating: "_a ", count: n / 6) + String(repeating: "a_ ", count: n / 6),
+                  String(repeating: "~~a ", count: n / 8) + String(repeating: "a~~ ", count: n / 8),
+                  "$$\n" + String(repeating: "\n", count: n - 4) + "x"] {
+            _ = MarkdownDocument(s).plainText
+        }
+        XCTAssertLessThan(Date().timeIntervalSince(start), 10)
+        // Every character of the nested case is italic, and nothing else is styled.
+        let nested = String(repeating: "*a ", count: 50) + String(repeating: "a* ", count: 50)
+        let atoms = MarkdownDocument(nested).blocks.flatMap { e -> [MarkdownAtom] in
+            if case .paragraph(let a) = e.block { return a } else { return [] }
+        }
+        XCTAssertEqual(Set(atoms.map(\.style)), [.italic])
+    }
+
     func testPlanColumnsMarkersAndGaps() {
         let content = TextContent(size: 10, color: .black, runs: [TextRun("# H\n\npara\n- a\n  1. b\n> q\n```\nc\n```")],
                                   markup: .markdown)

@@ -104,6 +104,22 @@ describe("Markdown parser (Swift MarkdownTests)", () => {
     }
     expect(Date.now() - start).toBeLessThan(20000);
   });
+  it("keeps nested emphasis linear (Swift testNestedEmphasisStaysLinear)", () => {
+    expect(describeDoc("*a *b c* d*")).toEqual(["p:{i}a b c d"]);
+    expect(describeDoc("**a *b ~~c~~ d* e**")).toEqual(["p:{b}a {bi}b {bis}c{bi} d{b} e"]);
+    expect(describeDoc("_a _b c_ d_")).toEqual(["p:{i}a b c d"]);
+    const n = 65536 - 8;
+    const start = Date.now();
+    for (const s of ["*a ".repeat(n / 6 | 0) + "a* ".repeat(n / 6 | 0), "_a ".repeat(n / 6 | 0) + "a_ ".repeat(n / 6 | 0),
+      "~~a ".repeat(n / 8 | 0) + "a~~ ".repeat(n / 8 | 0), "$$\n" + "\n".repeat(n - 4) + "x"]) {
+      expect(typeof new MarkdownDocument(s).plainText).toBe("string");
+    }
+    // About 0.3 s here; quadratic emphasis took 2.6 s in V8 (40 s in a Swift debug build).
+    expect(Date.now() - start).toBeLessThan(1500);
+    const atoms = new MarkdownDocument("*a ".repeat(50) + "a* ".repeat(50)).blocks
+      .flatMap((e) => (e.block.t === "paragraph" ? e.block.atoms : []));
+    expect(new Set(atoms.map((a) => a.style))).toEqual(new Set([Style.italic]));
+  });
   it("hashes like Swift", () => {
     expect(markdownHash("")).toBe("811c9dc5");
     expect(markdownHash("a")).toBe("e40c292c");
@@ -164,5 +180,21 @@ describe("Markdown layout (shared fixtures)", () => {
     const resolved = resolveItems(prepared);
     expect(resolved[0]?.underlay?.length ?? 0).toBeGreaterThan(5);
     expect(resolved.every((r) => r.draw.kind === "text")).toBe(true);
+  });
+
+  it("counts a box's pieces toward the items-per-page cap (Swift testMarkdownPiecesCountTowardTheItemsPerPageCap)", () => {
+    const text = { size: 12, color: "#000000FF", markup: "markdown", runs: [{ t: "x\n\n".repeat(3000) }] };
+    const items = [0, 1, 2, 3].map((k) => ({ id: `00000000-0000-4000-8000-00000000001${k}`, kind: "text",
+      frame: [0, k * 50000, 300, 49000], z: `a${k}`, text }));
+    const meta = { pageSize: { width: 400, height: 300, infinite: true }, paper: { kind: "blank", background: "#FFFFFFFF" } } as
+      unknown as ConstructorParameters<typeof PreparedPage>[1];
+    const page = (list: unknown[]) => ({ id: "p", order: "a", strokes: [], items: list }) as unknown as
+      ConstructorParameters<typeof PreparedPage>[0];
+    const all = new PreparedPage(page(items), meta);
+    expect(all.items.length).toBe(10000);
+    expect(all.warnings.some((w) => w.includes("more than 10000 items"))).toBe(true);
+    const one = new PreparedPage(page([items[0]]), meta);
+    expect(one.items.length).toBeLessThan(10000);
+    expect(one.warnings.some((w) => w.includes("items; the rest"))).toBe(false);
   });
 });

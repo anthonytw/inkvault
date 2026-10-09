@@ -470,6 +470,8 @@ interface Tok {
 
 class InlineParser {
   private toks: Tok[] = [];
+  /** Emphasis matches: tokens [lo, hi) take `style`; applied once when flattening (linear, as in Swift). */
+  private emphasis: { lo: number; hi: number; style: number }[] = [];
 
   constructor(private readonly chars: [number, number][], private readonly links: string[]) {}
 
@@ -653,6 +655,23 @@ class InlineParser {
         i++;
       }
     }
+    // Emphasis styles, from per-style coverage counts (a difference array each).
+    for (const style of [Style.bold, Style.italic, Style.strike] as number[]) {
+      const delta = new Int32Array(this.toks.length + 1);
+      let any = false;
+      for (const e of this.emphasis) {
+        if (e.style !== style || e.lo >= e.hi) continue;
+        delta[e.lo] = (delta[e.lo] ?? 0) + 1;
+        delta[e.hi] = (delta[e.hi] ?? 0) - 1;
+        any = true;
+      }
+      if (!any) continue;
+      let depth = 0;
+      for (let q = 0; q < this.toks.length; q++) {
+        depth += delta[q] ?? 0;
+        if (depth > 0) (this.toks[q] as Tok).style |= style;
+      }
+    }
     const out: MDAtom[] = [];
     for (const t of this.toks) {
       if (t.deleted) continue;
@@ -692,7 +711,7 @@ class InlineParser {
       else { use = 1; style = Style.italic; }
       opener.hi -= use;
       closer.lo += use;
-      for (let q = oi + 1; q < k; q++) (this.toks[q] as Tok).style |= style;
+      this.emphasis.push({ lo: oi + 1, hi: k, style });
       stack.length = found + 1;
       if (opener.hi === opener.lo) stack.length = found;
       for (const [key, v] of bottom) if (v > stack.length) bottom.set(key, stack.length);

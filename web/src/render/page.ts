@@ -91,7 +91,10 @@ export class PreparedPage {
     }
     // Items count toward an infinite page's extent like strokes (§8.2.3); one
     // that cannot be drawn is skipped, never fatal to the page (§8.5.2).
+    // A Markdown box counts as the pieces it is drawn as (§8.4, §8.5.4).
+    let cut = false;
     for (const item of [...page.items].sort(cmpItems).slice(0, maxItemsPerPage)) {
+      if (this.items.length >= maxItemsPerPage) { cut = true; break; }
       const p = prepareItem(item);
       if (typeof p === "string") {
         this.warnings.push(`item ${String(item.id).slice(0, 8)}: ${p}`);
@@ -100,8 +103,10 @@ export class PreparedPage {
       const md = expandMarkdown(p, options.measure);
       if (md) {
         // A Markdown box is drawn as its pieces (§8.5.4).
-        this.items.push(...md.pieces);
-        for (const q of md.pieces) low = Math.max(low, q.maxY);
+        const kept = md.pieces.slice(0, maxItemsPerPage - this.items.length);
+        if (kept.length < md.pieces.length) cut = true;
+        this.items.push(...kept);
+        for (const q of kept) low = Math.max(low, q.maxY);
         if (md.unrendered > 0) {
           this.warnings.push(`text box ${String(item.id).slice(0, 8)}: ${md.unrendered} formula${md.unrendered === 1 ? " is" : "s are"} `
             + "drawn as its LaTeX source (no typeset rendering stored)");
@@ -111,7 +116,7 @@ export class PreparedPage {
       }
       low = Math.max(low, p.maxY);
     }
-    if (page.items.length > maxItemsPerPage) this.warnings.push(`more than ${maxItemsPerPage} items; the rest are not drawn`);
+    if (page.items.length > maxItemsPerPage || cut) this.warnings.push(`more than ${maxItemsPerPage} items; the rest are not drawn`);
     if (size.infinite) {
       if (low > maxE) throw new RenderError("the page is taller than the supported extent");
       this.extent = Math.max(size.height, Math.ceil(low), chunkHeight(options, meta));

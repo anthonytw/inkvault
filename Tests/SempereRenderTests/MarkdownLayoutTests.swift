@@ -211,6 +211,31 @@ final class MarkdownLayoutTests: XCTestCase {
         XCTAssertEqual(png.count, 1)
     }
 
+    /// A Markdown box is drawn as one item per paragraph (and its shapes):
+    /// the page cap of `RenderLimits.maxItemsPerPage` counted boxes before
+    /// they were expanded, so a page of a few boxes of short paragraphs drew
+    /// any number of items (3 000 paragraphs took 23 s to export as PDF). The
+    /// pieces now count toward the cap, which is reported like the box cap.
+    func testMarkdownPiecesCountTowardTheItemsPerPageCap() throws {
+        let source = String(repeating: "x\n\n", count: 3_000)
+        let content = TextContent(size: 12, color: .black, runs: [TextRun(source)], markup: .markdown)
+        let items = (0..<4).map { k in
+            Item.text(content, frame: Rect(x: 0, y: Double(k) * 50_000, w: 300, h: 49_000), z: "a\(k)")
+        }
+        let meta = NoteMeta(title: "T", created: Date(timeIntervalSince1970: 0), paper: .blank,
+                            pageSize: PageSize(width: 400, height: 300, infinite: true))
+        let prepared = try PreparedPage(page: Page(order: "a", items: items), meta: meta,
+                                        options: RenderOptions(shaper: Self.shaper))
+        XCTAssertEqual(prepared.items.count, RenderLimits.maxItemsPerPage)
+        XCTAssertTrue(prepared.warnings.contains { $0.contains("more than \(RenderLimits.maxItemsPerPage) items") },
+                      "\(prepared.warnings)")
+        // A box under the cap is drawn whole, with no warning.
+        let one = try PreparedPage(page: Page(order: "a", items: [items[0]]), meta: meta,
+                                   options: RenderOptions(shaper: Self.shaper))
+        XCTAssertEqual(one.items.count, 3_001)
+        XCTAssertFalse(one.warnings.contains { $0.contains("items; the rest") })
+    }
+
     func testItemRasterDrawsAMarkdownBox() throws {
         let content = try MarkdownText.content("- [x] done\n- [ ] todo")
         let options = RenderOptions(paper: false, shaper: Self.shaper)
