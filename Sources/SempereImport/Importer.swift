@@ -225,8 +225,6 @@ public protocol VaultImporter: Sendable {
     var usesPDFText: Bool { get }
     /// The importer's notes may lack recognised handwriting that the host can read afterwards.
     var supportsRecognizeAfter: Bool { get }
-    /// What the app calls the notes it did not import, for the "nothing found" alert.
-    var nothingFoundMessage: String { get }
 
     /// Imports `request.paths` into the vault, one delta per note.
     func run(_ request: ImporterRequest, clock: inout HybridClock) throws -> ImporterResult

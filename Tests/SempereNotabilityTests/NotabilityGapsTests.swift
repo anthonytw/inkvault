@@ -328,14 +328,14 @@ final class NotabilityGapsTests: XCTestCase {
     }
 }
 
-/// `Tests/CLITests/Fixtures/synthetic-gaps.note` and `synthetic-gaps.ntb`, the CLI
+/// `Tests/SempereNotabilityTests/Fixtures/synthetic-gaps.note` and `synthetic-gaps.ntb`, the CLI
 /// tests' notes for the import gaps (PDF index text, language, highlighter
 /// flag, paper colour; `.ntb` PDF and image files). Generated here;
 /// `SEMPERE_UPDATE_FIXTURES=1 swift test --filter CLIGapsFixtureTests` rewrites them.
 final class CLIGapsFixtureTests: XCTestCase {
     static var dir: URL {
         URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("CLITests/Fixtures")
+            .appendingPathComponent("SempereNotabilityTests/Fixtures")
     }
 
     static func notePackage() -> Data {

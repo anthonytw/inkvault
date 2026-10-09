@@ -478,13 +478,13 @@ final class NotabilityAttachmentTests: XCTestCase {
     }
 }
 
-/// `Tests/CLITests/Fixtures/synthetic-attachments.note`, the CLI tests' note
+/// `Tests/SempereNotabilityTests/Fixtures/synthetic-attachments.note`, the CLI tests' note
 /// with a two-page PDF and a photo, is generated from these fixtures.
 /// `SEMPERE_UPDATE_FIXTURES=1 swift test --filter CLIAttachmentFixtureTests` rewrites it.
 final class CLIAttachmentFixtureTests: XCTestCase {
     static var url: URL {
         URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("CLITests/Fixtures/synthetic-attachments.note")
+            .appendingPathComponent("SempereNotabilityTests/Fixtures/synthetic-attachments.note")
     }
 
     static func package() -> Data {

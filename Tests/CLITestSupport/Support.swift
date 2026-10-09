@@ -1,46 +1,57 @@
+// The base class of the CLI tests: they drive the built `sempere` binary as a subprocess (identically on Linux and
+// macOS, and without linking the executable's `main` into a test bundle).
 import Age
 import Foundation
 import Sempere
 import XCTest
 
 /// Result of one `sempere` run.
-struct CLIResult {
-    var status: Int32
-    var out: String
-    var err: String
-    var outData: Data
-    var json: Any? { try? JSONSerialization.jsonObject(with: outData) }
+public struct CLIResult {
+    public var status: Int32
+    public var out: String
+    public var err: String
+    public var outData: Data
+    public var json: Any? { try? JSONSerialization.jsonObject(with: outData) }
 }
 
 /// Base class: a scratch directory per test, subprocess helper, fixture access.
-class CLITestCase: XCTestCase {
-    var tmp: URL!
+open class CLITestCase: XCTestCase {
+    public var tmp: URL!
 
-    override func setUpWithError() throws {
+    override open func setUpWithError() throws {
         tmp = FileManager.default.temporaryDirectory.appendingPathComponent("sempere-cli-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
     }
 
-    override func tearDown() {
+    override open func tearDown() {
         try? FileManager.default.removeItem(at: tmp)
     }
 
-    static let fixtures = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+    public static let fixtures = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
         .appendingPathComponent("SempereTests/Fixtures")
-    static var fixtureVault: String { fixtures.appendingPathComponent("sample.sempere").path }
-    static var fixtureKey: String { fixtures.appendingPathComponent("sample.key").path }
-    static let passphrase = "sempere-test"
-    static let lecture = "11111111-1111-4111-8111-111111111111"
+    public static var fixtureVault: String { fixtures.appendingPathComponent("sample.sempere").path }
+    public static var fixtureKey: String { fixtures.appendingPathComponent("sample.key").path }
+    public static let passphrase = "sempere-test"
+    public static let lecture = "11111111-1111-4111-8111-111111111111"
+
+    /// The built `sempere` binary: `.build/<config>/sempere`, next to the test bundle.
+    public static var binary: URL {
+        var url = Bundle(for: CLITestCase.self).bundleURL
+        while url.pathComponents.count > 1, !FileManager.default.fileExists(atPath: url.appendingPathComponent("sempere").path) {
+            url.deleteLastPathComponent()
+        }
+        return url.appendingPathComponent("sempere")
+    }
 
     /// Runs the binary with a clean SEMPERE_* environment.
     @discardableResult
-    func cli(_ args: [String], env: [String: String] = [:]) throws -> CLIResult {
+    public func cli(_ args: [String], env: [String: String] = [:]) throws -> CLIResult {
         var environment = ProcessInfo.processInfo.environment.filter { !$0.key.hasPrefix("SEMPERE_") }
         environment["XDG_STATE_HOME"] = tmp.appendingPathComponent("state").path
         environment["XDG_CACHE_HOME"] = tmp.appendingPathComponent("cache").path
         environment.merge(env) { $1 }
         let p = Process()
-        p.executableURL = CLISmokeTests.binary
+        p.executableURL = Self.binary
         p.arguments = args
         p.environment = environment
         p.standardInput = FileHandle.nullDevice
@@ -63,37 +74,37 @@ class CLITestCase: XCTestCase {
                          err: String(decoding: box.get(), as: UTF8.self), outData: outData)
     }
 
-    func path(_ name: String) -> String { tmp.appendingPathComponent(name).path }
+    public func path(_ name: String) -> String { tmp.appendingPathComponent(name).path }
 
     /// A writable copy of the fixture vault.
-    func copyFixtureVault(as name: String = "copy.sempere") throws -> String {
+    public func copyFixtureVault(as name: String = "copy.sempere") throws -> String {
         let dest = tmp.appendingPathComponent(name)
         try FileManager.default.copyItem(at: URL(fileURLWithPath: Self.fixtureVault), to: dest)
         return dest.path
     }
 
     /// The legacy (X25519) fixture: same notes, opened only to migrate.
-    static var legacyVault: String { fixtures.appendingPathComponent("legacy.sempere").path }
-    static var legacyKey: String { fixtures.appendingPathComponent("legacy.key").path }
+    public static var legacyVault: String { fixtures.appendingPathComponent("legacy.sempere").path }
+    public static var legacyKey: String { fixtures.appendingPathComponent("legacy.key").path }
 
     /// A writable copy of the legacy fixture vault.
-    func copyLegacyVault(as name: String = "legacy.sempere") throws -> String {
+    public func copyLegacyVault(as name: String = "legacy.sempere") throws -> String {
         let dest = tmp.appendingPathComponent(name)
         try FileManager.default.copyItem(at: URL(fileURLWithPath: Self.legacyVault), to: dest)
         return dest.path
     }
 
-    func legacyIdentity() throws -> NativeIdentity {
+    public func legacyIdentity() throws -> NativeIdentity {
         try IdentityFile.parse(String(contentsOfFile: Self.legacyKey, encoding: .utf8))
     }
 
-    func fixtureIdentity() throws -> NativeIdentity {
+    public func fixtureIdentity() throws -> NativeIdentity {
         try IdentityFile.parse(String(contentsOfFile: Self.fixtureKey, encoding: .utf8))
     }
 
     /// Creates a vault through the library and writes a two-page note plus a
     /// one-page note. Returns the vault, the identity and the key file path.
-    func makeVault(named name: String = "mine.sempere") throws -> (vault: Vault, identity: NativeIdentity, keyPath: String) {
+    public func makeVault(named name: String = "mine.sempere") throws -> (vault: Vault, identity: NativeIdentity, keyPath: String) {
         let id = try NativeIdentity.generate(.postQuantum)
         let keyPath = path("\(name).key")
         try IdentityFile.render(id, created: Date()).write(toFile: keyPath, atomically: true, encoding: .utf8)
@@ -128,9 +139,9 @@ class CLITestCase: XCTestCase {
 }
 
 /// A lock-protected Data cell for handing a pipe's contents between threads.
-final class DataBox: @unchecked Sendable {
+public final class DataBox: @unchecked Sendable {
     private let lock = NSLock()
     private var data = Data()
-    func set(_ d: Data) { lock.lock(); data = d; lock.unlock() }
-    func get() -> Data { lock.lock(); defer { lock.unlock() }; return data }
+    public func set(_ d: Data) { lock.lock(); data = d; lock.unlock() }
+    public func get() -> Data { lock.lock(); defer { lock.unlock() }; return data }
 }

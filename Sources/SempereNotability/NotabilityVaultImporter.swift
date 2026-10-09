@@ -27,7 +27,6 @@ public struct NotabilityVaultImporter: VaultImporter {
     public let fileExtensions = ["note", "ntb"]
     public let usesPDFText = true
     public let supportsRecognizeAfter = true
-    public let nothingFoundMessage = "No Notability notes (.note or .ntb files, or a zip of them) were found in what you picked."
 
     public let options: [ImporterOptionSpec] = [
         .init(id: "overwrite", kind: .flag(defaultOn: false), cliName: "overwrite",

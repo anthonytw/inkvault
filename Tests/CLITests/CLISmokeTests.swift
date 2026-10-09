@@ -1,3 +1,4 @@
+import CLITestSupport
 import Foundation
 import XCTest
 
@@ -5,14 +6,7 @@ import XCTest
 /// identically on Linux and macOS and avoids linking the executable's `main`
 /// into the test bundle.
 final class CLISmokeTests: XCTestCase {
-    static var binary: URL {
-        // .build/<config>/CLITests.xctest or .build/<config>/sempere-corePackageTests.xctest
-        var url = Bundle(for: CLISmokeTests.self).bundleURL
-        while url.pathComponents.count > 1, !FileManager.default.fileExists(atPath: url.appendingPathComponent("sempere").path) {
-            url.deleteLastPathComponent()
-        }
-        return url.appendingPathComponent("sempere")
-    }
+    static var binary: URL { CLITestCase.binary }
 
     static func run(_ args: [String]) throws -> (status: Int32, out: String, err: String) {
         let p = Process()

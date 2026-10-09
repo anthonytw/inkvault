@@ -1,6 +1,7 @@
 import Sempere
 import SwiftUI
 import UniformTypeIdentifiers
+import SempereImport
 
 /// The rename alert and the tag sheet that menu commands (and the toolbars)
 /// open through `WindowUI`, for the window they are attached to.
@@ -27,37 +28,39 @@ struct WindowSheets: ViewModifier {
                 }
             }
             .background {
-                SwiftUI.Color.clear.fileImporter(isPresented: $ui.importingNotability, allowedContentTypes: AppModel.notabilityTypes,
+                SwiftUI.Color.clear.fileImporter(isPresented: $ui.importingFromApp,
+                                                 allowedContentTypes: AppImporters.primary.map { AppModel.importTypes(for: $0) } ?? [],
                                                  allowsMultipleSelection: true) { result in
-                    guard case .success(let urls) = result, !urls.isEmpty else { return }
-                    // The options come next (`NotabilityImportOptionsSheet`); nothing is read before they are chosen.
-                    ui.notabilityPick = NotabilityPick(urls: urls, notebook: model.sidebarNotebook)
+                    guard case .success(let urls) = result, !urls.isEmpty, let importer = AppImporters.primary else { return }
+                    // The options come next (`ImportOptionsSheet`); nothing is read before they are chosen.
+                    ui.importPick = ImportPick(importer: importer.id, urls: urls, notebook: model.sidebarNotebook)
                 }
             }
-            .sheet(item: $ui.notabilityPick) { pick in
-                NotabilityImportOptionsSheet(pick: pick)
+            .sheet(item: $ui.importPick) { pick in
+                ImportOptionsSheet(pick: pick)
             }
-            .sheet(isPresented: Binding(get: { ui.notabilityReport != nil }, set: { if !$0 { ui.notabilityReport = nil } })) {
-                if let details = ui.notabilityReport { NotabilityReportView(details: details) }
+            .sheet(isPresented: Binding(get: { ui.importReport != nil }, set: { if !$0 { ui.importReport = nil } })) {
+                if let details = ui.importReport { ImportReportView(details: details) }
             }
             .overlay {
-                if model.isImportingNotability {
-                    ProgressView("Importing from Notability…")
+                if model.isImporting {
+                    ProgressView(String(localized: "Importing from \(AppImporters.primary?.displayName ?? "")…",
+                                        comment: "Progress while notes are imported from another app (its name)"))
                         .padding()
                         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
                 }
             }
-            .alert(model.notabilitySummary?.title ?? "", isPresented: Binding(get: { model.notabilitySummary != nil && isFront },
-                                                                            set: { if !$0 { model.notabilitySummary = nil } })) {
-                if let details = model.notabilitySummary?.details, !details.isEmpty {
+            .alert(model.importSummary?.title ?? "", isPresented: Binding(get: { model.importSummary != nil && isFront },
+                                                                          set: { if !$0 { model.importSummary = nil } })) {
+                if let details = model.importSummary?.details, !details.isEmpty {
                     Button("Show Report") {
-                        ui.notabilityReport = details
-                        model.notabilitySummary = nil
+                        ui.importReport = details
+                        model.importSummary = nil
                     }
                 }
-                Button("OK", role: .cancel) { model.notabilitySummary = nil }
+                Button("OK", role: .cancel) { model.importSummary = nil }
             } message: {
-                Text(model.notabilitySummary?.message ?? "")
+                Text(model.importSummary?.message ?? "")
             }
             // PDFs opened from the Finder or the share sheet (`AppModel+OpenedFiles`).
             .sheet(isPresented: Binding(get: { isFront && [OpenedFile.Stage.ready, .readOnly].contains(model.openedPDFStage) },
@@ -140,7 +143,7 @@ struct WindowSheets: ViewModifier {
 
 extension WindowSheets {
     /// The window that shows app-wide prompts (the opened-PDF sheet, the
-    /// Notability result): the library window with the canvas, else any.
+    /// import result): the library window with the canvas, else any.
     private var isFront: Bool { OpenedFile.shows(in: ui.id, canvasWindow: model.canvasWindow) }
 }
 

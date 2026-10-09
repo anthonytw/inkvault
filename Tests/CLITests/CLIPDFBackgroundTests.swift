@@ -1,4 +1,5 @@
 import Age
+import CLITestSupport
 import Foundation
 import XCTest
 @testable import Sempere
