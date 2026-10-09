@@ -46,6 +46,13 @@ enum MacMenus {
                             input: String(shortcut.key), modifierFlags: flags, propertyList: command.rawValue)
     }
 
+    /// A menu item with no key equivalent for `command` (About Sempere, the Help
+    /// menu), sent to the focused window like `nativeItem`.
+    @MainActor
+    static func nativeCommand(_ command: MenuCommand) -> UICommand {
+        UICommand(title: command.title, action: #selector(UIWindow.sempereMenuCommand(_:)), propertyList: command.rawValue)
+    }
+
     /// Rebuilds the File and Edit menus being built: UIKit's Open… and Find
     /// become Open Vault… and Find Notes, its document commands and New
     /// Window go.
@@ -78,6 +85,16 @@ enum MacMenus {
                 builder.insertChild(menu, atStartOfMenu: .application)
             }
             built.append("Settings… added")
+        }
+        if builder.menu(for: .about) != nil {
+            // UIKit's About opens the standard panel: the app's About shows the licence, links and acknowledgements.
+            builder.replaceChildren(ofMenu: .about) { _ in [nativeCommand(.showAbout)] }
+            built.append("about → About Sempere")
+        }
+        if builder.menu(for: .help) != nil {
+            // UIKit's "Sempere Help" opens no help book: the tour and the key notice instead.
+            builder.replaceChildren(ofMenu: .help) { _ in MenuLayout.help.flatMap { $0 }.map(nativeCommand) }
+            built.append("help → Quick Tour, About Your Key")
         }
         for identifier in pruned {
             guard let menu = builder.menu(for: identifier) else { continue }

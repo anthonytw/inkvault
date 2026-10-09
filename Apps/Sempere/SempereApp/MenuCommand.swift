@@ -24,6 +24,8 @@ enum MenuCommand: String, CaseIterable, Sendable {
     case zoomIn, zoomOut, fitWidth, actualSize, toggleNoteList
     // Window
     case showLibrary, showKeys, showSettings
+    // Sempere (app menu) and Help
+    case showAbout, showTour, showKeyNotice
 
     /// A key and its modifiers. `key` is the character the key types.
     struct Shortcut: Hashable, Sendable {
@@ -56,6 +58,10 @@ enum MenuCommand: String, CaseIterable, Sendable {
     /// generated preferences pane (touch alternatives only), not the app's
     /// settings (TestFlight build 7).
     static let nativeOnMac: [MenuCommand] = [.openVault, .find, .showSettings]
+    /// Commands that replace UIKit's own items without a shortcut: Sempere >
+    /// About Sempere (UIKit's opens the standard about panel) and the Help menu
+    /// (UIKit's "Sempere Help" has no help book to open). `MacMenus` builds them.
+    static let nativeWithoutShortcut: [MenuCommand] = [.showAbout, .showTour, .showKeyNotice]
 
     /// Who handles the command.
     enum Provider: Sendable {
@@ -117,6 +123,9 @@ enum MenuCommand: String, CaseIterable, Sendable {
         case .showLibrary: return String(localized: "Library", comment: "View menu: show the library window")
         case .showKeys: return String(localized: "Vault Keys", comment: "View menu: open the vault keys window")
         case .showSettings: return String(localized: "Settings…", comment: "View menu: open Settings")
+        case .showAbout: return String(localized: "About Sempere", comment: "App menu: the About screen")
+        case .showTour: return String(localized: "Quick Tour", comment: "Help menu: show the quick tour again")
+        case .showKeyNotice: return String(localized: "About Your Key", comment: "Help menu: what the vault key means")
         }
     }
 
@@ -169,6 +178,7 @@ enum MenuCommand: String, CaseIterable, Sendable {
         case .showLibrary: return Shortcut("0", option)
         case .showKeys: return Shortcut("k", option)
         case .showSettings: return Shortcut(",", cmd)
+        case .showAbout, .showTour, .showKeyNotice: return nil
         }
     }
 
@@ -243,6 +253,8 @@ enum MenuCommand: String, CaseIterable, Sendable {
         case .showKeys: return unlocked
         // Device settings need no vault.
         case .showSettings: return true
+        // Facts about the app and its key: no vault needed.
+        case .showAbout, .showTour, .showKeyNotice: return true
         }
     }
 }
@@ -273,11 +285,15 @@ enum MenuLayout {
         [.toggleNoteList],
     ]
     static let window: [[MenuCommand]] = [[.showLibrary, .showKeys, .showSettings]]
+    /// The app menu's About Sempere (`MacMenus`).
+    static let app: [[MenuCommand]] = [[.showAbout]]
+    /// Help (`MacMenus`).
+    static let help: [[MenuCommand]] = [[.showTour, .showKeyNotice]]
     /// Edit > Find (the system's Undo and Redo stay where UIKit puts them).
     static let edit: [[MenuCommand]] = [[.find]]
 
     /// Every command a menu shows, in order.
     static var all: [MenuCommand] {
-        (file + edit + note + tools + view + window).flatMap { $0 }
+        (app + file + edit + note + tools + view + window + help).flatMap { $0 }
     }
 }

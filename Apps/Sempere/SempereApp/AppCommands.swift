@@ -186,6 +186,9 @@ enum WindowCommands {
         case .importPDF: ui.importingPDF = true
         case .importNotability: ui.importingNotability = true
         case .exportNotes: model.requestExport(.pdf, ids: exportIDs, window: ui.id)
+        case .showAbout: ui.expectations = .about
+        case .showTour: ui.expectations = .tour(firstRun: false)
+        case .showKeyNotice: ui.expectations = .keyNotice(firstRun: false)
         default: return false
         }
         return true
@@ -225,6 +228,8 @@ final class WindowUI {
     var importingNotability = false
     /// A menu command for the editor's Insert menu (`InsertRequest`), taken by the window's editor.
     var insertRequest: InsertRequest?
+    /// About Sempere, the quick tour or the key notice (`ExpectationsSheets`).
+    var expectations: ExpectationsSheet?
 }
 
 /// File > Insert Photo… and Insert PDF Pages…: the window's editor opens the

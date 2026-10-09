@@ -30,6 +30,7 @@ struct SettingsView: View {
                     BackupSettingsSection()
                     DeviceKeySettingsSection()
                     StorageSettingsSection()
+                    AboutSettingsSection()
                 }
                 .task {
                     guard let scrollTo else { return }
