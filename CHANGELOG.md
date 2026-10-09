@@ -9,6 +9,20 @@ The section for a version is the body of its GitHub Release (`docs/releasing.md`
 
 ### Added
 
+- WebDAV vaults in the app: Open from WebDAV… (server folder URL, user, password, Test Connection, the
+  vaults found there). The vault is downloaded into a copy on the device, which works offline, and
+  every change is pushed to the server shortly after it is made, when the app comes back and every five
+  minutes; the server is never trusted to change the vault (push-only). The password stays in the
+  Keychain only; https only, and a self-signed server needs an explicit "Trust This Certificate" with
+  its fingerprint, after which only that certificate is accepted. The note list shows the sync state
+  (Offline, changes not uploaded, a problem and what to do) with Sync Now, Download Again… (to get other
+  devices' notes) and Server Settings…. CLI: `sempere webdav check` and `sync webdav --push-only
+  --keep-server-changes`. The Mac build may now make outgoing connections (`network.client`), only to
+  the server you configure.
+- Vaults in another app's Files provider storage (Proton Drive) are read and written through file
+  coordination even when the provider does not report its files as cloud items, so they are fetched and
+  uploaded; what still needs a device test is listed in `docs/io.md` ("Other Files providers").
+
 - Recordings in exports, finished (C4): "PDF + attachments" ends with an attachment list (kind, title,
   pages, duration, size of every recording, transcript and video clip), each row linked to its
   embedded file and to the page it is on; `sempere export --recordings list` adds the page alone.

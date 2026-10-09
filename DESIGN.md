@@ -100,7 +100,8 @@ rotation but never forge one (`format.md` §2.1).
 
 A vault is a folder. The app reads and writes files; sync is whatever moves
 the folder: on-device, a Files-app provider (iCloud Drive, SMB, Nextcloud,
-Dropbox, ...), a built-in WebDAV client (phase 3), or a zip through the
+Dropbox, ...), the built-in WebDAV client (the app edits a local copy and
+pushes it, push-only, to a server the user runs; `docs/io.md`), or a zip through the
 share sheet. Providers see UUID file names, keyed-hash blob names with their
 kind (image, pdf, audio, …), sizes (blobs padded to a size class) and times,
 nothing else.
