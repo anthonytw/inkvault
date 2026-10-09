@@ -69,7 +69,7 @@ GA-12, GA-22, GA-24, GA-25, GA-26.
 | Vault | Audio items: a recording placed on the page as a card (`format.md` §8.2.9) | ✅ #103 |
 | Vault | Recently Recognized shared across devices (stored in the vault) | ✅ #102 |
 | Render | Video in exports: poster with a play mark in PDF/SVG/PNG, clips embedded in "PDF + attachments" streamed from the vault (`PDFWriter.write(to:)`), clips written next to Markdown/HTML and linked | ✅ #93 |
-| Import | The Notability importer is a removable module: `SempereNotability`, a `VaultImporter` interface and registry, generic `import <id>` in the CLI and Import entry in the app, CI deletes the module and builds and tests the rest (docs/import-notability.md "Structure") | 🚧 #135 |
+| Import | The Notability importer is a removable module: `SempereNotability`, a `VaultImporter` interface and registry, generic `import <id>` in the CLI and Import entry in the app, CI deletes the module and builds and tests the rest (docs/import-notability.md "Structure") | 🚧 #139 |
 | Import | Notability's own transcripts become transcript blobs (`engine: notability-<version>`); the library layout is a hypothesis, no real sample (GA-09, S) | 🚧 #134 |
 | Import | GIF (first frame) and baseline TIFF in a Notability bundle are converted to PNG; WebP, BMP and AVIF stay counted in `dropped.media` (GA-10, S) | 🚧 #134 |
 | Import | Undecoded `.ntb` stroke and shape kinds, dashed strokes imported solid, highlighter behind a PDF, pages of two heights (GA-27, M–L): feasibility in `docs/research/ntb-undecoded-kinds.md`; the report now names each unconverted kind; decoding needs samples from the backup, dashes a format change | 🚧 #134 (feasibility) |
