@@ -48,14 +48,16 @@ struct ExpectationsSheets: ViewModifier {
 
     private struct Trigger: Equatable {
         var ready: Bool
-        var vault: UUID?
-        var recipient: String?
+        var vault: UUID? = nil
+        var recipient: String? = nil
     }
 
     private var trigger: Trigger {
         let ready = model.phase == .unlocked && !keys.holdsUnlockSheet(model) && model.canvasWindow == ui.id
             && ui.expectations == nil && OnboardingHold.shared.count == 0
-        return Trigger(ready: ready, vault: model.vault?.vaultId, recipient: model.heldIdentity?.recipient.string)
+        // The public key is derived from the identity (X-Wing): only when it is needed.
+        guard ready else { return Trigger(ready: false) }
+        return Trigger(ready: true, vault: model.vault?.vaultId, recipient: model.heldIdentity?.recipient.string)
     }
 
     func body(content: Content) -> some View {
