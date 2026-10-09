@@ -26,6 +26,10 @@ audits no longer apply). Statuses in `docs/ROADMAP.md` were not trusted while au
 - Open PRs that already cover a gap (at the time of writing) are named in the state column, not proposed again:
   #122 (recordings list page and `--format media`), #123 (mouse stroke smoothing); both have since merged (GA-20, GA-21 are done).
 
+Scope (maintainer, 2026-10-09): everything here is in scope for the first release and is
+planned in `docs/ROADMAP.md`, where each row was folded into its component section with its
+GA id and size; GA-12, GA-22, GA-24, GA-25 and GA-26 are dropped (marked below).
+
 Size: S = under a day, one PR, little design; M = a PR with design choices or app and
 CLI work; L = a design question, a format change or an outside decision.
 
@@ -44,7 +48,7 @@ CLI work; L = a design question, a format change or an outside decision.
 | GA-09 | Import | Notability's own transcripts become transcript blobs (`engine: notability-<version>`) | `attachments.md` §11 Recordings ("if any") | missing | no "transcript" in `Sources/SempereImport/*.swift` | S |
 | GA-10 | Import | GIF, TIFF and WebP images in a Notability bundle: doc says counted in `dropped.media`; code classifies them as images but `ImageIngest` refuses non-JPEG/PNG | `import-notability.md:947` | unclear; trace and fix doc or code | `NotabilityBundleAttachments.swift:23`; `AttachmentIngest.swift:13` | S |
 | GA-11 | Transcription | `DictationTranscriber` step of the fallback chain | `attachments.md` §14 E5 | missing (doc admits) | no hit in `Sources/SempereSpeech` | S |
-| GA-12 | Recording | Live transcript while recording; "ink appears as it was written" playback mode | `attachments.md` §14 E4 ("Not done") | missing (doc admits) | no `AVAudioEngine` in `Apps/` | L |
+| GA-12 | Recording | Live transcript while recording; "ink appears as it was written" playback mode | `attachments.md` §14 E4 ("Not done") | dropped (maintainer, 2026-10-09) | no `AVAudioEngine` in `Apps/` | L |
 | GA-13 | Mac | Keyboard shortcuts for item actions (duplicate, front, delete) and for recording | `attachments.md` §14 E0, E4 | partial: only `.showRecordings` | `Apps/Sempere/SempereApp/MenuCommand.swift:148` | S |
 | GA-14 | Mac | Menu parity: Version History, page duplicate/delete/undo-delete, Add Page After This One, layout toggle, Show Pages, Text and Select tools, eraser size, Compact Palette are toolbar-only; the menu's Add Page only appends | `mac.md` (menu table) | partial | `MenuCommand.swift:11-24` vs `NoteCanvasView.swift:458-560`; `AppCommands.swift:~138` | M |
 | GA-15 | iPhone | Page layout switch, Duplicate/Delete/Undo Delete Page, Add Page After This One, Insert PDF at page, thumbnail strip are not on the phone toolbar | `iphone.md:44-51` | iPad and Mac only | `NoteCanvasView.swift:458,473,534-548,252,558` (`fullToolbar`); `phoneToolbar` 312-346 | M |
@@ -54,11 +58,11 @@ CLI work; L = a design question, a format change or an outside decision.
 | GA-19 | Export | HTML and SVG export, `--clean`, `--breaks` are CLI-only; the app's `ShareFormat.html` is never offered | `io.md:460-461,499` | CLI-only (documented) | `ExportCommand.swift:7-9`; `ExportSheet.swift:207,221` | S |
 | GA-20 | Export | `export --recordings list` (a recordings list page) and `--format media` | `attachments.md` §14 C4, §16 #14; ROADMAP line 48 | done: #122 merged after the audit | was `Sources/SempereCLI/Export.swift:241-243` (`none, attach` only) | M (#122) |
 | GA-21 | Mac | Mouse and trackpad stroke smoothing | `mac.md:408-411`; ROADMAP "mouse stroke smoothing 💡" | done: #123 merged after the audit | `Sources/Sempere/StrokeSmoothing.swift` | M (#123) |
-| GA-22 | Math | "Convert to Math" ships with no model: `MathModelCatalog.entries` is empty, the pref is off by default, a model loads only from a DEBUG folder | `docs/research/handwriting-to-latex.md`; ROADMAP #118 | flag off, waiting on the maintainer's training-data decision | `Sources/SempereRender/MathModel.swift:217-221`; `Apps/Sempere/SempereApp/MathModels.swift:9-15,66`; `MathSettings.swift:16` | L |
+| GA-22 | Math | "Convert to Math" ships with no model: `MathModelCatalog.entries` is empty, the pref is off by default, a model loads only from a DEBUG folder | `docs/research/handwriting-to-latex.md`; ROADMAP #118 | dropped (maintainer, 2026-10-09); the on-device import tooling of #127 stays as is, behind its off-by-default flag | `Sources/SempereRender/MathModel.swift:217-221`; `Apps/Sempere/SempereApp/MathModels.swift:9-15,66`; `MathSettings.swift:16` | L |
 | GA-23 | Capture | Quick capture on a Mac only through Shortcuts and Siri; no menu-bar item | `quick-capture.md` "Surfaces" | missing (documented future work) | no menu-bar code under `Apps/` | M |
-| GA-24 | Capture | Adopt captures from a key that no longer verifies, after a confirmation; keeping the secret in the Keychain is an open design question | `quick-capture.md` threat model | open question | no code path | L |
-| GA-25 | Web | Ink linked to audio (`rec`): tap to seek, playback highlight | `web-viewer.md` Limits | missing (documented) | no `rec` handling in `web/src/ui` or `web/src/render` | M |
-| GA-26 | Web | Search matches highlighted on the page and in audio cards | `web-viewer.md` Limits | missing (documented) | doc only | M |
+| GA-24 | Capture | Adopt captures from a key that no longer verifies, after a confirmation; keeping the secret in the Keychain is an open design question | `quick-capture.md` threat model | dropped (maintainer, 2026-10-09) | no code path | L |
+| GA-25 | Web | Ink linked to audio (`rec`): tap to seek, playback highlight | `web-viewer.md` Limits | dropped (maintainer, 2026-10-09) | no `rec` handling in `web/src/ui` or `web/src/render` | M |
+| GA-26 | Web | Search matches highlighted on the page and in audio cards | `web-viewer.md` Limits | dropped (maintainer, 2026-10-09) | doc only | M |
 | GA-27 | Import | Dashed strokes imported solid; strokes and shapes of undecoded `.ntb` kinds not converted (counted and reported); highlighter-behind-PDF, pages of two heights | `import-notability.md` "Not imported" | partial (documented, counted) | `Sources/SempereImport/NotabilityImporter.swift:487`; `NotabilityBundle.swift:181,193` | M–L |
 | GA-28 | Web | A cached or remembered thing the docs call safe is not: web cache ciphertext from before a rewrap stays openable by a removed key (P4); passkey record keyed by an unauthenticated vault id (P3) | `web-viewer.md` "Opening fast", "A key remembered with a passkey"; `security-review-2026-10.md` P3, P4 | P3 fixed in #130 (records bound to the vault's location, version 1 records migrated); P4 in #125 | `web/src/vault/cache.ts:141,151,224`; `web/src/vault/passkey.ts:28,43` | S each |
 
