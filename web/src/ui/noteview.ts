@@ -3,6 +3,7 @@
 // writes, with pan and zoom (wheel, drag, pinch, keyboard). Pages are drawn
 // lazily as they come near the viewport.
 
+import { locale, t, tn } from "../i18n/index.ts";
 import { type NoteState, type Page, type Paper, paperKind, pointStride } from "../format/model.ts";
 import { imageInfo, imageLimits, stripMetadata } from "../render/images.ts";
 import {
@@ -93,7 +94,7 @@ export interface ItemProblem {
 let viewCount = 0;
 
 function why(e: unknown): string {
-  if (e instanceof BlobError) return e.code === "missing" ? "attachment file is missing" : `attachment unreadable: ${e.message}`;
+  if (e instanceof BlobError) return e.code === "missing" ? t("attachment file is missing") : t("attachment unreadable: {detail}", { detail: e.message });
   return e instanceof Error ? e.message : String(e);
 }
 
@@ -149,14 +150,14 @@ export class NoteView {
   constructor(private readonly state: NoteState, private readonly blobs?: NoteBlobs,
     private readonly playVideo?: (itemId: string) => void, private readonly playAudio?: (recordingId: string) => void) {
     this.content = h("div", { class: "pages" });
-    this.viewport = h("div", { class: "viewport", attrs: { tabindex: "0", role: "region", "aria-label": "Note pages" } }, this.content);
+    this.viewport = h("div", { class: "viewport", attrs: { tabindex: "0", role: "region", "aria-label": t("Note pages") } }, this.content);
     this.zoomLabel = h("span", { class: "zoom-label" });
     const button = (label: string, title: string, f: () => void) =>
       h("button", { text: label, title, attrs: { type: "button" }, on: { click: f } });
     const toolbar = h("div", { class: "zoom-bar" },
-      button("−", "Zoom out (−)", () => this.zoomBy(1 / 1.25)), this.zoomLabel,
-      button("+", "Zoom in (+)", () => this.zoomBy(1.25)),
-      button("Fit", "Fit width (0)", () => this.fitWidth()), button("1:1", "Actual size (1)", () => this.setZoom(1)));
+      button("−", t("Zoom out (−)"), () => this.zoomBy(1 / 1.25)), this.zoomLabel,
+      button("+", t("Zoom in (+)"), () => this.zoomBy(1.25)),
+      button(t("Fit"), t("Fit width (0)"), () => this.fitWidth()), button("1:1", t("Actual size (1)"), () => this.setZoom(1)));
     this.problemsEl.hidden = true;
     this.root = h("div", { class: "note-canvas" }, toolbar, this.viewport);
     this.layout();
@@ -187,8 +188,8 @@ export class NoteView {
     const list = [...this.problems.values()];
     this.problemsEl.hidden = false;
     this.problemsEl.replaceChildren(
-      h("summary", { text: `${list.length} attachment${list.length === 1 ? "" : "s"} cannot be shown (crossed boxes on the page)` }),
-      h("ul", {}, ...list.map((p) => h("li", { text: `Page ${p.page}: ${p.item ? `${p.kind} ${p.item.slice(0, 8)}: ` : ""}${p.reason}` }))));
+      h("summary", { text: tn("{count} attachments cannot be shown (crossed boxes on the page)", list.length) }),
+      h("ul", {}, ...list.map((p) => h("li", { text: t("Page {page}: {detail}", { page: p.page, detail: `${p.item ? `${p.kind} ${p.item.slice(0, 8)}: ` : ""}${p.reason}` }) }))));
   }
 
   private layout(): void {
@@ -204,8 +205,8 @@ export class NoteView {
         height = 200;
       }
       if (!(height > 0)) height = 200;
-      const el = h("div", { class: "page", attrs: { "aria-label": `Page ${index + 1}` } },
-        h("div", { class: "page-placeholder", text: `Page ${index + 1}` }));
+      const el = h("div", { class: "page", attrs: { "aria-label": t("Page {number}", { number: index + 1 }) } },
+        h("div", { class: "page-placeholder", text: t("Page {number}", { number: index + 1 }) }));
       el.style.width = `${width}px`;
       el.style.height = `${height}px`;
       el.style.left = `${(this.contentWidth - width) / 2}px`;
@@ -293,7 +294,7 @@ export class NoteView {
       slot.el.style.height = `${height}px`;
       slot.el.replaceChildren(svg);
     } catch (e) {
-      slot.el.replaceChildren(h("div", { class: "page-error", text: `Page ${slot.index + 1} cannot be drawn: ${e instanceof Error ? e.message : String(e)}` }));
+      slot.el.replaceChildren(h("div", { class: "page-error", text: t("Page {number} cannot be drawn: {detail}", { number: slot.index + 1, detail: e instanceof Error ? e.message : String(e) }) }));
     }
   }
 
@@ -313,7 +314,7 @@ export class NoteView {
       const node = audioLabelNode(audioDraw(it, recording, canvasMeasure, t));
       label.replaceChildren(...(node ? [svgTree(node)] : []));
     }).catch((e: unknown) => {
-      if (!this.destroyed) this.report(slot, it, `the recording's transcript is not shown: ${why(e)}`);
+      if (!this.destroyed) this.report(slot, it, t("the recording's transcript is not shown: {detail}", { detail: why(e) }));
     });
   }
 
@@ -359,11 +360,11 @@ export class NoteView {
     const d = p.draw;
     const clipId = `${this.uid}-p${slot.index}-i${slot.pending.indexOf(p)}`;
     try {
-      if (!this.blobs) throw new Error("attachments are not available");
+      if (!this.blobs) throw new Error(t("attachments are not available"));
       let url: string, width: number, height: number, transform;
       if (d.kind === "image" || d.kind === "video") {
         const ref = d.kind === "image" ? d.ref : d.poster;
-        if (!ref) throw new Error("video without a poster frame");
+        if (!ref) throw new Error(t("video without a poster frame"));
         const bytes = new Uint8Array(await (await this.blobs.get(ref, imageLimits.maxBlobBytes)).arrayBuffer());
         const info = imageInfo(bytes);
         const m = d.kind === "image" ? imageTransform(d.it, info.width, info.height) : posterTransform(d.it, info.width, info.height);
@@ -380,7 +381,7 @@ export class NoteView {
         if (!decoded || img.naturalWidth !== info.width || img.naturalHeight !== info.height) {
           URL.revokeObjectURL(url);
           this.urls.delete(url);
-          throw new Error(decoded ? "the image does not decode to its stated size" : "the image cannot be decoded");
+          throw new Error(decoded ? t("the image does not decode to its stated size") : t("the image cannot be decoded"));
         }
         ({ width, height } = info);
         transform = m;
@@ -392,11 +393,11 @@ export class NoteView {
         const crop = pdfCrop(d.it, eff.w, eff.h);
         // Only the page is drawn: a crop reaching beyond it shows the paper there, as in the exports.
         const shown = intersect(crop, { x: 0, y: 0, w: eff.w, h: eff.h });
-        if (!shown) throw new Error("the crop lies outside the PDF page");
+        if (!shown) throw new Error(t("the crop lies outside the PDF page"));
         const scale = this.pdfScale(p);
         const canvas = await this.pdfs.render(page, shown, scale, d.math !== undefined);
         const png = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/png"));
-        if (!png) throw new Error("the PDF page cannot be drawn");
+        if (!png) throw new Error(t("the PDF page cannot be drawn"));
         url = this.url(png);
         width = shown.w;
         height = shown.h;
@@ -449,7 +450,7 @@ export class NoteView {
   private apply(): void {
     if (this.destroyed) return;
     this.content.style.transform = `translate(${this.x}px, ${this.y}px) scale(${this.z})`;
-    this.zoomLabel.textContent = `${Math.round(this.z * 100)}%`;
+    this.zoomLabel.textContent = new Intl.NumberFormat(locale(), { style: "percent" }).format(Math.round(this.z * 100) / 100);
     const vh = this.viewport.clientHeight;
     const top = (-this.y - vh) / this.z, bottom = (-this.y + 2 * vh) / this.z;
     for (const slot of this.slots) {
