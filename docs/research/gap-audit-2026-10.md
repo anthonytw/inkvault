@@ -24,7 +24,7 @@ audits no longer apply). Statuses in `docs/ROADMAP.md` were not trusted while au
   P5, network, changelog, CLI read-only and flag tests, `validateVault`); the rest is as reported by the area audits and cites
   `file:line` for the reader to confirm.
 - Open PRs that already cover a gap (at the time of writing) are named in the state column, not proposed again:
-  #122 (recordings list page and `--format media`), #123 (mouse stroke smoothing).
+  #122 (recordings list page and `--format media`), #123 (mouse stroke smoothing); both have since merged (GA-20, GA-21 are done).
 
 Size: S = under a day, one PR, little design; M = a PR with design choices or app and
 CLI work; L = a design question, a format change or an outside decision.
@@ -52,8 +52,8 @@ CLI work; L = a design question, a format change or an outside decision.
 | GA-17 | App | Recipient repair `--keep` and replace-recipient outside migration are CLI-only (the alert tells the user to run the CLI) | `format.md` §2.1 Repair, §3.3; `cli.md:194-199` | partial in the app | `AppModel+Recipients.swift:72,90-93` | M |
 | GA-18 | Backup | "Remind Me" (overdue reminder) has no CLI counterpart; `--prune` and `--archive` have no app counterpart | `io.md:667-673`; `cli.md:783-785` | split, documented | `BackupReminder.fireDate` (app); `Sources/SempereCLI/Backup.swift:47,57` | S |
 | GA-19 | Export | HTML and SVG export, `--clean`, `--breaks` are CLI-only; the app's `ShareFormat.html` is never offered | `io.md:460-461,499` | CLI-only (documented) | `ExportCommand.swift:7-9`; `ExportSheet.swift:207,221` | S |
-| GA-20 | Export | `export --recordings list` (a recordings list page) and `--format media` | `attachments.md` §14 C4, §16 #14; ROADMAP line 48 | missing on main; **#122 open** | `Sources/SempereCLI/Export.swift:241-243` (`none, attach` only) | M (#122) |
-| GA-21 | Mac | Mouse and trackpad stroke smoothing | `mac.md:408-411`; ROADMAP "mouse stroke smoothing 💡" | missing; **#123 open** | doc only | M (#123) |
+| GA-20 | Export | `export --recordings list` (a recordings list page) and `--format media` | `attachments.md` §14 C4, §16 #14; ROADMAP line 48 | done: #122 merged after the audit | was `Sources/SempereCLI/Export.swift:241-243` (`none, attach` only) | M (#122) |
+| GA-21 | Mac | Mouse and trackpad stroke smoothing | `mac.md:408-411`; ROADMAP "mouse stroke smoothing 💡" | done: #123 merged after the audit | `Sources/Sempere/StrokeSmoothing.swift` | M (#123) |
 | GA-22 | Math | "Convert to Math" ships with no model: `MathModelCatalog.entries` is empty, the pref is off by default, a model loads only from a DEBUG folder | `docs/research/handwriting-to-latex.md`; ROADMAP #118 | flag off, waiting on the maintainer's training-data decision | `Sources/SempereRender/MathModel.swift:217-221`; `Apps/Sempere/SempereApp/MathModels.swift:9-15,66`; `MathSettings.swift:16` | L |
 | GA-23 | Capture | Quick capture on a Mac only through Shortcuts and Siri; no menu-bar item | `quick-capture.md` "Surfaces" | missing (documented future work) | no menu-bar code under `Apps/` | M |
 | GA-24 | Capture | Adopt captures from a key that no longer verifies, after a confirmation; keeping the secret in the Keychain is an open design question | `quick-capture.md` threat model | open question | no code path | L |
