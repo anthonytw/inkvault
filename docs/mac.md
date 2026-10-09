@@ -57,6 +57,13 @@ built menu bar on Catalyst (the app's File and Edit commands are there,
 UIKit's duplicates are not, no shortcut twice), and `MacWindowUITests` checks
 it in the running app.
 
+**About and Help (#142).** UIKit's Sempere ▸ About Sempere (the standard panel) and Help ▸
+Sempere Help (no help book) are replaced by the app's own items (`MenuCommand.showAbout`,
+`showTour`, `showKeyNotice`; `MacMenus.nativeCommand`, menu items with no key equivalent): About
+Sempere, Quick Tour and About Your Key open as sheets in the focused window
+(`WindowUI.expectations`, `ExpectationsSheets`). `LaunchSmokeUITests.testFirstUnlockShowsKeyNoticeThenTour`
+opens them from the menu bar.
+
 File > Export… (⇧⌘E) acts on the focused window's notes (`CommandRouter.exportIDs`:
 the list's selection in a library window, its note in a note window), and its
 sheet opens in that window (`ExportRequest.window`) with PDF chosen; the sheet

@@ -2037,6 +2037,18 @@
         }
       }
     },
+    "A backup copies the encrypted vault to another place. It helps when a folder is lost or damaged; it does not replace the key." : {
+      "comment" : "About Your Key",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Una copia de seguridad copia la bóveda cifrada a otro lugar. Sirve si una carpeta se pierde o se daña; no sustituye a la clave."
+          }
+        }
+      }
+    },
     "A backup is a copy of the vault's encrypted files, kept up to date: each run copies only what is new. Choose a folder on another drive or another cloud service. Nothing is decrypted: a backup is useless without your key, so save it with Device Keys ▸ Save Key… (with its paper recovery kit) and keep it somewhere safe as well." : {
       "comment" : "Settings ▸ Backups footer",
       "extractionState" : "manual",
@@ -2305,6 +2317,18 @@
         }
       }
     },
+    "A vault is a folder of encrypted files in iCloud Drive or any Files location; the command-line tool can mirror it to WebDAV." : {
+      "comment" : "Quick tour page 5",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Una bóveda es una carpeta de archivos cifrados en iCloud Drive o en cualquier ubicación de Archivos; la herramienta de línea de comandos puede reflejarla en WebDAV."
+          }
+        }
+      }
+    },
     "A vault is one .sempere item in Files: on this device, in iCloud Drive, or anywhere else. Choose the .sempere item itself (a plain folder works too)." : {
       "comment" : "Welcome screen footer",
       "extractionState" : "manual",
@@ -2399,6 +2423,18 @@
       "extractionState" : "manual",
       "shouldTranslate" : false
     },
+    "About" : {
+      "comment" : "Settings section header",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Acerca de"
+          }
+        }
+      }
+    },
     "About %@ per hour" : {
       "comment" : "Settings ▸ Recording ▸ Size: estimated file size of one hour of audio, e.g. 28.8 MB",
       "extractionState" : "manual",
@@ -2407,6 +2443,42 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Unos %@ por hora"
+          }
+        }
+      }
+    },
+    "About Sempere" : {
+      "comment" : "App menu and Settings row: the About screen",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Acerca de Sempere"
+          }
+        }
+      }
+    },
+    "About Your Key" : {
+      "comment" : "Title of the key notice; Help menu and About buttons",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sobre tu clave"
+          }
+        }
+      }
+    },
+    "Acknowledgments" : {
+      "comment" : "About: section listing third-party software",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Agradecimientos"
           }
         }
       }
@@ -2620,6 +2692,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Añadir una página al final de la nota"
+          }
+        }
+      }
+    },
+    "Add images, PDF pages, videos, equations and text boxes." : {
+      "comment" : "Quick tour page 3",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Añade imágenes, páginas de PDF, vídeos, ecuaciones y cuadros de texto."
           }
         }
       }
@@ -3202,6 +3286,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Copia"
+          }
+        }
+      }
+    },
+    "Backup Settings…" : {
+      "comment" : "About Your Key: button to Settings ▸ Backups",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ajustes de copia…"
           }
         }
       }
@@ -5367,6 +5463,18 @@
         }
       }
     },
+    "Everything on the Page" : {
+      "comment" : "Quick tour page 3 title",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Todo en la página"
+          }
+        }
+      }
+    },
     "Export" : {
       "comment" : "Button: start the export",
       "extractionState" : "manual",
@@ -5496,6 +5604,18 @@
         }
       }
     },
+    "Export notes as PDF, images or Markdown, one at a time or all at once." : {
+      "comment" : "Quick tour page 6",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Exporta notas como PDF, imágenes o Markdown, de una en una o todas a la vez."
+          }
+        }
+      }
+    },
     "Exporting again into the same folder skips notes already there unchanged (same name, size and version)." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -5572,6 +5692,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Archivos en una carpeta"
+          }
+        }
+      }
+    },
+    "Find It Again" : {
+      "comment" : "Quick tour page 4 title",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Encuéntralo"
           }
         }
       }
@@ -6015,6 +6147,18 @@
         }
       }
     },
+    "Handwriting is recognized on this device; it is not sent anywhere." : {
+      "comment" : "Quick tour page 4",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La escritura a mano se reconoce en este dispositivo; no se envía a ningún sitio."
+          }
+        }
+      }
+    },
     "Handwriting read on %lld pages." : {
       "comment" : "Notability import result: pages the app read after the import",
       "extractionState" : "manual",
@@ -6243,6 +6387,18 @@
         }
       }
     },
+    "I Understand" : {
+      "comment" : "About Your Key: the only way to close it the first time",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Entendido"
+          }
+        }
+      }
+    },
     "I saved this key" : {
       "comment" : "Toggle: confirms the user saved the new key",
       "extractionState" : "manual",
@@ -6251,6 +6407,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "He guardado esta clave"
+          }
+        }
+      }
+    },
+    "If every copy of the key is lost, so are the notes" : {
+      "comment" : "About Your Key: heading",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Si se pierden todas las copias de la clave, se pierden las notas"
           }
         }
       }
@@ -6419,6 +6587,30 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Informe de importación"
+          }
+        }
+      }
+    },
+    "Import a PDF to write on it, and add pages as you go." : {
+      "comment" : "Quick tour page 2, iPad",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Importa un PDF para escribir encima y añade páginas sobre la marcha."
+          }
+        }
+      }
+    },
+    "Import a PDF to write on it. Settings can smooth strokes drawn with a mouse or trackpad." : {
+      "comment" : "Quick tour page 2, Mac",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Importa un PDF para escribir encima. Ajustes puede suavizar los trazos hechos con ratón o trackpad."
           }
         }
       }
@@ -6829,6 +7021,30 @@
         }
       }
     },
+    "Keep backups" : {
+      "comment" : "About Your Key: heading",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Haz copias de seguridad"
+          }
+        }
+      }
+    },
+    "Keep the recovery kit and a backup somewhere safe: if every copy of the key is lost, nobody can open the notes." : {
+      "comment" : "Quick tour page 1",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Guarda el kit de recuperación y una copia de seguridad en un lugar seguro: si se pierden todas las copias de la clave, nadie podrá abrir las notas."
+          }
+        }
+      }
+    },
     "Keep the screen awake while this note is open" : {
       "comment" : "Help tag of Keep Screen On",
       "extractionState" : "manual",
@@ -7118,6 +7334,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Biblioteca"
+          }
+        }
+      }
+    },
+    "License" : {
+      "comment" : "About: the licence text and its section",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Licencia"
           }
         }
       }
@@ -7674,6 +7902,18 @@
         }
       }
     },
+    "Next" : {
+      "comment" : "Quick tour: next page",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Siguiente"
+          }
+        }
+      }
+    },
     "Next Match" : {
       "comment" : "Button",
       "extractionState" : "manual",
@@ -8000,6 +8240,18 @@
         }
       }
     },
+    "Nobody can recover them then, including the developer. There is no reset and no recovery service." : {
+      "comment" : "About Your Key",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Entonces nadie puede recuperarlas, tampoco el desarrollador. No hay restablecimiento ni servicio de recuperación."
+          }
+        }
+      }
+    },
     "None" : {
       "comment" : "Restore preview: no revision at all",
       "extractionState" : "manual",
@@ -8285,6 +8537,18 @@
         }
       }
     },
+    "Notes are encrypted on your devices. There is no Sempere server: your storage sees encrypted files, their sizes and times." : {
+      "comment" : "Quick tour page 5",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Las notas se cifran en tus dispositivos. No hay servidor de Sempere: tu almacenamiento ve archivos cifrados, su tamaño y sus fechas."
+          }
+        }
+      }
+    },
     "Notes were not decrypted (the vault is locked)." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -8559,6 +8823,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Solo la clave secreta correspondiente puede abrir la bóveda; se te pedirá."
+          }
+        }
+      }
+    },
+    "Only your key opens these notes" : {
+      "comment" : "About Your Key: heading",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Solo tu clave abre estas notas"
           }
         }
       }
@@ -9790,6 +10066,18 @@
         }
       }
     },
+    "Print the paper recovery kit, or keep the key in a password manager, somewhere apart from this device." : {
+      "comment" : "About Your Key",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Imprime el kit de recuperación en papel o guarda la clave en un gestor de contraseñas, en un lugar distinto de este dispositivo."
+          }
+        }
+      }
+    },
     "Print the recovery kit of “%@”" : {
       "comment" : "Face ID prompt reason; %@ is the vault's name",
       "extractionState" : "manual",
@@ -9882,6 +10170,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Calidad"
+          }
+        }
+      }
+    },
+    "Quick Tour" : {
+      "comment" : "Title of the quick tour; Help menu item",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Recorrido rápido"
           }
         }
       }
@@ -10361,6 +10661,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Grabar o detener una nota de voz"
+          }
+        }
+      }
+    },
+    "Record while you write: the ink is linked to the recording, and transcripts are made on this device." : {
+      "comment" : "Quick tour page 3",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Graba mientras escribes: la tinta queda enlazada a la grabación, y las transcripciones se hacen en este dispositivo."
           }
         }
       }
@@ -10968,6 +11280,18 @@
         }
       }
     },
+    "Report a Vulnerability" : {
+      "comment" : "About: link to GitHub private vulnerability reporting",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Informar de una vulnerabilidad"
+          }
+        }
+      }
+    },
     "Reset" : {
       "comment" : "Button: undo the crop changes",
       "extractionState" : "manual",
@@ -11385,6 +11709,18 @@
         }
       }
     },
+    "Save Key and Recovery Kit…" : {
+      "comment" : "About Your Key: button to the Save Key sheet (key file and paper recovery kit)",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Guardar clave y kit…"
+          }
+        }
+      }
+    },
     "Save Key exports this device's key, after Face ID, to Files or a password manager, with its paper recovery kit. New Key makes a key for another device and encrypts the vault to it. Devices here are the keys this vault is encrypted to (this iPad, that Mac, the paper backup), not people: to share a note, export it. “Rewrite headers only” is fast but leaves old copies of an attachment openable with a key that was removed. “Re-encrypt everything” takes longer in a vault with many attachments." : {
       "comment" : "Footer of Settings → Device Keys; button and option names as translated",
       "extractionState" : "manual",
@@ -11465,6 +11801,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Guardar la clave de «%@»"
+          }
+        }
+      }
+    },
+    "Save the recovery kit now" : {
+      "comment" : "About Your Key: heading",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Guarda ahora el kit de recuperación"
           }
         }
       }
@@ -11636,6 +11984,18 @@
         }
       }
     },
+    "Search looks through titles, handwriting, typed text, the text of PDFs and recording transcripts." : {
+      "comment" : "Quick tour page 4",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La búsqueda mira en títulos, escritura a mano, texto escrito, el texto de los PDF y las transcripciones de las grabaciones."
+          }
+        }
+      }
+    },
     "Search notes and handwriting" : {
       "comment" : "Placeholder of the note list's search field",
       "extractionState" : "manual",
@@ -11656,6 +12016,30 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Clave secreta para «%@»"
+          }
+        }
+      }
+    },
+    "Security Design and Limits" : {
+      "comment" : "About: link to docs/security.md",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Diseño de seguridad y límites"
+          }
+        }
+      }
+    },
+    "Security and Source" : {
+      "comment" : "About: section header",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Seguridad y código"
           }
         }
       }
@@ -11756,6 +12140,40 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Sempere ya no tiene acceso a “%@”. El sistema solo conserva el acceso a las carpetas que eliges tú."
+          }
+        }
+      }
+    },
+    "Sempere is free software and comes with no warranty." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sempere es software libre y no tiene ninguna garantía."
+          }
+        }
+      }
+    },
+    "Sempere is free software and comes with no warranty. Your key is the only way into your notes." : {
+      "comment" : "Quick tour page 1",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sempere es software libre y no tiene ninguna garantía. Tu clave es la única forma de abrir tus notas."
+          }
+        }
+      }
+    },
+    "Sempere is free software under the GNU GPL v3. It comes with no warranty." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sempere es software libre con licencia GNU GPL v3. No tiene ninguna garantía."
           }
         }
       }
@@ -11985,6 +12403,18 @@
         }
       }
     },
+    "Show Quick Tour" : {
+      "comment" : "About: button",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ver recorrido rápido"
+          }
+        }
+      }
+    },
     "Show Report" : {
       "comment" : "Button of the Notability import result alert",
       "extractionState" : "manual",
@@ -12164,6 +12594,18 @@
         }
       }
     },
+    "Skip" : {
+      "comment" : "Quick tour: close it before the last page",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Omitir"
+          }
+        }
+      }
+    },
     "Small" : {
       "comment" : "Object eraser size",
       "extractionState" : "manual",
@@ -12291,6 +12733,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Ordenar las notas por fecha o título"
+          }
+        }
+      }
+    },
+    "Source Code" : {
+      "comment" : "About: link to the repository",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Código fuente"
           }
         }
       }
@@ -12783,6 +13237,18 @@
         }
       }
     },
+    "Take It With You" : {
+      "comment" : "Quick tour page 6 title",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Llévatelo"
+          }
+        }
+      }
+    },
     "Take Photo…" : {
       "comment" : "Insert menu item: use the camera",
       "extractionState" : "manual",
@@ -13246,6 +13712,18 @@
         }
       }
     },
+    "The GNU GPL v3 on gnu.org" : {
+      "comment" : "About: link to the licence on the web",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La GNU GPL v3 en gnu.org"
+          }
+        }
+      }
+    },
     "The archive is deleted from the app when you close this sheet." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -13429,6 +13907,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "El formato es demasiado largo: como máximo %@ caracteres."
+          }
+        }
+      }
+    },
+    "The free sempere command-line tool for macOS and Linux reads, exports and recovers vaults, without the app." : {
+      "comment" : "Quick tour page 6",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La herramienta libre de línea de comandos sempere, para macOS y Linux, lee, exporta y recupera bóvedas sin la app."
           }
         }
       }
@@ -13981,6 +14471,18 @@
         }
       }
     },
+    "Third-Party Licenses" : {
+      "comment" : "About: the bundled third-party notices",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Licencias de terceros"
+          }
+        }
+      }
+    },
     "This Backup Holds" : {
       "comment" : "Restore from Backup: section header",
       "extractionState" : "manual",
@@ -14306,6 +14808,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Esta nota se muestra en su propia ventana."
+          }
+        }
+      }
+    },
+    "This text is not in this build. Read it at %@." : {
+      "comment" : "About: a bundled licence text is missing; %@ is a web address",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Este texto no está en esta versión. Léelo en %@."
           }
         }
       }
@@ -15035,6 +15549,18 @@
         }
       }
     },
+    "Unlock a vault with its key on this device to save the key." : {
+      "comment" : "About Your Key: why Save Key is unavailable",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Desbloquea una bóveda con su clave en este dispositivo para guardar la clave."
+          }
+        }
+      }
+    },
     "Unlock the vault first." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -15429,6 +15955,18 @@
         }
       }
     },
+    "Version" : {
+      "comment" : "About: app version and build",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Versión"
+          }
+        }
+      }
+    },
     "Version History" : {
       "comment" : "Title of a note's version history sheet",
       "extractionState" : "manual",
@@ -15561,6 +16099,17 @@
         }
       }
     },
+    "Vulnerabilities are reported privately on GitHub, as the security policy (SECURITY.md) describes." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Las vulnerabilidades se comunican de forma privada en GitHub, como describe la política de seguridad (SECURITY.md)."
+          }
+        }
+      }
+    },
     "Waiting for the Vault" : {
       "comment" : "Note window: the vault is not open or unlocked yet",
       "extractionState" : "manual",
@@ -15657,6 +16206,30 @@
         }
       }
     },
+    "Write" : {
+      "comment" : "Quick tour page 2 title",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Escribe"
+          }
+        }
+      }
+    },
+    "Write with Apple Pencil and pick pens, markers and erasers from the palette, on pages or on one long page." : {
+      "comment" : "Quick tour page 2",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Escribe con el Apple Pencil y elige plumas, rotuladores y gomas en la paleta, en páginas o en una sola página larga."
+          }
+        }
+      }
+    },
     "Written on the wind." : {
       "comment" : "App icon caption (Shadow S)",
       "extractionState" : "manual",
@@ -15717,6 +16290,41 @@
         }
       }
     },
+    "You may use, study, share and change Sempere under the GPL v3 or any later version. An App Store exception lets the app be distributed under the App Store's terms." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Puedes usar, estudiar, compartir y modificar Sempere según la GPL v3 o cualquier versión posterior. Una excepción para la App Store permite distribuir la app según las condiciones de la App Store."
+          }
+        }
+      }
+    },
+    "Your Notes, Your Key" : {
+      "comment" : "Quick tour page 1 title",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tus notas, tu clave"
+          }
+        }
+      }
+    },
+    "Your Storage" : {
+      "comment" : "Quick tour page 5 title",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tu almacenamiento"
+          }
+        }
+      }
+    },
     "Your new post-quantum secret key. Save it now: after the upgrade only this key (or a passphrase-protected copy) opens the vault. Losing it means losing the vault." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -15724,6 +16332,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Tu nueva clave secreta poscuántica. Guárdala ahora: tras la actualización solo esta clave (o una copia protegida con frase de contraseña) abre la bóveda. Perderla es perder la bóveda."
+          }
+        }
+      }
+    },
+    "Your notes are encrypted with a key that stays with you: on your devices, on paper, or wherever you saved it. Sempere has no server and never receives it. If you chose a passphrase, the copy of the key it protects opens the notes too." : {
+      "comment" : "About Your Key",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tus notas se cifran con una clave que se queda contigo: en tus dispositivos, en papel o donde la hayas guardado. Sempere no tiene servidor y nunca la recibe. Si elegiste una frase de contraseña, la copia de la clave que protege también abre las notas."
           }
         }
       }

@@ -32,6 +32,15 @@ not yet tried on the iPad.
 The iPhone reader is the same target (`docs/iphone.md`, PR #65): compact stack, read-first note view,
 finger annotation behind a button, tests at iPhone sizes, 6.9" screenshots. Status: ✅ #65, not yet tried on a physical iPhone.
 
+Setting expectations (maintainer, 2026-10-09; #142): `sempere --version` and `sempere about` print the
+GPL-3 notice and links (`SempereAbout`, shared with the app); the app's "About Your Key" notice (first
+unlock of a vault with a key on a device, new vaults included), the quick tour (once per device),
+Settings ▸ About (bundled licence and third-party notices) and the Mac's About and Help menus
+(`Expectations.swift`, `ExpectationsViews.swift`); `docs/security.md` (what the encryption protects and
+its limits) and the SECURITY.md advisory process; App Store licence agreement and §7 exception drafts
+in `docs/appstore/` for the maintainer and a lawyer (not applied). Status: ✅ on the branch; the
+notices are not yet tried on the iPad or a Mac.
+
 ## Phase 2 — Mac companion
 
 Same target via Catalyst: menus, keyboard shortcuts, multi-window, drag and
