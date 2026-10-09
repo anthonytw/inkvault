@@ -163,22 +163,30 @@ extension Vault {
         guard m.recipients.map(\.key) == manifest.recipients.map(\.key), m.vaultSecret == manifest.vaultSecret else {
             throw VaultError.manifestCorrupt("vault.json changed since it was opened; open the vault again")
         }
-        var target = VaultMarkers(m)
-        if let seen = try trustStore?.record(for: vaultId)?.markers { target = target.merged(with: seen) }
-        var features = m.features
-        for f in target.features where !features.contains(f) { features.append(f) }
-        let candidate = VaultManifest(format: target.format, vaultId: m.vaultId, created: m.created, recipients: [],
-                                      vaultSecret: "", features: features)
-        let reasons = Self.readOnlyReasons(candidate)
-        guard reasons.isEmpty else {
-            throw VaultError.recipientsNotRepairable("this device last saw the vault with \(reasons.descriptions.joined(separator: "; ")): restore "
-                + "vault.json from a device running that version")
-        }
-        m.format = target.format
-        m.features = features
+        m = try Self.restoringMarkers(m, recorded: try trustStore?.record(for: vaultId)?.markers)
         manifest = try Self.writeManifest(m, to: manifestURL, replacing: true, secret: secret)
         recipientsStatus = Self.recipientsStatus(manifest, secret: secret, trust: trustStore)
         if recipientsStatus.allowsWriting { try rememberRecipients(markers: VaultMarkers(manifest)) }
+    }
+}
+
+extension Vault {
+    /// `m` with the larger of its markers and `recorded` (the higher major,
+    /// every feature of either; format.md §2.1 "Version markers").
+    ///
+    /// - Throws: `recipientsNotRepairable` when the result names a format or
+    ///   feature this version does not implement.
+    static func restoringMarkers(_ m: VaultManifest, recorded: VaultMarkers?) throws -> VaultManifest {
+        var out = m
+        let target = recorded.map { VaultMarkers(m).merged(with: $0) } ?? VaultMarkers(m)
+        for f in target.features where !out.features.contains(f) { out.features.append(f) }
+        out.format = target.format
+        let reasons = readOnlyReasons(out)
+        guard reasons.isEmpty else {
+            throw VaultError.recipientsNotRepairable("this device last saw the vault with "
+                + "\(reasons.descriptions.joined(separator: "; ")): restore vault.json from a device running that version")
+        }
+        return out
     }
 }
 

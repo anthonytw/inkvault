@@ -217,4 +217,23 @@ final class MarkersAuthTests: VaultTestCase {
         obj["markers"] = nil
         XCTAssertNil(try JSONDecoder().decode(RecipientsTrustRecord.self, from: try JSONSerialization.data(withJSONObject: obj)).markers)
     }
+
+    /// Attack: the list and the markers changed together. The list's repair
+    /// also restores the markers (else neither repair could run first).
+    func testARecipientsRepairAlsoRestoresTheMarkers() throws {
+        let store = MemoryRecipientsTrustStore()
+        let v = try setUpVault(store)
+        let attacker = pqIdentity()
+        try edit(v) { m in
+            m.recipients.append(.init(key: attacker.recipient.string, label: "x", added: Date()))
+            m.features.removeAll { $0 == VaultManifest.signedLinkFeature }
+        }
+        var opened = try Vault.open(at: v.url, identities: [a], trust: store)
+        XCTAssertEqual(reason(opened), .tagMismatch)
+        _ = try opened.repairRecipients()
+        let after = try Vault.open(at: v.url, identities: [a], trust: store)
+        XCTAssertEqual(after.recipientsStatus, .verified(.unchanged), "this device wrote the repair")
+        XCTAssertEqual(after.recipients.map(\.key), [a.recipient.string])
+        XCTAssertTrue(after.manifest.features.contains(VaultManifest.signedLinkFeature))
+    }
 }

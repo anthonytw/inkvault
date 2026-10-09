@@ -711,11 +711,16 @@ public struct Vault: Sendable {
         // `features` as on disk: a blob writer may have added one since open.
         // A newer vault.json synced in since open makes the vault read-only
         // (format.md §7.3): refuse before the journal is written.
-        let onDisk = (try? Self.readManifest(FileIO.read(manifestURL, maxBytes: BoundedRead.maxManifestBytes))) ?? manifest
+        var onDisk = (try? Self.readManifest(FileIO.read(manifestURL, maxBytes: BoundedRead.maxManifestBytes))) ?? manifest
         let reasons = Self.readOnlyReasons(onDisk)
         if !reasons.isEmpty { throw VaultError.readOnly(reasons) }
         // Markers changed on disk since open are not re-tagged under the new secret (N3).
-        guard onDisk.markersIntact(secret: current) else {
+        // A repair restores them instead: the larger of those on disk and this
+        // device's record, as `repairMarkers` would (an attacker who changed the
+        // list may have changed them too, and neither repair could run first).
+        if repairing {
+            onDisk = try Self.restoringMarkers(onDisk, recorded: recordedMarkers)
+        } else if !onDisk.markersIntact(secret: current) {
             throw VaultError.manifestCorrupt("vault.json's version markers changed since it was opened; open the vault again")
         }
         let ageNext = try next.map { r in
