@@ -9,12 +9,16 @@ import {
 } from "./primitives.ts";
 import { applyTransform, meanScale, strokeCommands, transformOf } from "./stroke.ts";
 import { type PreparedItem, maxItemsPerPage, prepareItem } from "./items.ts";
+import { expandMarkdown } from "./markdown.ts";
+import type { Measure } from "./text.ts";
 import { cmpItems } from "../format/registers.ts";
 
 export interface RenderOptions {
   paper: boolean;
   tolerance: number;
   infiniteChunkHeight?: number;
+  /** Text widths for laying Markdown boxes out (§8.5.4); the approximate measure when absent. */
+  measure?: Measure;
 }
 
 export const defaultRenderOptions: RenderOptions = { paper: true, tolerance: 0.05 };
@@ -93,7 +97,18 @@ export class PreparedPage {
         this.warnings.push(`item ${String(item.id).slice(0, 8)}: ${p}`);
         continue;
       }
-      this.items.push(p);
+      const md = expandMarkdown(p, options.measure);
+      if (md) {
+        // A Markdown box is drawn as its pieces (§8.5.4).
+        this.items.push(...md.pieces);
+        for (const q of md.pieces) low = Math.max(low, q.maxY);
+        if (md.unrendered > 0) {
+          this.warnings.push(`text box ${String(item.id).slice(0, 8)}: ${md.unrendered} formula${md.unrendered === 1 ? " is" : "s are"} `
+            + "drawn as its LaTeX source (no typeset rendering stored)");
+        }
+      } else {
+        this.items.push(p);
+      }
       low = Math.max(low, p.maxY);
     }
     if (page.items.length > maxItemsPerPage) this.warnings.push(`more than ${maxItemsPerPage} items; the rest are not drawn`);
