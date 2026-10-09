@@ -131,6 +131,16 @@ enum ObjectEraserSize {
         defaults.set(radii.contains(radius) ? radius : defaultRadius, forKey: defaultsKey)
     }
 
+    /// The preset one step smaller or larger than `radius` (the Tools menu's Smaller and
+    /// Larger Object Eraser); the ends stay where they are. A value that is not a preset
+    /// counts as the default.
+    static func step(_ radius: Double, larger: Bool) -> Double {
+        let current = radii.contains(radius) ? radius : defaultRadius
+        guard let index = radii.firstIndex(of: current) else { return defaultRadius }
+        let next = index + (larger ? 1 : -1)
+        return radii.indices.contains(next) ? radii[next] : current
+    }
+
     /// A short name for a preset, for the size menu.
     static func name(of radius: Double) -> String {
         switch radius {

@@ -102,7 +102,7 @@ struct AppCommands: Commands {
     @ViewBuilder
     private func item(_ command: MenuCommand) -> some View {
         let enabled = router.map { command.isEnabled(in: $0.context) } ?? (command == .showLibrary || command == .showSettings)
-        let title = command == .togglePalette && router?.paletteVisible == true ? String(localized: "Hide Tool Palette") : command.title
+        let title = command.title(in: router?.context, paletteVisible: router?.paletteVisible == true)
         let button = Button(title) { run(command) }.disabled(!enabled)
         if let shortcut = command.shortcut {
             button.keyboardShortcut(shortcut.key == MenuCommand.Shortcut.backspace ? KeyEquivalent.delete : KeyEquivalent(shortcut.key),
@@ -117,6 +117,11 @@ struct AppCommands: Commands {
         case .showKeys: openWindow(id: SceneRestoration.keysSceneID)
         case .showLibrary: openWindow(id: SceneRestoration.librarySceneID)
         case .showSettings: openWindow(id: MenuRouting.settingsSceneID)
+        case .toggleVoiceNote where VoiceNoteMenu.opensSettingsWindow(setUp: QuickCapture.shared.isSetUp,
+                                                                      state: QuickCapture.shared.state):
+            // Not set up: the Settings window (Quick Voice Notes is in it). The model's way, a sheet
+            // over the library window, shows nothing when the menu is used from a note window.
+            openWindow(id: MenuRouting.settingsSceneID)
         default: router?.perform(command)
         }
     }
@@ -138,8 +143,29 @@ enum EditorCommands {
             if let editor { editor.selectPage(editor.pageIndex - 1) }
         case .nextPage:
             if let editor { editor.selectPage(editor.pageIndex + 1) }
+        // The toolbar's Add Page: after the page on the canvas (the end is a menu entry of its own).
         case .addPage:
+            if let editor, !editor.isReadOnly { editor.addPageAfterCurrent() }
+        case .addPageAtEnd:
             if let editor, !editor.isReadOnly { editor.addPage() }
+        case .duplicatePage:
+            if let editor, let page = editor.currentPage { editor.duplicatePage(page.id) }
+        case .deletePage:
+            if let editor, editor.canDeletePage, let page = editor.currentPage { editor.deletePage(page.id) }
+        case .undoDeletePage:
+            editor?.undoDeletePage()
+        case .toggleLayout:
+            if let editor { Task { await editor.setLayout(pageless: !editor.isPageless) } }
+        case .toolText:
+            if editor != nil { ui.toolRequest = .text }
+        case .toolSelect:
+            if editor != nil { ui.toolRequest = .select }
+        case .eraserSmaller, .eraserLarger:
+            ObjectEraserSize.save(ObjectEraserSize.step(ObjectEraserSize.load(), larger: command == .eraserLarger))
+        case .toggleCompactPalette:
+            UserDefaults.standard.set(!ToolPalette.isCompact(), forKey: ToolPalette.compactKey)
+        case .togglePageStrip:
+            UserDefaults.standard.set(!PageStrip.isVisible(), forKey: PageStrip.visibleKey)
         case .toolPen, .toolMarker, .toolPencil, .toolEraser, .toolLasso:
             if let tool = ToolChoice(command) { editor?.canvasTarget?.select(tool: tool) }
         case .toggleRuler:
@@ -171,6 +197,10 @@ enum EditorCommands {
         context.hasPage = editor?.currentPage != nil
         context.pageIndex = editor?.pageIndex ?? 0
         context.pageCount = editor?.pages.count ?? 0
+        context.canDeletePage = editor?.canDeletePage ?? false
+        context.hasDeletedPages = !(editor?.deletedPages.isEmpty ?? true)
+        // Typing in a text box on the canvas: its keys (⌘⌫, ⌥⌘⌫) must not delete the note or a page.
+        if editor?.typingInTextBox == true { context.editingText = true }
     }
 }
 
@@ -186,6 +216,7 @@ enum WindowCommands {
         case .importPDF: ui.importingPDF = true
         case .importNotability: ui.importingNotability = true
         case .exportNotes: model.requestExport(.pdf, ids: exportIDs, window: ui.id)
+        case .toggleVoiceNote: Task { await model.toggleVoiceNote() }
         default: return false
         }
         return true
@@ -195,6 +226,7 @@ enum WindowCommands {
     static func fill(_ context: inout MenuCommand.Context, model: AppModel, exportIDs: [UUID]) {
         context.vaultReadOnly = model.isVaultReadOnly
         context.hasExportTargets = !exportIDs.isEmpty
+        context.voiceNote = VoiceNoteMenu.phase(model.quickCapture.state)
     }
 }
 
@@ -229,10 +261,20 @@ final class WindowUI {
     var notabilityReport: NotabilityImportDetails?
     /// A menu command for the editor's Insert menu (`InsertRequest`), taken by the window's editor.
     var insertRequest: InsertRequest?
+    /// A menu command for the editor's toolbar toggles (`ToolRequest`), taken by the window's editor.
+    var toolRequest: ToolRequest?
+    /// The note whose Version History sheet is open (`WindowSheets`).
+    var historyNoteID: UUID?
 }
 
 /// File > Insert Photo… and Insert PDF Pages…: the window's editor opens the
 /// same picker as its Insert menu (`InsertMenu`), then clears the request.
 enum InsertRequest: Equatable {
     case photos, pdfPages
+}
+
+/// Tools > Text and Select: the editor flips the toolbar toggle of the same name,
+/// then clears the request.
+enum ToolRequest: Equatable {
+    case text, select
 }

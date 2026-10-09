@@ -154,3 +154,22 @@ struct ObjectEraserTests {
         #expect(kept.map(\.intValue) == [UITouch.TouchType.direct, .indirect, .indirectPointer].map(\.rawValue))
     }
 }
+
+/// Tools > Smaller / Larger Object Eraser (GA-14).
+struct ObjectEraserStepTests {
+    @Test func stepsThroughThePresetsAndStopsAtTheEnds() {
+        let radii = ObjectEraserSize.radii
+        for (i, r) in radii.enumerated() {
+            #expect(ObjectEraserSize.step(r, larger: true) == radii[min(i + 1, radii.count - 1)])
+            #expect(ObjectEraserSize.step(r, larger: false) == radii[max(i - 1, 0)])
+        }
+    }
+
+    @Test func aValueThatIsNoPresetCountsAsTheDefault() {
+        let d = ObjectEraserSize.defaultRadius
+        let up = ObjectEraserSize.step(5.5, larger: true)
+        let down = ObjectEraserSize.step(.nan, larger: false)
+        #expect(ObjectEraserSize.radii.contains(up) && ObjectEraserSize.radii.contains(down))
+        #expect(up > d && down < d)
+    }
+}
