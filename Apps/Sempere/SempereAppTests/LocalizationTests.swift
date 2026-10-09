@@ -42,8 +42,10 @@ struct LocalizationTests {
     @Test func everyMenuTitleIsTranslated() throws {
         let es = try #require(Self.spanish)
         let missing = "\u{1}missing"
-        let untranslated = MenuCommand.allCases.map(\.title).filter { title in
-            es.localizedString(forKey: title, value: missing, table: nil) == missing
+        // The import entry's title is built from the importer's name: its catalog key has a placeholder.
+        let keys = MenuCommand.allCases.map { $0 == .importFromApp && AppImporters.primary != nil ? "Import from %@…" : $0.title }
+        let untranslated = keys.filter { key in
+            es.localizedString(forKey: key, value: missing, table: nil) == missing
         }
         #expect(untranslated.isEmpty, "no Spanish for: \(untranslated)")
     }

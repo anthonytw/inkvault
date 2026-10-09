@@ -1,17 +1,10 @@
 import Foundation
+import ImportTestSupport
 import XCTest
 @testable import SempereImport
 
 /// The strict XML plist reader (`XMLPlist`).
 final class XMLPlistTests: XCTestCase {
-    func testNotabilityRecordingsLibrary() throws {
-        XCTAssertEqual(try NotabilityNote.parseRecordingCount(SyntheticNote.recordingsLibrary()), 0)
-        XCTAssertEqual(try NotabilityNote.parseRecordingCount(SyntheticNote.recordingsLibrary(recordings: 3)), 3)
-        guard case .dict(let d) = try PlistValue.parse(SyntheticNote.recordingsLibrary(), allowXML: true) else { return XCTFail() }
-        XCTAssertEqual(d["library-format-version"], .string("1.0"))
-        XCTAssertEqual(d["recordings"], .dict([:]))
-    }
-
     func testEveryValueType() throws {
         let xml = #"""
             <?xml version="1.0" encoding="UTF-8"?>
@@ -51,18 +44,11 @@ final class XMLPlistTests: XCTestCase {
         XCTAssertThrowsError(try PlistValue.parse(Data(repeating: 0x20, count: XMLPlist.maxBytes + 1), allowXML: true))
         XCTAssertThrowsError(try PlistValue.parse(Data("{ a = 1; }".utf8), allowXML: true))   // OpenStep
     }
-
-    /// The regression: a real-shaped note (XML library.plist) imports.
-    func testNoteWithXMLLibraryImports() throws {
-        let note = try NotabilityNote.parse(package: NotePackage(zip: ZipArchive(data: SyntheticNote.package())))
-        XCTAssertFalse(note.curves.isEmpty)
-        XCTAssertEqual(note.recordingCount, 0)
-    }
 }
 
 extension XMLPlistTests {
     /// Keyed archives stay binary-only: XML is accepted only where asked for.
     func testXMLIsOptIn() {
-        XCTAssertThrowsError(try PlistValue.parse(SyntheticNote.recordingsLibrary()))
+        XCTAssertThrowsError(try PlistValue.parse(Data(#"<?xml version="1.0"?><plist><dict/></plist>"#.utf8)))
     }
 }

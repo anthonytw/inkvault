@@ -1,4 +1,5 @@
 import Age
+import CLITestSupport
 import Foundation
 import Sempere
 import XCTest
@@ -240,8 +241,8 @@ final class CLIPostQuantumTests: CLITestCase {
             ["search", "fixture", "--vault", vault],
             ["compact", "--all", "--vault", vault],
             ["snapshot", note, "--vault", vault],
-            ["import", "notability", path("none.note"), "--vault", vault],
-            ["import", "notability", path("none.note"), "--dry-run", "--vault", vault],
+            ["import", "pdf", path("none.pdf"), "--vault", vault],
+            ["import", "pdf", path("none.pdf"), "--dry-run", "--vault", vault],
             ["vault", "verify", "--vault", vault],
             ["keys", "export", "--vault", vault],
             ["sync", "webdav", "http://127.0.0.1:9/dav/", "--vault", vault],
