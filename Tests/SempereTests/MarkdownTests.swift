@@ -236,4 +236,50 @@ final class MarkdownTests: XCTestCase {
         XCTAssertEqual(MarkdownText.hash("a"), "e40c292c")
         XCTAssertEqual(MarkdownText.hash("é"), MarkdownText.hash("\u{E9}"))
     }
+
+    // MARK: Editing helpers (the app's Markdown bar)
+
+    private func edit(_ action: MarkdownEditing.Action, _ text: String, _ at: Int, _ length: Int = 0) -> String {
+        let r = MarkdownEditing.apply(action, to: text, selection: NSRange(location: at, length: length))
+        let ns = r.text as NSString
+        // The selection shown as [ ].
+        return ns.substring(to: r.selection.location) + "[" + ns.substring(with: r.selection) + "]"
+            + ns.substring(from: r.selection.location + r.selection.length)
+    }
+
+    func testWrapAndUnwrap() {
+        XCTAssertEqual(edit(.bold, "a word b", 2, 4), "a **[word]** b")
+        XCTAssertEqual(edit(.bold, "a **word** b", 4, 4), "a [word] b")
+        XCTAssertEqual(edit(.italic, "ab", 1), "a*[]*b")
+        XCTAssertEqual(edit(.strikethrough, "x", 0, 1), "~~[x]~~")
+        XCTAssertEqual(edit(.code, "f x", 2, 1), "f `[x]`")
+        XCTAssertEqual(edit(.math, "x^2", 0, 3), "$[x^2]$")
+        XCTAssertEqual(edit(.link, "see docs", 4, 4), "see [docs]([https://])")
+        XCTAssertEqual(edit(.link, "", 0), "[[]](https://)")
+        XCTAssertEqual(edit(.displayMath, "ab", 1), "a\n$$\n[]\n$$\nb")
+        XCTAssertEqual(edit(.bold, "é 😀", 2, 2), "é **[😀]**")
+    }
+
+    func testLinePrefixes() {
+        XCTAssertEqual(edit(.bulletList, "one\ntwo", 0, 7), "- [one\n- two]")
+        XCTAssertEqual(edit(.bulletList, "- one\n- two", 2, 9), "[one\ntwo]")
+        XCTAssertEqual(edit(.numberedList, "a\nb\nc", 0, 5), "1. [a\n2. b\n3. c]")
+        XCTAssertEqual(edit(.taskList, "- item", 6), "- [ ] item[]")
+        XCTAssertEqual(edit(.quote, "said", 0), "> []said")
+        XCTAssertEqual(edit(.heading, "Title", 2), "# Ti[]tle")
+        XCTAssertEqual(edit(.heading, "# Title", 4), "## Ti[]tle")
+        XCTAssertEqual(edit(.heading, "### Title", 6), "Ti[]tle")
+    }
+
+    func testEveryActionKeepsTheSelectionInsideTheText() {
+        for action in MarkdownEditing.Action.allCases {
+            for text in ["", "x", "line\n- item\n", "## h"] {
+                let n = (text as NSString).length
+                for start in 0...n {
+                    let r = MarkdownEditing.apply(action, to: text, selection: NSRange(location: start, length: n - start))
+                    XCTAssertLessThanOrEqual(r.selection.location + r.selection.length, (r.text as NSString).length, "\(action) \(text)")
+                }
+            }
+        }
+    }
 }
