@@ -120,7 +120,7 @@ final class FixtureTests: XCTestCase {
         XCTAssertTrue(report.isHealthy, "\(report)")
         XCTAssertEqual(report.counts[.ok], 8)   // 7 revisions + 1 identity file
         XCTAssertEqual(report.counts[.unreferenced], 1)   // the attachment blob
-        XCTAssertEqual(Set(vault.manifest.features), ["attachments", "recipients-tag", "signed-secret-link"])
+        XCTAssertEqual(Set(vault.manifest.features), ["attachments", "recipients-tag", "signed-secret-link", "markers-tag"])
         XCTAssertEqual(vault.recipientsStatus, .verified(.firstUse), "the committed list is tagged (format.md §2.1)")
         let blob = BlobRef(content: SampleFixture.attachment, type: SampleFixture.attachmentType)
         XCTAssertEqual(try vault.readBlob(note: SampleFixture.lecture, blob), SampleFixture.attachment)

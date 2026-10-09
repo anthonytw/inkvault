@@ -42,8 +42,9 @@ Unknown files and directories must be ignored, never deleted.
       "label": "Anthony's iPad", "added": "2026-10-04T16:20:00Z" }
   ],
   "vaultSecret": "-----BEGIN AGE ENCRYPTED FILE-----\n...\n-----END AGE ENCRYPTED FILE-----\n",
-  "features": ["recipients-tag"],
-  "recipientsTag": "5b0e6f…(64 hex digits)…"
+  "features": ["recipients-tag", "markers-tag"],
+  "recipientsTag": "5b0e6f…(64 hex digits)…",
+  "markersTag": "9c41d2…(64 hex digits)…"
 }
 ```
 
@@ -67,9 +68,13 @@ Unknown files and directories must be ignored, never deleted.
   Absent means `[]`. `"recipients-tag"` (*new: authenticated recipients*)
   says the vault carries `recipientsTag` (§2.1). `"signed-secret-link"`
   (*new: signed secret links*) says `secretLink` is never in the legacy HMAC
-  form (§2.1 "Upgrading to signed links").
+  form (§2.1 "Upgrading to signed links"). `"markers-tag"` (*new:
+  authenticated version markers*) says the vault carries `markersTag` (§2.1
+  "Version markers").
 - `recipientsTag`, `secretLink` (optional, *new: authenticated recipients*):
   §2.1.
+- `markersTag` (optional, *new: authenticated version markers*): §2.1
+  "Version markers".
 
 ### 2.1 Authenticated recipients
 
@@ -161,18 +166,75 @@ trust record (below); it is checked only to accept a rewrap journal's
 previous secret (§3.3.1), by a reader that holds both secrets (forging it
 then needs `secretId(current)`, which only holders of the current secret know).
 
+**Version markers.** *New: authenticated version markers* (security
+review 2026-10, N3). `format` and `features` decide whether a reader may
+write at all (§2, §7.3), and like everything in `vault.json` they are
+plaintext: without this tag, whoever can write the folder could set `format`
+back to `sempere/1` or drop a feature this reader does not implement, and it
+would write to a vault it must only read. `markersTag` is the lowercase hex
+(64 digits) of
+
+```
+markersKey = HKDF-SHA256(ikm = vaultSecret, salt = "", info = "sempere/1 markers key", L = 32)
+HMAC-SHA256(key = markersKey,
+            message = "sempere/1" ‖ 0x00 ‖ "markers" ‖ 0x00 ‖ vaultId ‖ 0x00 ‖ format
+                      ‖ 0x00 ‖ feature₁ ‖ 0x00 ‖ feature₂ … ‖ 0x00 ‖ featureₙ)
+```
+
+over `vaultId` (lowercase), `format` exactly as written, and the distinct
+`features` sorted by their UTF-8 bytes (so their order and repetitions in
+the file do not matter), each UTF-8. A marker containing `0x00` never
+verifies. Every writer that writes `vault.json` (any change of §2.1 or §3.3,
+or a feature added, §2) writes `markersTag` for what it writes, under the
+secret written with it, in the same atomic write, and adds `"markers-tag"`
+to `features` (so older writers, which would rewrite `vault.json` without
+the tag, stop writing). The first write by a writer whose list checks to a
+vault without `markersTag` tags its markers (trust on first use, like an
+untagged list); a reader that only reads never tags.
+
+A reader holding the secret checks the markers once the list checks
+(steps 1–4 below give verified or untagged):
+
+- `markersTag` present: if it does not verify, the markers were changed
+  without the key (**markers mismatch**);
+- absent: if `features` names `"markers-tag"`, or the trust record holds
+  markers (below), the tag was removed (**markers removed**: a downgrade);
+- the trust record holds markers and `format` names a lower major, or
+  `features` lacks one of the record's features (**markers rolled back**:
+  an older `vault.json` put back; markers only grow, since no writer lowers
+  `format` or removes a feature).
+
+Any of the three makes the vault **tampered** for writing exactly as a
+tampered list does (nothing is written, not even an inbox file or a tag),
+and is reported as such; reading still works, and newer markers still make
+the vault read-only (§7.3) whatever their tag. A key holder **repairs** the
+markers explicitly (`sempere vault markers repair`) by writing the larger of
+the markers on disk and those of its trust record (the higher major, every
+feature of either), tagged under the current secret; a repair that would
+name a format or feature it does not implement is refused (restore
+`vault.json` with that version instead). The tag protects readers of this
+version and later ones only: a reader written before it ignores
+`markersTag` and could still be downgraded (§7.3 applies per note to marked
+revisions in any case).
+
 **Trust record.** A reader that writes keeps, per device and per vault,
 outside the vault and never in it (like §10): the vault id,
-`linkPublicKeys` of the last secret it verified, and the keys of the last
-recipients list it verified. The reference implementation keeps it in
+`linkPublicKeys` of the last secret it verified, the keys of the last
+recipients list it verified, and the version markers it last verified. The reference implementation keeps it in
 `$XDG_STATE_HOME/sempere/trust/<vaultId>.json` (CLI) and in the app's
 Application Support folder, as
 
 ```json
 { "format": "sempere-trust/2", "vaultId": "…",
   "linkPublicKeys": { "ed25519": "…(64 hex digits)…", "mldsa65": "…(3904 hex digits)…" },
-  "recipients": ["age1pq1…", …] }
+  "recipients": ["age1pq1…", …],
+  "markers": { "format": "sempere/1", "features": ["attachments", "markers-tag", "recipients-tag"] } }
 ```
+
+`markers` (optional) is present once the device has verified a
+`markersTag`: `format` and the canonical `features` (distinct, sorted by
+UTF-8 bytes). A writer never stores fewer markers than the record held:
+it keeps the higher major and every feature of either.
 
 It holds no secret and no key that can make a link or decrypt anything:
 whoever reads it can check a `secretLink` but not forge one. It is still
@@ -271,9 +333,10 @@ checks (verified, or untagged and then tagged first):
    writers, which would rotate with a legacy link that signed records refuse,
    stop writing (§2).
 
-`features` is not authenticated (security review 2026-10, N3): an attacker
-can take the feature out or put a legacy link back, which changes nothing for
-a device with a signed record; it only lets older writers write again.
+An attacker who takes `"signed-secret-link"` out of `features` (and puts a
+legacy link back) changes nothing for a device with a signed record; for a
+device of this version the change also fails the markers check ("Version
+markers"). It only lets writers older than both write again.
 
 **Repair.** A key holder repairs a list whose tag does not verify, or was
 removed, by writing the last verified list (keeping the labels the current
@@ -1475,7 +1538,7 @@ The format is identified by four markers:
 | marker | where | this version |
 | --- | --- | --- |
 | `format` | `vault.json` (§2) | `"sempere/1"` |
-| `features` | `vault.json` (§2) | `"attachments"` and `"recipients-tag"` are the extensions defined |
+| `features` | `vault.json` (§2) | `"attachments"`, `"recipients-tag"`, `"signed-secret-link"` and `"markers-tag"` are the extensions defined |
 | body version byte | offset 4 of every revision body (§4) | `0x01` |
 | `format`, `features` | a revision's JSON (§5.1), both optional | absent; absent `format` means `"sempere/1"`, absent `features` means `[]` |
 
@@ -1623,8 +1686,9 @@ implements a later major N:
   uses an extension, `features`, lists it in the revision's `features`
   too);
 - keeps `vaultId`, `recipients` and `vaultSecret` in `vault.json` (§2), and
-  `recipientsTag` and `secretLink` as §2.1 defines them (a reader of this
-  version that finds the tag removed reports tampering, §2.1), the key files
+  `recipientsTag`, `secretLink` and `markersTag` as §2.1 defines them, the
+  latter over the markers it writes (a reader of this version that finds a
+  tag removed reports tampering, §2.1), the key files
   (§3), the revision file names (§5) and the envelope fields of
   §5.1, with their meaning;
 - keeps the body framing of §4, version byte `0x01` and tag label
