@@ -20,6 +20,11 @@ struct CanvasStrokeInfo: Hashable, Sendable {
     struct Family: Hashable, Sendable {
         var ink: String
         var values: [Double]
+
+        /// The path's creation date: the last value (`init(_: PKStroke)`).
+        /// A lasso move, resize or recolour changes the colour or transform
+        /// but keeps the path and this date.
+        var created: Double? { values.last }
     }
 
     /// Axis-aligned bounds in page points.
@@ -56,7 +61,12 @@ struct CanvasStrokeInfo: Hashable, Sendable {
 /// 2. a stroke removed in the same change with the same path signature and
 ///    family (PencilKit's pixel eraser keeps the path and adds a mask);
 /// 3. a stroke removed in the same change of the same family whose bounds
-///    contain the new one (a slice that rewrote the path).
+///    contain the new one (a slice that rewrote the path);
+/// 4. a stroke removed in the same change with the same ink type, path
+///    signature and path creation date (a lasso move, resize or recolour:
+///    the path stays, colour or transform change). So the edit replaces the
+///    original (format.md §5.6.1) and a concurrent edit of it on another
+///    device does not leave both.
 /// A parent that was never written to disk is replaced by its own parent.
 ///
 /// Ops are the net difference between what is on disk (`committed`) and
@@ -355,6 +365,12 @@ struct StrokeLedger {
             return e.strokes
         }
         if let e = removed.first(where: { $0.info.family == info.family && $0.info.bounds.contains(info.bounds) }) {
+            return e.strokes
+        }
+        if let created = info.family.created, let e = removed.first(where: {
+            $0.info.family.ink == info.family.ink && $0.info.family.created == created
+                && $0.info.pathSignature == info.pathSignature
+        }) {
             return e.strokes
         }
         return []

@@ -87,6 +87,39 @@ struct StrokeLedgerTests {
         #expect(change.added.first?.parent == wholeID)
     }
 
+    @Test func lassoMoveAndRecolourReplaceTheOriginal() throws {
+        // format.md §5.6.1: the edited stroke names the original as `parent`
+        // and the same delta removes it, so a concurrent edit elsewhere does
+        // not leave both.
+        let created = Date(timeIntervalSinceReferenceDate: 2000)
+        let s = TS.stroke(n: 20)
+        var l = StrokeLedger(stored: [], info: CanvasStrokeInfo.init(stored:))
+        let drawn = TS.canvasStroke(s, created: created)
+        l.update(TS.items([drawn]))
+        Self.save(&l)
+        let id = try #require(l.live.first?.id)
+
+        var moved = drawn
+        moved.transform = CGAffineTransform(translationX: 30, y: 12)
+        let m = try #require(l.update(TS.items([moved])).added.first)
+        #expect(m.parent == id)
+        #expect(Self.save(&l) == [.removeStroke(page: Self.page, strokeId: id), .addStroke(page: Self.page, stroke: m)])
+
+        var red = moved
+        red.ink = PKInk(.pen, color: .red)
+        let r = try #require(l.update(TS.items([red])).added.first)
+        #expect(r.parent == m.id)
+    }
+
+    @Test func aStrokeDrawnWhileAnotherIsErasedIsNotItsReplacement() throws {
+        let stored = [TS.stroke()]
+        var l = Self.ledger(stored)
+        let other = TS.canvasStroke(TS.stroke(x: 300), created: Date(timeIntervalSinceReferenceDate: 3000))
+        let change = l.update(TS.items([other]))
+        #expect(change.removed.map(\.id) == [stored[0].id])
+        #expect(change.added.first?.parent == nil)
+    }
+
     @Test func undoOfASavedEraseGetsNewIdsWithParent() throws {
         let stored = [TS.stroke()]
         var l = Self.ledger(stored)
