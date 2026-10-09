@@ -986,7 +986,9 @@ report; a 412 is merged on the next run). A copy that does not verify never
 replaces one that does, and is replaced by it. A copy that needs a newer reader
 (`$minReaderVersion`) is never opened: it is mirrored byte for byte over a copy
 this version can read; two such copies that differ follow the conflict rule
-above, as does the file while the vault is locked.
+above, as does the file while the vault is locked. A run that pulled a new `vault.json`
+(a key change elsewhere) leaves `settings.age` to the next run, which opens the
+vault with the new secret.
 Before a remote `vault.json` replaces the local one, its device list is
 checked (`Vault.incomingManifestProblem`, format.md §2.1): the same keys
 (still tagged) pass without a key; a changed list passes only when the vault

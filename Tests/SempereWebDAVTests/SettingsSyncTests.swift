@@ -98,6 +98,31 @@ final class SettingsSyncTests: SyncTestCase {
         XCTAssertThrowsError(try openVault("A").readSharedSettings())
     }
 
+    func testAKeyChangePulledInTheSameRunWaitsForTheNextRun() throws {
+        let server = MockDAV()
+        let extra = pqIdentity()
+        var a = try makeVault("A")
+        _ = try a.addRecipient(extra.recipient, label: "extra")
+        try write(a, "eraser.mode", .string("pixel"), type: .mac, at: 0)
+        try sync("A", server)
+        try sync("B", server)
+        // B removes the extra key: the secret rotates and settings.age is re-tagged.
+        var b = try openVault("B")
+        _ = try b.removeRecipient(extra.recipient)
+        try sync("B", server)
+        let serverCopy = try XCTUnwrap(server.file("settings.age"))
+        // A pulls the new vault.json in this run, still holding the old secret: the server's
+        // settings.age is not judged (or overwritten) until the next run.
+        a = try openVault("A")
+        let r = try sync("A", server, vault: .some(a))
+        XCTAssertTrue(r.downloaded.contains("vault.json"), "\(r)")
+        XCTAssertTrue(r.skipped.contains { $0.path == "settings.age" }, "\(r)")
+        XCTAssertEqual(server.file("settings.age"), serverCopy)
+        let next = try sync("A", server)
+        XCTAssertTrue(next.downloaded.contains("settings.age"), "\(next)")
+        XCTAssertEqual(try openVault("A").readSharedSettings()?.value(SettingSlotKey("eraser.mode")), .string("pixel"))
+    }
+
     func testDryRunChangesNothing() throws {
         let server = MockDAV()
         let a = try makeVault("A")

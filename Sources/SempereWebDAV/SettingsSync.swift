@@ -17,6 +17,12 @@ extension WebDAVSync {
         let name = SharedSettings.fileName
         if options.pushOnly { return try pushMutable(name, remote: remote) }
         guard let vault, vault.canRead, !vault.isLegacy else { return try syncMutable(name, remote: remote) }
+        // A vault.json pulled by this run (a key change elsewhere) may carry a secret `vault`
+        // does not know: the server's copy would then look unusable and be overwritten.
+        if manifestHash() != checkerBaseManifest {
+            report.skipped.append(.init(path: name, message: "vault.json changed in this run; synced on the next run"))
+            return
+        }
 
         let localURL = root.appendingPathComponent(name)
         let local = FileManager.default.fileExists(atPath: localURL.path)

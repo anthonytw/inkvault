@@ -94,12 +94,15 @@ extension AppModel {
     /// sheet, quick capture): a pass runs after `settingsSyncDebounce` when a
     /// synced value differs from what the last pass left.
     func settingsChanged() {
-        settingsDefaultsChanged()
+        guard settingsSync.enabled, phase == .unlocked else { return }
+        scheduleSettingsSync(after: settingsSyncDebounce)
     }
 
+    /// Any `UserDefaults` change, from anywhere in the app: cheap (no Keychain
+    /// read, so the quick-capture keys are left to `settingsChanged`).
     func settingsDefaultsChanged() {
         guard settingsSync.enabled, phase == .unlocked else { return }
-        let local = currentSettingsValues()
+        let local = currentSettingsValues(includingCaptureProfile: false)
         let changed = local.contains { key, value in
             !settingsSync.isOverridden(key) && settingsSync.applied[key].map { $0 != value } ?? false
         }
@@ -268,11 +271,11 @@ extension AppModel {
     }
 
     /// This device's values of the settings it uses (`SettingsSyncBridge`).
-    func currentSettingsValues() -> [String: JSONValue] {
+    func currentSettingsValues(includingCaptureProfile: Bool = true) -> [String: JSONValue] {
         var extras = SettingsSyncBridge.Extras()
         if let vault {
             extras.backupReminderDays = backupStore.record(for: vault.vaultId).reminderDays
-            if let stored = quickCaptureProfile, stored.profile.vaultId == vault.vaultId {
+            if includingCaptureProfile, let stored = quickCaptureProfile, stored.profile.vaultId == vault.vaultId {
                 extras.quickCapture = (stored.profile.notebook, stored.transcribe)
             }
         }
