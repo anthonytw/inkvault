@@ -266,15 +266,15 @@ public final class ZipArchive {
 // MARK: - Little-endian reads
 
 extension Data {
-    func u16(_ i: Int) -> UInt16 {
+    package func u16(_ i: Int) -> UInt16 {
         let s = startIndex + i
         return UInt16(self[s]) | UInt16(self[s + 1]) << 8
     }
 
-    func u32(_ i: Int) -> UInt32 {
+    package func u32(_ i: Int) -> UInt32 {
         let s = startIndex + i
         return UInt32(self[s]) | UInt32(self[s + 1]) << 8 | UInt32(self[s + 2]) << 16 | UInt32(self[s + 3]) << 24
     }
 
-    func u64(_ i: Int) -> UInt64 { UInt64(u32(i)) | UInt64(u32(i + 4)) << 32 }
+    package func u64(_ i: Int) -> UInt64 { UInt64(u32(i)) | UInt64(u32(i + 4)) << 32 }
 }

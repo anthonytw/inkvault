@@ -1,15 +1,54 @@
 # Importing from Notability
 
-`Sources/SempereImport` reads Notability's `.note` packages (and the newer
+`Sources/SempereNotability` reads Notability's `.note` packages (and the newer
 `.ntb` bundles) and writes them into a vault as ordinary notes. Notability's format is undocumented; everything
 below was reverse-engineered from a real backup of 130 notes written by
 Notability 10.2 through 14.9 (session format versions 5 to 9) and checked
 against the thumbnails Notability stores in each package. Where a rule is
 empirical it says so.
 
+## Structure: a module you can delete
+
+The importer is optional. Everything specific to Notability is in one directory, `Sources/SempereNotability`
+(tests: `Tests/SempereNotabilityTests`, with its fixtures and the CLI tests of `import notability`), and
+the rest of the package neither imports it nor names its types:
+
+| Target | Holds | Depends on |
+| --- | --- | --- |
+| `SempereImport` | the generic readers every importer uses (`ZipArchive`, `BinaryPlist`, `XMLPlist`, `KeyedArchive`, `NotePackage`), all of them untrusted-input code (`format.md` §9), and the host interface: `VaultImporter` (id, display name, accepted file extensions, option specs, `run(request, clock:)`), `ImporterRequest`, `ImporterResult`, `ImporterRegistry` | `Sempere`, `SemperePDF`, `SempereRender` |
+| `SempereNotability` | the importer (`NotabilityImporter`, the `.note` and `.ntb` readers, shapes, text, audio, attachments) and its adapter `NotabilityVaultImporter` (options, the CLI's report and JSON) | `SempereImport` and what that uses |
+| `SempereCLI` | `sempere import <id>`: one subcommand per registered importer (`RegisteredImportCommand`), its flags from the importer's option specs, `--notebook`, `--dry-run`, `--pdf-text`, `--recognize` and the vault and output options of every import | `SempereImport` |
+| the app | the Import entry of the File menu and the note list, the options sheet and the report sheet, built from the importer's option specs and result (`AppModel+Import`, `ImportViews`) | `SempereImport` |
+
+Core (`Sources/Sempere`, `SempereRender`) holds no Notability code: an importer's derived ids,
+`engine: notability-<version>` strings and stroke kinds are plain data (`format.md`
+§5.5, §8.2.6) that core treats like any other.
+
+**Registering.** Each host lists its importers in exactly one file, gated by `#if canImport(SempereNotability)`:
+`Sources/SempereCLI/ImportRegistry.swift` and `Apps/Sempere/SempereApp/AppImporters.swift`.
+`scripts/check-importer-isolation.sh` fails CI when any other file names a `Notability…` identifier or imports the module.
+`Package.swift` adds the module's targets, its test target and the CLI's dependency on it only when
+`Sources/SempereNotability` exists.
+
+**Removing it.**
+
+1. `rm -rf Sources/SempereNotability Tests/SempereNotabilityTests`. `swift build`, `swift test`, the CLI and the web goldens
+   (they are data) are unaffected; `sempere import` then lists only `pdf`. `scripts/check-removable-importers.sh` does exactly this
+   in a copy and builds and tests it (the Linux CI job runs it on every change).
+2. The app (an Xcode project cannot test for a directory): `scripts/remove-notability-from-xcode.sh` removes the
+   `SempereNotability` package product dependency from the app target (four spots in
+   `Apps/Sempere/Sempere.xcodeproj/project.pbxproj`, ids `…B009` and `…D007`) and its row in
+   `scripts/release-check.sh`. `AppImporters.registry` is then empty: the Import entry disappears from the menu and the toolbar,
+   the rest of the app is unchanged. Only the CI `app` job builds this; it has not been run without the module.
+3. Optionally delete the catalog strings of the Import options and report (`Localizable.xcstrings`: the "Import …" and
+   "Tag Notes with Their %@ Folders" entries); nothing fails if they stay.
+
+**Adding another importer** is the same shape: a module with a `VaultImporter`, one line in each registry, one product in the
+Xcode project.
+
 ## Running a bulk import
 
-Library call (the CLI command will wrap it):
+Library call (`sempere import notability` wraps it through `NotabilityVaultImporter`):
 
 ```swift
 var clock = HybridClock()
@@ -180,7 +219,7 @@ extra entries are ignored, and the curves concerned are counted in
 makes the geometry ambiguous and fails the note. No other per-curve array
 was short in the backup.
 
-Real-data checks live in `Tests/SempereImportTests/RealNotabilityTests.swift`
+Real-data checks live in `Tests/SempereNotabilityTests/RealNotabilityTests.swift`
 and are skipped unless `SEMPERE_NOTABILITY_SAMPLES` points at a backup zip
 or directory, or several joined by `:` (`testBundlesMatchTheirNotes`
 compares every `.ntb` with its `.note`):

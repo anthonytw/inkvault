@@ -1,4 +1,5 @@
 import Foundation
+import ImportTestSupport
 import XCTest
 @testable import SempereImport
 

@@ -50,6 +50,13 @@ of Apple frameworks, and it lets cloud agents (Linux-only VMs) build and test
 most of the project. Anything that imports UIKit, AppKit, PencilKit or
 CoreGraphics lives under `Apps/`.
 
+Importers from other apps are optional modules. `SempereImport` holds what every importer
+needs (zip, property-list and keyed-archive readers for untrusted input, and the `VaultImporter` interface the
+hosts use); the Notability importer is `SempereNotability`, one directory that the CLI and the app list in one gated
+line each. Deleting that directory leaves a package that builds, passes its tests and has no `import notability`
+(`docs/import-notability.md` "Structure"; CI proves it on every change). Core and the renderer never
+name an importer: what an importer leaves in a vault (an `engine: notability-…` string, derived ids) is data.
+
 ## Ink
 
 PencilKit does the drawing. Its strokes are uniform cubic B-splines whose
