@@ -43,7 +43,7 @@ final class AboutTests: XCTestCase {
             XCTAssertTrue(names.contains(identity.lowercased()), "\(identity) is not in SempereAbout.components")
         }
         let cli = Set(SempereAbout.components(for: .cli).map(\.name))
-        XCTAssertTrue(cli.isSuperset(of: ["swift-crypto", "swift-asn1", "swift-argument-parser"]))
+        XCTAssertTrue(cli.isSuperset(of: ["swift-crypto", "swift-argument-parser"]))
         XCTAssertFalse(cli.contains("SwiftMath"), "the CLI does not link SwiftMath")
     }
 

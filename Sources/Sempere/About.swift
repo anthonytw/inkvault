@@ -60,12 +60,13 @@ public enum SempereAbout {
     public static let components: [Component] = [
         Component(name: "swift-crypto", license: "Apache-2.0",
                   url: URL(string: "https://github.com/apple/swift-crypto")!,
-                  note: "Cryptography, including BoringSSL (Apache-2.0; fiat-crypto parts MIT OR Apache-2.0 OR BSD-1-Clause) and XKCP Keccak (CC0-1.0).",
+                  note: "Cryptography. On Apple platforms a layer over CryptoKit; on Linux it includes BoringSSL (Apache-2.0; fiat-crypto parts MIT OR Apache-2.0 OR BSD-1-Clause) and XKCP Keccak (CC0-1.0).",
                   products: [.cli, .app]),
+        // Resolved for swift-crypto's extras, which Sempere does not link (only its `Crypto` product).
         Component(name: "swift-asn1", license: "Apache-2.0",
                   url: URL(string: "https://github.com/apple/swift-asn1")!,
-                  note: "ASN.1 encoding, used by swift-crypto.",
-                  products: [.cli, .app]),
+                  note: "ASN.1 encoding for swift-crypto's extras; resolved by the package manager, not linked into Sempere.",
+                  products: []),
         Component(name: "swift-argument-parser", license: "Apache-2.0",
                   url: URL(string: "https://github.com/apple/swift-argument-parser")!,
                   note: "Command-line parsing.",
@@ -96,7 +97,7 @@ public enum SempereAbout {
         \(program) \(version)
         \(copyright)
         \(notice)
-        Licence: \(licenseURL.absoluteString) (with an App Store exception: \(repositoryLicenseURL.absoluteString))
+        License: \(licenseURL.absoluteString) (with an App Store exception: \(repositoryLicenseURL.absoluteString))
         Security: \(securityPolicyURL.absoluteString)
         """
     }

@@ -9,6 +9,16 @@ The section for a version is the body of its GitHub Release (`docs/releasing.md`
 
 ### Added
 
+- Setting expectations. `sempere --version` prints the GPL notice ("This program comes with ABSOLUTELY
+  NO WARRANTY…") with links to the licence and the security policy; `sempere about` (`--json`) adds the
+  source, where to report a vulnerability, the security limits and the third-party software. The app
+  shows "About Your Key" the first time a vault is unlocked with a key on a device (a new vault
+  included): only the key opens the notes, nobody can recover them if every copy is lost, with
+  buttons to save the key and recovery kit and to the backup settings; "I Understand" closes it. A
+  six-page quick tour follows once per device. Settings ▸ About shows the version, the licence
+  (bundled), acknowledgments and the links, and reopens both; on the Mac, Sempere ▸ About Sempere and
+  Help ▸ Quick Tour / About Your Key. New `docs/security.md` says what the encryption protects and
+  what it does not; `SECURITY.md` describes the advisory process.
 - Recordings in exports, finished (C4): "PDF + attachments" ends with an attachment list (kind, title,
   pages, duration, size of every recording, transcript and video clip), each row linked to its
   embedded file and to the page it is on; `sempere export --recordings list` adds the page alone.

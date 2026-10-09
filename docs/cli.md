@@ -17,7 +17,7 @@ talks to the terminal and sets exit codes; everything else lives in
 | `--passphrase-env VAR` | Name of the environment variable holding the passphrase of the vault's stored key file. |
 | `--json` | Machine-readable output where it makes sense (everything except `recover`, `keys generate` without `--out`, and `keys export` without `--out`). |
 | `-q`, `-v` | Quieter (data only, or only problems) / more detail. |
-| `--version`, `--help` | On every command. |
+| `--version`, `--help` | On every command. `--version` prints `sempere VERSION`, then the copyright and the GPL notice (no warranty; free to redistribute under the GPL v3 or later) and links to the licence and `SECURITY.md`; `sempere about` adds the rest. |
 
 `--vault`, `--identity` and `--passphrase-env` apply to the commands that open
 an existing vault. Times are printed in your local time zone with an offset;
@@ -2068,9 +2068,31 @@ lines, `-v` adds skipped and ignored entries). `--json` prints the report:
 run. Exit 0 ok, 1 errors or quarantined files, 2 usage (including a refused URL), 3 conflicts, 6 a
 rejected `vault.json`.
 
+### About
+
+```
+sempere about [--json] [-q | -v]
+sempere --version
+```
+
+Prints what `--version` prints (the version line, `Copyright (C) 2026 Anthony
+Wertz.`, the GPL notice "This program comes with ABSOLUTELY NO WARRANTY. This is
+free software, and you are welcome to redistribute it under the terms of the
+GNU GPL v3 or later." and links to the licence and `SECURITY.md`), then the
+source, where to report a vulnerability (GitHub private vulnerability reporting),
+the security design and its limits (`docs/security.md`), and the third-party
+software in this build with its licence (`-v` adds a line on each, `-q` stops
+after the notice). The first line of `--version` is always `sempere VERSION`
+(release checks compare it with the tag). `--json` prints `program`, `version`,
+`copyright`, `notice`, `license` (SPDX), `licenseURL`, `repositoryLicenseURL`,
+`sourceURL`, `securityPolicyURL`, `reportVulnerabilityURL`, `securityDesignURL`
+and `thirdParty` (`{name, license, url, note, products}`). The list and the
+wording are `SempereAbout` (`Sources/Sempere/About.swift`), which the app's About
+screen shows too. Exit 0.
+
 ## Worked examples
 
-### Make sure a lost device or key costs nothing
+### Prepare for a lost device or key
 
 ```bash
 sempere keys paper --identity ~/.config/sempere/key.txt --vault ~/Sync/notes.sempere --out kit.pdf

@@ -6,9 +6,7 @@ App Store exception (see LICENSE and LICENSE-EXCEPTION). The app includes the
 software below, each under its own licence, reproduced here as its authors ask.
 
   swift-crypto   Apache-2.0         https://github.com/apple/swift-crypto
-                 includes BoringSSL (Apache-2.0), fiat-crypto
-                 (MIT OR Apache-2.0 OR BSD-1-Clause) and XKCP Keccak (CC0-1.0)
-  swift-asn1     Apache-2.0         https://github.com/apple/swift-asn1
+                 (on Apple platforms a layer over CryptoKit)
   SwiftMath      MIT                https://github.com/mgriebling/SwiftMath
                  based on iosMath (MIT); math fonts under the SIL Open Font
                  License 1.1 (with the STIX Font License) and the GUST Font License
@@ -64,56 +62,7 @@ This product contains a derivation of various files from SwiftNIO.
 
 
 ------------------------------------------------------------------------------
-swift-asn1: NOTICE
-------------------------------------------------------------------------------
-
-
-                            The SwiftASN1 Project
-                            =====================
-
-Please visit the SwiftASN1 web site for more information:
-
-  * https://github.com/apple/swift-asn1
-
-Copyright 2022 The SwiftASN1 Project
-
-The SwiftASN1 Project licenses this file to you under the Apache License,
-version 2.0 (the "License"); you may not use this file except in compliance
-with the License. You may obtain a copy of the License at:
-
-  https://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
-WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
-License for the specific language governing permissions and limitations
-under the License.
-
-Also, please refer to each LICENSE.txt file, which is located in
-the 'license' directory of the distribution file, for the license terms of the
-components that this product depends on.
-
----
-
-This product contains derivations of various scripts from SwiftNIO.
-
-  * LICENSE (Apache License 2.0):
-    * https://www.apache.org/licenses/LICENSE-2.0
-  * HOMEPAGE:
-    * https://github.com/apple/swift-nio
-    
----
-
-This product contains derivations of various scripts from Swift OpenAPI Generator.
-
-  * LICENSE (Apache License 2.0):
-    * https://www.apache.org/licenses/LICENSE-2.0
-  * HOMEPAGE:
-    * https://github.com/apple/swift-openapi-generator
-
-
-------------------------------------------------------------------------------
-swift-crypto, swift-asn1, BoringSSL: Apache License 2.0
+swift-crypto: Apache License 2.0
 ------------------------------------------------------------------------------
 
 
@@ -517,41 +466,6 @@ SwiftMath math fonts: GUST Font License
 % http://www.latex-project.org/lppl.txt and version 1.3c or later
 % is part of all distributions of LaTeX version 2006/05/20 or later.
 
-
-
-------------------------------------------------------------------------------
-fiat-crypto (in BoringSSL): MIT License (one of its three licence options)
-------------------------------------------------------------------------------
-
-The MIT License (MIT)
-
-Copyright (c) 2015-2020 the fiat-crypto authors (see the AUTHORS file).
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-
-
-------------------------------------------------------------------------------
-XKCP (in swift-crypto)
-------------------------------------------------------------------------------
-
-The Keccak code from the eXtended Keccak Code Package (https://github.com/XKCP/XKCP)
-is dedicated to the public domain by its implementers (CC0 1.0).
 
 
 ------------------------------------------------------------------------------

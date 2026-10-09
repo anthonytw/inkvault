@@ -93,7 +93,7 @@ enum MacMenus {
         }
         if builder.menu(for: .help) != nil {
             // UIKit's "Sempere Help" opens no help book: the tour and the key notice instead.
-            builder.replaceChildren(ofMenu: .help) { _ in MenuLayout.help.flatMap { $0 }.map(nativeCommand) }
+            builder.replaceChildren(ofMenu: .help) { _ in MenuLayout.help.flatMap { $0 }.map { nativeCommand($0) as UIMenuElement } }
             built.append("help → Quick Tour, About Your Key")
         }
         for identifier in pruned {

@@ -32,6 +32,7 @@ final class OnboardingHold {
 
 extension View {
     /// While this view is on screen no notice shows by itself.
+    @MainActor
     func holdsOnboarding() -> some View {
         onAppear { OnboardingHold.shared.count += 1 }
             .onDisappear { OnboardingHold.shared.count = max(0, OnboardingHold.shared.count - 1) }
@@ -131,20 +132,23 @@ struct KeyNoticeView: View {
                 } footer: {
                     Text("Sempere is free software and comes with no warranty.")
                 }
-                if firstRun {
-                    Section {
-                        Button {
-                            acknowledge()
-                        } label: {
-                            Text("I Understand").frame(maxWidth: .infinity)
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .accessibilityIdentifier("keyNoticeUnderstand")
-                    }
-                    .listRowBackground(Color.clear)
-                }
             }
             .accessibilityIdentifier("keyNotice")
+            .safeAreaInset(edge: .bottom) {
+                // Always in view (not a row at the end of a long form): the first time it is the only way out.
+                if firstRun {
+                    Button {
+                        acknowledge()
+                    } label: {
+                        Text("I Understand").frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
+                    .accessibilityIdentifier("keyNoticeUnderstand")
+                    .padding()
+                    .background(.bar)
+                }
+            }
             .navigationTitle("About Your Key")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -225,7 +229,7 @@ struct QuickTourView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button(isLast ? "Done" : "Skip") { dismiss() }
+                    Button { dismiss() } label: { isLast ? Text("Done") : Text("Skip") }
                         .accessibilityIdentifier("quickTourSkip")
                 }
             }
@@ -356,11 +360,11 @@ struct AboutView: View {
                     .font(.footnote).foregroundStyle(.secondary)
             }
             Section {
-                NavigationLink("Licence") { BundledTextView(documents: [.license, .exception]) }
+                NavigationLink("License") { BundledTextView(documents: [.license, .exception]) }
                     .accessibilityIdentifier("aboutLicense")
                 Link("The GNU GPL v3 on gnu.org", destination: SempereAbout.licenseURL)
             } header: {
-                Text("Licence")
+                Text("License")
             } footer: {
                 Text("You may use, study, share and change Sempere under the GPL v3 or any later version. An App Store exception lets the app be distributed under the App Store's terms.")
             }
@@ -383,9 +387,9 @@ struct AboutView: View {
                         }
                     }
                 }
-                NavigationLink("Third-Party Licences") { BundledTextView(documents: [.thirdParty]) }
+                NavigationLink("Third-Party Licenses") { BundledTextView(documents: [.thirdParty]) }
             } header: {
-                Text("Acknowledgements")
+                Text("Acknowledgments")
             }
             Section {
                 Button("Show Quick Tour") { showingTour = true }
@@ -397,7 +401,9 @@ struct AboutView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             if showsDone {
-                ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }.accessibilityIdentifier("aboutDone")
+                }
             }
         }
         .sheet(isPresented: $showingTour) { QuickTourView(firstRun: false) }
@@ -427,7 +433,7 @@ struct BundledTextView: View {
             .padding()
         }
         .accessibilityIdentifier("bundledText")
-        .navigationTitle(documents == [.thirdParty] ? String(localized: "Third-Party Licences") : String(localized: "Licence"))
+        .navigationTitle(documents == [.thirdParty] ? String(localized: "Third-Party Licenses") : String(localized: "License"))
         .navigationBarTitleDisplayMode(.inline)
         .task {
             let docs = documents
