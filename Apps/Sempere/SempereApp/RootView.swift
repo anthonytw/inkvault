@@ -67,6 +67,7 @@ struct RootView: View {
             }
             .onChange(of: model.selectedNoteID) { saveSelection() }
             .onChange(of: model.sidebarSelection) { saveSelection() }
+            .menuBarRequests()
     }
 
     private var content: some View {

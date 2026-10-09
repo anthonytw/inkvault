@@ -45,6 +45,9 @@ fresh; expect "the committed tree passes" ok "release-check: ok"
   && { pass=$((pass + 1)); echo "ok   --list names file:line"; } \
   || { fail=$((fail + 1)); echo "FAIL --list names file:line"; }
 
+fresh; edit "$pbx" 's.replace("A1000000000000000000B008 /* SempereImport in Frameworks */ = {", "A1000000000000000000B008 /* Other in Frameworks */ = {isa = PBXBuildFile; };\n\t\tA1000000000000000000B008 /* SempereImport in Frameworks */ = {", 1)'
+expect "an object id defined twice (two merged branches)" fail "object id A1000000000000000000B008 is defined more than once"
+
 fresh; edit "$pbx" 's.replace("MARKETING_VERSION = 0.1;", "MARKETING_VERSION = 0.2;", 1)'
 expect "marketing version mismatch" fail "MARKETING_VERSION differs"
 

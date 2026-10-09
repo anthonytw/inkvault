@@ -8599,6 +8599,18 @@
         }
       }
     },
+    "Open Sempere" : {
+      "comment" : "Menu-bar item: bring the app forward",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Abrir Sempere"
+          }
+        }
+      }
+    },
     "Open Sempere and turn on Quick Voice Notes in Settings first." : {
       "comment" : "Shown by Siri/Shortcuts when quick voice notes are not set up",
       "extractionState" : "manual",
@@ -9886,6 +9898,18 @@
         }
       }
     },
+    "Quick Voice Note" : {
+      "comment" : "Menu-bar item: record a voice note into the inbox",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nota de voz rápida"
+          }
+        }
+      }
+    },
     "Quick Voice Notes" : {
       "comment" : "Settings toggle and section header (the feature's name)",
       "extractionState" : "manual",
@@ -10349,6 +10373,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Graba desde la pantalla bloqueada, el centro de control, el botón de acción, un widget o Siri («Graba una nota de voz en Sempere»), sin desbloquear la bóveda ni usar Face ID. Cada nota de voz se cifra en este dispositivo con las claves de tu bóveda en cuanto se detiene, y la próxima vez que se desbloquee la bóveda pasa a ser una nota en el cuaderno de arriba, titulada con la fecha y la hora. La transcripción se hace solo en este dispositivo. Este dispositivo guarda las claves públicas de la bóveda y una clave de captura que puede añadir notas de voz pero no puede leer ninguna nota."
+          }
+        }
+      }
+    },
+    "Record from the menu-bar item, File > Start Voice Note, Siri or Shortcuts, without unlocking the vault. Each voice note is encrypted on this Mac to your vault's keys as soon as it stops, and becomes a note in the notebook above, titled with the date and time, the next time the vault is unlocked. Transcription runs on this Mac only. This Mac keeps the vault's public keys and a capture key that can add voice notes but cannot read any note." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Graba desde el icono de la barra de menús, Archivo > Iniciar nota de voz, Siri o Atajos, sin desbloquear la bóveda. Cada nota de voz se cifra en este Mac con las claves de tu bóveda en cuanto termina y se convierte en una nota del cuaderno de arriba, con la fecha y la hora como título, la próxima vez que se desbloquee la bóveda. La transcripción se hace solo en este Mac. Este Mac guarda las claves públicas de la bóveda y una clave de captura que puede añadir notas de voz pero no puede leer ninguna nota."
           }
         }
       }
@@ -12029,6 +12064,28 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Mostrar transcripción"
+          }
+        }
+      }
+    },
+    "Show in Menu Bar" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mostrar en la barra de menús"
+          }
+        }
+      }
+    },
+    "Show in Menu Bar puts a Sempere icon in the menu bar with Quick Voice Note and New Note, while Sempere is running." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mostrar en la barra de menús pone un icono de Sempere en la barra de menús con Nota de voz rápida y Nueva nota, mientras Sempere está abierto."
           }
         }
       }

@@ -59,6 +59,7 @@ private struct GeneralSettings: View {
     @AppStorage(KeepScreenOn.key) private var keepScreenOn = KeepScreenOn.defaultValue
     @AppStorage(RecognitionPreference.key) private var recognize = RecognitionPreference.defaultValue
     @AppStorage(MouseSmoothing.key) private var mouseSmoothing = MouseSmoothing.defaultLevel
+    @AppStorage(StatusItemPreference.key) private var showMenuBarItem = StatusItemPreference.defaultValue
 
     var body: some View {
         Section {
@@ -73,6 +74,8 @@ private struct GeneralSettings: View {
                     Text("Strong", comment: "Smooth Mouse Strokes setting").tag(StrokeSmoothing.Level.strong)
                 }
                 .accessibilityIdentifier("mouseSmoothing")
+                Toggle("Show in Menu Bar", isOn: $showMenuBarItem)
+                    .accessibilityIdentifier("showMenuBarItem")
             }
         } header: {
             Text("General")
@@ -81,6 +84,7 @@ private struct GeneralSettings: View {
                 Text("Keep Screen On stops the screen from locking while a note is open. Handwriting recognition makes handwriting searchable; it runs on this device and nothing leaves it.")
                 if Platform.isMac {
                     Text("Smooth Mouse Strokes evens out lines drawn with a mouse or trackpad; Strong rounds them more. Strokes drawn with the ruler are not smoothed.")
+                    Text("Show in Menu Bar puts a Sempere icon in the menu bar with Quick Voice Note and New Note, while Sempere is running.")
                 }
             }
         }

@@ -9,6 +9,15 @@ The section for a version is the body of its GitHub Release (`docs/releasing.md`
 
 ### Added
 
+- Mac menu bar: Note, Tools and View entries for what was toolbar-only (Version History, Add Page After
+  This One / at End, Duplicate, Delete and Undo Delete Page, the Pages/Pageless switch, Show Pages, the
+  Text and Select tools, Smaller/Larger Object Eraser, the compact palette), and a Sempere icon in the
+  system menu bar (Settings → General → Show in Menu Bar) with Quick Voice Note, New Note and Open
+  Sempere. A voice note from it is sealed into the vault's inbox without unlocking, as on the iPad;
+  File > Start/Stop Voice Note (⇧⌘M) does the same from the menu.
+- iPhone: the overflow menu's Pages submenu has the page layout switch, Add Page After This One / at
+  End, Insert PDF at this page, Duplicate, Delete, Undo Delete and the page thumbnails; swiping left or
+  right turns pages while reading; the paper picker has a compact layout.
 - Web viewer in Spanish: the interface is in English or Spanish, taken from the browser's language list
   with a Language selector (Automatic, English, Español) that overrides it and is remembered in the
   browser. Notes, notebook and tag names, recording titles and transcripts are shown as written; dates,

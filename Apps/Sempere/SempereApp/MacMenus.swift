@@ -134,9 +134,22 @@ final class MenuRouting {
     static let settingsSceneID = SceneRestoration.settingsSceneID
 
     private var routers: [ObjectIdentifier: CommandRouter] = [:]
+    private var scenes: [ObjectIdentifier: WeakScene] = [:]
+
+    private struct WeakScene {
+        weak var scene: UIWindowScene?
+    }
 
     func set(_ router: CommandRouter?, for scene: UIWindowScene) {
-        routers[ObjectIdentifier(scene)] = router
+        let id = ObjectIdentifier(scene)
+        routers[id] = router
+        scenes[id] = router == nil ? nil : WeakScene(scene: scene)
+    }
+
+    /// A scene showing a library window (the menu-bar item brings it forward).
+    func libraryScene() -> UIWindowScene? {
+        routers.first { $0.value.context.window == .library && scenes[$0.key]?.scene != nil }
+            .flatMap { scenes[$0.key]?.scene }
     }
 
     func router(for scene: UIWindowScene?) -> CommandRouter? {

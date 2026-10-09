@@ -551,6 +551,37 @@ and a group with a clashing shortcut is dropped whole, so the commands sit in No
 `QuickCapture` as Siri, Shortcuts and the widgets and seals into the vault's inbox without the
 vault being unlocked; the item then reads Stop Voice Note, and the library and note windows show the usual banner
 (`VoiceNoteBannerRule`, the same on every platform). Without a setup it opens the Settings window,
-where Quick Voice Notes is. A status-bar extra (an icon in the system
-menu bar) is not possible: SwiftUI's `MenuBarExtra` is macOS-only and Catalyst has no
-`NSStatusItem`, so this is the app's own menu bar, which works while the app runs.
+where Quick Voice Notes is. The system
+menu-bar icon is the next section.
+
+## Menu-bar item (GA-23)
+
+A Sempere icon in the system menu bar (an `NSStatusItem`), on by default while the app runs
+(Settings → General → Show in Menu Bar turns it off). Entries:
+
+- **Quick Voice Note** starts a voice note; the entry then reads **Stop Voice Note** and the icon
+  turns red. The same encrypted-inbox path as the iPad and iPhone (`QuickCapture`,
+  docs/quick-capture.md): it works while the vault is locked, needs no window and no Face ID or
+  Touch ID, and the note appears in the inbox notebook when the vault is next unlocked. Not set
+  up yet: the app comes forward on Settings → Quick Voice Notes.
+- **New Note** brings the app forward and creates a note in the notebook the sidebar shows (the
+  New Note sheet's defaults for paper and layout), unlocking first if the vault is locked: the
+  unlock sheet appears and the note is created when it closes. A request older than two minutes,
+  or with no vault open, is dropped (`AppModel+MenuBar`).
+- **Open Sempere** brings the app forward on a library window, opening one if all are closed.
+
+How it works. Mac Catalyst has no `NSStatusItem` (SwiftUI's `MenuBarExtra` is macOS-only too), so
+the item is a small AppKit bundle, `SempereStatusItem.bundle`, built for macOS (target
+`SempereStatusItem`, `Apps/Sempere/SempereStatusItem/`) and embedded in the app's `PlugIns`
+folder for the Catalyst build only (the dependency and the embed carry `platformFilter =
+maccatalyst`). `StatusItemHost` loads it at launch and instantiates its principal class. The two
+share a process but no types, so they only post notifications on the default center
+(`StatusItemProtocol`, compiled into both): the app sends the state and the localized titles
+(the bundle has no strings), the bundle sends back which entry was chosen. Missing bundle, or the
+setting off: no item, nothing else changes. The item exists only while the app runs; it is not a
+login item. The bundle holds no logic, no keys and no network code.
+
+To try by hand: the icon appears at launch; Quick Voice Note with the vault locked (quit and
+reopen the app, do not unlock) and then unlock: the note appears; New Note with the app in the
+background and with the vault locked; the setting off and on; Open Sempere with every window
+closed; the entries when the app was started from Spotlight or the Dock. Not yet tried on a Mac.
