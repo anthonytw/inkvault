@@ -123,7 +123,11 @@ final class CLISettingsTests: CLITestCase {
         { "$schemaVersion": 1, "$minReaderVersion": 1, "mouse.smoothing": "strong",
           "newNote.titleFormat": "weekday", "[ipad]": { "editor.keepScreenOn": true }, "my.own": 1 }
         """
-        let r = try cli(["settings", "edit", "--json"] + base(v), env: ["EDITOR": try editor(edited), "VISUAL": ""])
+        // A private temporary folder, so the leftover check below sees only this run's files.
+        let tmpdir = tmp.appendingPathComponent("tmpdir", isDirectory: true)
+        try FileManager.default.createDirectory(at: tmpdir, withIntermediateDirectories: true)
+        let r = try cli(["settings", "edit", "--json"] + base(v),
+                        env: ["EDITOR": try editor(edited), "VISUAL": "", "TMPDIR": tmpdir.path + "/"])
         XCTAssertEqual(r.status, 0, r.err)
         XCTAssertEqual(Set((r.json as? [String: Any])?["changed"] as? [String] ?? []),
                        ["newNote.titleFormat", "[ipad] editor.keepScreenOn", "my.own"])
@@ -136,9 +140,8 @@ final class CLISettingsTests: CLITestCase {
         XCTAssertNotNil(s.slots[SettingSlotKey("newNote.titleFormat")]?.meta)
         XCTAssertEqual(s.slots[SettingSlotKey("mouse.smoothing")], before.slots[SettingSlotKey("mouse.smoothing")], "unchanged key keeps its $meta")
         // No plaintext copy is left behind.
-        let leftovers = try FileManager.default.contentsOfDirectory(atPath: FileManager.default.temporaryDirectory.path)
-            .filter { $0.hasPrefix("sempere-settings-") }
-        XCTAssertEqual(leftovers, [])
+        let used = try FileManager.default.contentsOfDirectory(atPath: tmpdir.path)
+        XCTAssertEqual(used.filter { $0.hasPrefix("sempere-settings-") }, [])
     }
 
     func testEditRefusesInvalidResultsAndWritesNothing() throws {
