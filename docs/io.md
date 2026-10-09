@@ -1159,15 +1159,20 @@ download run that finished without errors (`WebDAVLocation.downloaded`).
 
 **When it pushes** (`WebDAVPushScheduler`, pure logic): once after the vault
 is unlocked, 10 s after the last write (every `NoteWriter` delta and blob
-counts), when the app becomes active, every 5 minutes while the vault is open
-and on "Sync Now". Never while locked (deletions need the vault unlocked),
-never in the background, at most one run at a time; a write during a run
+counts), when the app becomes active and when it goes to the background (in
+the seconds iPadOS leaves it; a push cut off there is retried when the app
+comes back), every 5 minutes while the vault is open and on "Sync Now".
+Never while locked (deletions need the vault unlocked), no background task
+or scheduled refresh, at most one run at a time; a write during a run
 schedules another. After a failure the next automatic try waits 30 s,
 doubling up to 15 minutes; "Sync Now" and a write retry at once.
 
-**Status** (`WebDAVSyncStatus`): the note list shows a bar while the copy has
-changes the server has not had, or after a problem, with the last successful
-push time. Offline is not an error: "Offline. Changes are kept on this iPad
+**Status** (`WebDAVSession`, `WebDAVSyncProblem`): the note list shows a bar
+for a WebDAV vault (`WebDAVStatusBar`): uploading, up to date, the number of
+changes the server has not confirmed (`WebDAVLocalCopy.unconfirmedChanges`),
+or the problem and what to do, with the last successful push time and a menu
+(Sync Now, Download Again…, Server Settings… to change the password or the
+certificate pin). Offline is not an error: "Offline. Changes are kept on this iPad
 and uploaded when the server can be reached." Wrong password, a changed
 certificate and the problems below are shown with what to do.
 
@@ -1198,9 +1203,14 @@ rewraps files in place (format.md §3.3), which sync never propagates, so the
 server would keep files a removed key can read. The app says to do it with
 the CLI on a folder copy and upload that to a new server folder.
 
-**Removing** ("Remove from This Device") deletes the local copy, its sync
-state and the Keychain password. When the copy holds changes the server has
-not confirmed, the confirmation says so and offers to push first.
+**Removing** ("Remove from This Device", on the welcome screen) deletes the
+local copy, its sync state, the Keychain password and the recent entry. When
+the copy holds changes the server has not confirmed, the confirmation says how
+many will be lost and to open the vault and sync first.
+
+**Recents.** A WebDAV vault is a recent entry with its location id and no
+bookmark (`RecentVault.webdav`), so "reopen the last vault" at launch opens
+the local copy, offline too.
 
 **Mac.** The sandboxed Mac build has `com.apple.security.network.client`
 for this (`docs/release/app-store.md`, "Entitlements").
