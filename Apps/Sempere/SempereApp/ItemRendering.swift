@@ -64,7 +64,8 @@ struct ItemRenderKey: Hashable, Sendable {
 /// Draws items off the main actor for the item layer (`ItemLayerView`):
 /// images and PDF pages through SempereRender's composition (`ItemRaster`,
 /// as exports draw them) from the vault's `BlobCache`; text boxes from their
-/// CoreText layout (`TextItemImage`), as the app's exports draw them.
+/// CoreText layout (`TextItemImage`), as the app's exports draw them;
+/// Markdown text boxes through `ItemRaster` too (their pieces and formula renders).
 enum ItemRendering {
     /// Largest picture of one item, in pixels.
     static let maxPixels = 6_000_000
@@ -78,7 +79,9 @@ enum ItemRendering {
     @MainActor
     static func render(_ key: ItemRenderKey, note: UUID, cache: BlobCache?, renders: RenderCache? = nil) async -> ItemPicture {
         let item = key.item
-        if item.kind == .text, let text = item.text {
+        // A Markdown box is drawn through the shared composition below (format.md §8.5.4: its pieces,
+        // formulas from their renders), with the CoreText shaper, as the app's exports draw it.
+        if item.kind == .text, let text = item.text, !text.isMarkdown {
             return TextItemImage.picture(text, frame: item.frame, rotation: item.rotation, scale: key.scale)
                 .map { ItemPicture.image($0.0, bounds: $0.1) }
                 ?? .placeholder(.unavailable("text cannot be drawn"))
@@ -116,7 +119,7 @@ enum ItemRendering {
         let source: CachedBlobSource? = cache == nil ? nil : CachedBlobSource(files: files)
         let outcome = await Task.detached(priority: .userInitiated) { () -> Outcome in
             let options = RenderOptions(paper: false, blobs: source, pdfRasterizer: PDFKitRasterizer(),
-                                        imageDecoder: ImageIODecoder())
+                                        imageDecoder: ImageIODecoder(), shaper: CoreTextShaper())
             do {
                 let r = try ItemRaster.render(item, scale: key.scale, maxPixels: ItemRendering.maxPixels, paper: key.paper, options: options)
                 // A video without a poster is its placeholder under the play mark, as exports draw it.

@@ -3,7 +3,12 @@ import SempereRender
 import UIKit
 
 /// Typing in text boxes on the canvas (docs/attachments.md §13 "Text
-/// editing on the canvas", task E2). With the text tool on, the selection
+/// editing on the canvas", task E2). New boxes are Markdown boxes (format.md
+/// §8.2.4 "Markdown text"): their source is edited as plain text, with a
+/// Markdown bar of helpers that insert syntax (`MarkdownEditing`), and drawn
+/// rendered when not edited; closing the edit typesets the formulas and
+/// writes their renders before the delta (`NoteEditor.preparedMarkdown`).
+/// Styled boxes (imports, older boxes) keep the style bar described here. With the text tool on, the selection
 /// controller (`ItemSelectionController`, scope `.textBoxes`) picks boxes: a
 /// tap selects one (handles to move it and set its width), a tap on the
 /// selected box or a double tap edits it (`begin`), a tap on the empty page
@@ -39,6 +44,8 @@ final class TextBoxEditorController: NSObject, UITextViewDelegate, UIGestureReco
         var rotation: Double?
         var original: TextContent?
         var style: TextBoxEditing.BoxStyle
+        /// A Markdown box: its source is edited, with the Markdown bar.
+        var markdown = false
         /// Changed since editing started.
         var dirty = false
     }
@@ -109,10 +116,11 @@ final class TextBoxEditorController: NSObject, UITextViewDelegate, UIGestureReco
     func begin(_ item: Item) {
         guard item.kind == .text, let content = item.text, let pageID, editor?.canEditItems == true else { return }
         endEditing()
+        let style = TextBoxEditing.BoxStyle(content)
         session = Session(itemID: item.id, pageID: pageID, frame: item.frame, rotation: item.rotation, original: content,
-                          style: TextBoxEditing.BoxStyle(content))
+                          style: style, markdown: content.isMarkdown)
         itemLayer?.hiddenItem = item.id
-        present(TextBoxEditing.attributed(content))
+        present(content.isMarkdown ? TextBoxEditing.markdownSource(content.string, style: style) : TextBoxEditing.attributed(content))
     }
 
     /// Starts a new box with its top-left corner at `p` (page points).
@@ -121,7 +129,8 @@ final class TextBoxEditorController: NSObject, UITextViewDelegate, UIGestureReco
         endEditing()
         let style = Self.lastStyle
         let frame = TextBoxPlacement.newFrame(at: p, pageWidth: editor.pageSize.width, size: style.size)
-        session = Session(itemID: nil, pageID: pageID, frame: frame, rotation: nil, original: nil, style: style)
+        // New boxes are Markdown boxes (maintainer request 2026-10-09).
+        session = Session(itemID: nil, pageID: pageID, frame: frame, rotation: nil, original: nil, style: style, markdown: true)
         present(NSAttributedString())
     }
 
@@ -137,13 +146,20 @@ final class TextBoxEditorController: NSObject, UITextViewDelegate, UIGestureReco
         tv.textContainerInset = .zero
         tv.textContainer.lineFragmentPadding = 0
         tv.isScrollEnabled = false
-        tv.allowsEditingTextAttributes = true
+        tv.allowsEditingTextAttributes = !session.markdown
         tv.overrideUserInterfaceStyle = .light   // text colours are stored as on light paper
         tv.attributedText = text
-        tv.typingAttributes = text.length > 0 ? text.attributes(at: text.length - 1, effectiveRange: nil)
-            : TextBoxEditing.typingAttributes(session.style)
+        if session.markdown {
+            tv.typingAttributes = TextBoxEditing.markdownAttributes(session.style)
+            tv.autocorrectionType = .no
+            tv.smartQuotesType = .no
+            tv.smartDashesType = .no
+        } else {
+            tv.typingAttributes = text.length > 0 ? text.attributes(at: text.length - 1, effectiveRange: nil)
+                : TextBoxEditing.typingAttributes(session.style)
+        }
         tv.delegate = self
-        tv.inputAccessoryView = makeStyleBar()
+        tv.inputAccessoryView = session.markdown ? makeMarkdownBar() : makeStyleBar()
         canvas.addSubview(tv)
         textView = tv
         colourItem?.image = TextColourPalette.swatchImage(currentColour, size: 22)
@@ -169,6 +185,10 @@ final class TextBoxEditorController: NSObject, UITextViewDelegate, UIGestureReco
         defer { onEditingChanged(false) }
         Self.lastStyle = session.style
         guard commit, session.dirty, let editor, editor.canEditItems, let actions = actions() else { return }
+        if session.markdown {
+            commitMarkdown(tv.text ?? "", session: session, keyboardLanguage: language, editor: editor, actions: actions)
+            return
+        }
         let written = TextBoxEditing.content(from: text, style: session.style, original: session.original,
                                              keyboardLanguage: language, frame: session.frame)
         if let id = session.itemID {
@@ -179,6 +199,33 @@ final class TextBoxEditorController: NSObject, UITextViewDelegate, UIGestureReco
             }
         } else {
             actions.addText(written.content, frame: written.frame, on: session.pageID)
+        }
+    }
+
+    /// The last Markdown edit being written (formulas typeset, renders written, then the delta); tests await it.
+    private(set) var pendingCommit: Task<Void, Never>?
+
+    /// Writes a Markdown edit: the source in the box's style, then (after
+    /// its formulas are typeset and their renders written) one delta.
+    private func commitMarkdown(_ source: String, session: Session, keyboardLanguage: String?, editor: NoteEditor,
+                                actions: ItemActions) {
+        if let id = session.itemID, source.isEmpty {
+            actions.delete([id], on: session.pageID)
+            return
+        }
+        guard !source.isEmpty,
+              let content = TextBoxEditing.markdownContent(source, style: session.style, original: session.original,
+                                                            keyboardLanguage: keyboardLanguage) else { return }
+        let frame = session.frame
+        let previous = pendingCommit
+        pendingCommit = Task { @MainActor in
+            await previous?.value
+            guard let prepared = try? await editor.preparedMarkdown(content, frame: frame) else { return }
+            if let id = session.itemID {
+                actions.setText(id, to: prepared.content, frame: prepared.frame, on: session.pageID)
+            } else {
+                actions.addText(prepared.content, frame: prepared.frame, on: session.pageID)
+            }
         }
     }
 
@@ -330,8 +377,17 @@ final class TextBoxEditorController: NSObject, UITextViewDelegate, UIGestureReco
     }
 
     /// Applies a style change to the selection, or to what is typed next.
+    /// In a Markdown box a size or colour is the box's (Markdown says the rest).
     func apply(_ change: TextBoxEditing.Change) {
         defer { colourItem?.image = TextColourPalette.swatchImage(currentColour, size: 22) }
+        if session?.markdown == true {
+            switch change {
+            case .size(let s): restyleMarkdown { $0.size = s }
+            case .color(let c): restyleMarkdown { $0.color = c }
+            default: break
+            }
+            return
+        }
         guard let tv = textView, var session else { return }
         let range = tv.selectedRange
         if range.length > 0 {
@@ -365,6 +421,111 @@ final class TextBoxEditorController: NSObject, UITextViewDelegate, UIGestureReco
         session.dirty = true
         self.session = session
         layoutTextView()
+    }
+
+    // MARK: Markdown bar
+
+    /// Changes a Markdown box's own style (size, colour, font, alignment) and redraws its source.
+    func restyleMarkdown(_ change: (inout TextBoxEditing.BoxStyle) -> Void) {
+        guard let tv = textView, var session, session.markdown else { return }
+        let old = session.style
+        change(&session.style)
+        guard session.style != old else { return }
+        let selected = tv.selectedRange
+        tv.attributedText = TextBoxEditing.markdownSource(tv.text ?? "", style: session.style)
+        tv.typingAttributes = TextBoxEditing.markdownAttributes(session.style)
+        tv.selectedRange = selected
+        session.dirty = true
+        self.session = session
+        layoutTextView()
+    }
+
+    /// Inserts or removes Markdown syntax around the selection, as one undoable change of the text.
+    func applyMarkdown(_ action: MarkdownEditing.Action) {
+        guard let tv = textView, session != nil else { return }
+        let old = tv.text ?? ""
+        let r = MarkdownEditing.apply(action, to: old, selection: tv.selectedRange)
+        guard r.text != old else { return }
+        // Replace only what changed, through the text view, so the system undo reaches it.
+        let change = TextBoxEditing.changedRange(from: old, to: r.text)
+        guard Self.fits(old, replacing: change.range, with: change.replacement),
+              let start = tv.position(from: tv.beginningOfDocument, offset: change.range.location),
+              let end = tv.position(from: start, offset: change.range.length),
+              let range = tv.textRange(from: start, to: end) else { return }
+        tv.replace(range, withText: change.replacement)
+        tv.selectedRange = r.selection
+        session?.dirty = true
+        layoutTextView()
+    }
+
+    private func makeMarkdownBar() -> UIToolbar {
+        let bar = UIToolbar(frame: CGRect(x: 0, y: 0, width: 600, height: 44))
+        bar.accessibilityIdentifier = "markdownBar"
+        func helper(_ name: String, _ title: String, _ action: MarkdownEditing.Action) -> UIBarButtonItem {
+            let item = UIBarButtonItem(image: UIImage(systemName: name), primaryAction: UIAction(title: title) { [weak self] _ in
+                self?.applyMarkdown(action)
+            })
+            item.accessibilityLabel = title
+            return item
+        }
+        func entry(_ name: String, _ title: String, _ action: MarkdownEditing.Action) -> UIAction {
+            UIAction(title: title, image: UIImage(systemName: name)) { [weak self] _ in self?.applyMarkdown(action) }
+        }
+        let lists = UIMenu(title: String(localized: "List", comment: "Markdown bar: menu of list and quote helpers"), children: [
+            entry("list.bullet", String(localized: "Bulleted List", comment: "Markdown bar: start bulleted list items"), .bulletList),
+            entry("list.number", String(localized: "Numbered List", comment: "Markdown bar: start numbered list items"), .numberedList),
+            entry("checklist", String(localized: "Task List", comment: "Markdown bar: start task list items (check boxes)"), .taskList),
+            entry("text.quote", String(localized: "Quote", comment: "Markdown bar: make the lines a block quote"), .quote),
+        ])
+        let math = UIMenu(title: String(localized: "Math", comment: "Markdown bar: menu of LaTeX math helpers"), children: [
+            entry("x.squareroot", String(localized: "Inline Math", comment: "Markdown bar: insert $…$ (LaTeX math in the line)"), .math),
+            entry("function", String(localized: "Display Math", comment: "Markdown bar: insert a $$…$$ block (LaTeX math on its own lines)"),
+                  .displayMath),
+        ])
+        let sizes = UIMenu(title: String(localized: "Size", comment: "Text style bar: font size menu"), children: TextBoxPlacement.sizes.map { s in
+            UIAction(title: "\(Int(s)) pt") { [weak self] _ in self?.restyleMarkdown { $0.size = s } } // l10n:ignore (number and unit)
+        })
+        let colour = UIBarButtonItem(title: String(localized: "Colour", comment: "Text style bar: text colour menu"),
+                                     image: TextColourPalette.swatchImage(currentColour, size: 22), primaryAction: nil, menu: nil)
+        colour.primaryAction = UIAction(title: String(localized: "Colour", comment: "Text style bar: text colour menu")) { [weak self, weak colour] _ in
+            guard let self, let colour else { return }
+            self.showColours(from: colour)
+        }
+        colour.accessibilityLabel = String(localized: "Colour", comment: "Text style bar: text colour menu")
+        colourItem = colour
+        let fontChoices: [(String, TextContent.Font)] = [
+            (String(localized: "Sans Serif", comment: "Typeface"), .sans),
+            (String(localized: "Serif", comment: "Typeface"), .serif),
+        ]
+        let fonts = UIMenu(title: String(localized: "Font", comment: "Text style bar: typeface menu"), children: fontChoices.map { name, f in
+            UIAction(title: name) { [weak self] _ in self?.restyleMarkdown { $0.font = f } }
+        })
+        let alignChoices: [(String, String, TextContent.Alignment)] = [
+            (String(localized: "Start", comment: "Text alignment"), "text.alignleft", .start),
+            (String(localized: "Center", comment: "Text alignment"), "text.aligncenter", .center),
+            (String(localized: "End", comment: "Text alignment"), "text.alignright", .end),
+        ]
+        let aligns = UIMenu(title: String(localized: "Alignment", comment: "Text style bar: paragraph alignment menu"), children: alignChoices.map { name, image, a in
+            UIAction(title: name, image: UIImage(systemName: image)) { [weak self] _ in self?.restyleMarkdown { $0.align = a == .start ? nil : a } }
+        })
+        bar.items = [
+            helper("bold", String(localized: "Bold", comment: "Text style"), .bold),
+            helper("italic", String(localized: "Italic", comment: "Text style"), .italic),
+            helper("strikethrough", String(localized: "Strikethrough", comment: "Text style"), .strikethrough),
+            helper("chevron.left.forwardslash.chevron.right", String(localized: "Code", comment: "Markdown bar: mark the selection as `code`"), .code),
+            helper("number", String(localized: "Heading", comment: "Markdown bar: make the line a heading (# Title); again for a smaller one"), .heading),
+            UIBarButtonItem(title: lists.title, image: UIImage(systemName: "list.bullet"), menu: lists),
+            helper("link", String(localized: "Link", comment: "Markdown bar: insert a [link](https://…)"), .link),
+            UIBarButtonItem(title: math.title, image: UIImage(systemName: "x.squareroot"), menu: math),
+            UIBarButtonItem(title: sizes.title, image: UIImage(systemName: "textformat.size"), menu: sizes),
+            colour,
+            UIBarButtonItem(title: fonts.title, image: UIImage(systemName: "textformat"), menu: fonts),
+            UIBarButtonItem(title: aligns.title, image: UIImage(systemName: "text.alignleft"), menu: aligns),
+            .flexibleSpace(),
+            UIBarButtonItem(systemItem: .done, primaryAction: UIAction { [weak self] _ in self?.endEditing() }),
+        ]
+        bar.sizeToFit()
+        return bar
     }
 }
 

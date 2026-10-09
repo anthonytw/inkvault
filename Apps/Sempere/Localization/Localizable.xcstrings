@@ -3145,6 +3145,18 @@
         }
       }
     },
+    "Bulleted List" : {
+      "comment" : "Markdown bar: start bulleted list items",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lista con viñetas"
+          }
+        }
+      }
+    },
     "Cancel" : {
       "comment" : "Button: cancel",
       "extractionState" : "manual",
@@ -3670,6 +3682,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Cerrar esta bóveda; los PDF esperan hasta que abras y desbloquees otra"
+          }
+        }
+      }
+    },
+    "Code" : {
+      "comment" : "Markdown bar: mark the selection as `code`",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Código"
           }
         }
       }
@@ -4556,6 +4580,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "En bloque"
+          }
+        }
+      }
+    },
+    "Display Math" : {
+      "comment" : "Markdown bar: insert a $$…$$ block (LaTeX math on its own lines)",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ecuación en bloque"
           }
         }
       }
@@ -5704,6 +5740,18 @@
         }
       }
     },
+    "Heading" : {
+      "comment" : "Markdown bar: make the line a heading (# Title); again for a smaller one",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Encabezado"
+          }
+        }
+      }
+    },
     "Healthy, %@" : {
       "comment" : "Settings ▸ Backups ▸ Last Check; %@ is how long ago",
       "extractionState" : "manual",
@@ -6120,6 +6168,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "En línea"
+          }
+        }
+      }
+    },
+    "Inline Math" : {
+      "comment" : "Markdown bar: insert $…$ (LaTeX math in the line)",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ecuación en línea"
           }
         }
       }
@@ -6619,6 +6679,30 @@
         }
       }
     },
+    "Link" : {
+      "comment" : "Markdown bar: insert a [link](https://…)",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Enlace"
+          }
+        }
+      }
+    },
+    "List" : {
+      "comment" : "Markdown bar: menu of list and quote helpers",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lista"
+          }
+        }
+      }
+    },
     "List this note's recordings" : {
       "comment" : "Tooltip of the note toolbar's Recordings… button",
       "extractionState" : "manual",
@@ -6699,6 +6783,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Rotulador"
+          }
+        }
+      }
+    },
+    "Math" : {
+      "comment" : "Markdown bar: menu of LaTeX math helpers",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Matemáticas"
           }
         }
       }
@@ -7808,6 +7904,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Ahora en %@."
+          }
+        }
+      }
+    },
+    "Numbered List" : {
+      "comment" : "Markdown bar: start numbered list items",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lista numerada"
           }
         }
       }
@@ -9258,6 +9366,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Las notas de voz rápidas no están configuradas: abre Sempere, desbloquea la bóveda y actívalas en Ajustes."
+          }
+        }
+      }
+    },
+    "Quote" : {
+      "comment" : "Markdown bar: make the lines a block quote",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cita"
           }
         }
       }
@@ -12114,6 +12234,18 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "Task List" : {
+      "comment" : "Markdown bar: start task list items (check boxes)",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lista de tareas"
           }
         }
       }
