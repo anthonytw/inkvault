@@ -45,6 +45,7 @@ One file at the vault root, `settings.age`:
 ```json
 {
   "$schemaVersion": 1,
+  "$minReaderVersion": 1,
   "editor.defaultPaper": { "kind": "grid", "spacing": 20 },
   "newNote.titleFormat": "isoDateTime",
   "mouse.smoothing": "strong",
@@ -79,7 +80,9 @@ One file at the vault root, `settings.age`:
   device (`type`: `mac`, `ipad`, `iphone`; absent for the CLI). It drives the merge
   (section 3) and is kept out of the way: the CLI hides it. A key listed in `$meta` but
   absent from the settings is a **reset**: the setting was set back to its default.
-- **`"$schemaVersion"`** is an integer, `1` for this version (section 6).
+- **`"$schemaVersion"`** and **`"$minReaderVersion"`** are integers: the writer's version
+  of the keys, and the oldest reader that may read and write the file (section 6), both
+  `1` for this version.
 - Other members starting with `$` and keys this version does not know are kept as
   they are.
 
@@ -289,25 +292,66 @@ Telling devices of the same type apart by name ("my Mac" and "the family Mac"), 
 setting can be scoped to one named device. Until then all devices of a type share its
 block, and the local override is the way for one device to differ (`docs/ROADMAP.md`).
 
-## 6. Schema and versions
+## 6. Schema, versions and compatibility
 
-- **JSON Schema.** `docs/settings.schema.json` describes the file. It is generated from
-  the registry (`SharedSettingsSchema`, also `sempere settings schema`), and a test fails
-  when the committed file differs. Readers validate with the registry the schema is made
-  from (the same rules); `sempere settings validate` reports every problem.
-- **`$schemaVersion`** counts changes to the keys' names and meanings. A change that
-  renames a key, remaps its values or splits it into several adds an ordered migration
-  `vN → vN+1` (`SharedSettingsMigrations`). Migrations run on read, on the in-memory copy;
-  the result is written back only when the device next saves. Each migration moves the
-  slot's `$meta` with it unchanged, so devices that migrate the same file get the same
-  result. Every migration has a test and a fixture of the version it starts from
-  (`Tests/SempereTests/Fixtures/settings/v<N>.json`). Version 1 has no migrations yet.
+### 6.1 JSON Schema
+
+`docs/settings.schema.json` describes the file. It is generated from the registry
+(`SharedSettingsSchema`, also `sempere settings schema`), and a test fails when the
+committed file differs. Readers validate with the registry the schema is made from (the
+same rules); `sempere settings validate` reports every problem.
+
+### 6.2 Compatibility rules (maintainer, 2026-10-09)
+
+1. **Changes are additive by default**: new keys only. Older apps ignore keys they do not
+   know (and keep them, rule 5). A test keeps a snapshot of each version's registry
+   (`Tests/SempereTests/Fixtures/settings/registry-v<N>.json`) and fails when a key of an
+   older snapshot is no longer in the registry, as a key or a legacy key.
+2. **Renames and meaning changes use a dual-write window.** The newer app writes both the
+   old and the new key, kept equal, for several releases (`SharedSettingSpec.legacy`: the
+   old key and the mappings between the two values); the old key is removed only later.
+   On a device that knows both, a setting resolves from whichever of the two slots was
+   written last, so an older app's edit of the old key still counts. Migrations add the
+   new key from the old one and never strip a key older apps still read: a step that
+   removes a key is allowed only in a migration that raises `$minReaderVersion` past every
+   reader of that key (a test checks this).
+3. **Two numbers in the file**: `$schemaVersion`, the version of the writer that wrote it,
+   and `$minReaderVersion`, the oldest reader that can safely read **and write** it. Both
+   merge to the larger value. `$minReaderVersion` is raised only for a genuinely breaking
+   change, as a deliberate, reviewed act: the table below must have a row for the current
+   value (a test fails otherwise), naming the change and why it cannot be additive.
+4. **A reader older than `$minReaderVersion`** pauses settings sync for that vault: it does
+   not read, apply or write the file (never touches it), keeps using its last good synced
+   values stored on the device (nothing resets), and shows a banner: "Settings sync is
+   paused: this vault's settings need a newer Sempere. Update the app to resume." Once
+   updated, the next pass resumes. The CLI refuses with exit 7.
+5. **An older but compatible reader** (its version ≥ `$minReaderVersion`) saving a newer
+   file keeps every unknown key, type block, `$` member and `$meta` entry verbatim, and
+   both version numbers.
+
+### 6.3 Versions and migrations
+
+- **`$schemaVersion`** counts changes to the keys' names and meanings. A change of a key's
+  name or meaning adds an ordered migration `vN → vN+1` (`SharedSettingsMigrations`): it
+  copies (or splits) the old key into the new one, maps values, and keeps the old key
+  (rule 2). Migrations run on read, on the in-memory copy; the result is written back only
+  when the device next saves. Each copy carries the slot's `$meta` unchanged, so devices
+  that migrate the same file get the same result. Every migration has a test, and every
+  version a fixture (`Tests/SempereTests/Fixtures/settings/v<N>.json`).
 - **A newer `$schemaVersion`** than the device knows: it does not migrate and does not
   rewrite what it does not understand. It reads the keys it knows, and on save writes
-  only the slots it changed, keeping everything else (and the version number) verbatim.
+  only the slots it changed, keeping everything else verbatim (rule 5).
 - **The vault format** is unchanged: no format bump and no `features` entry (that would
   stop every older writer, `format.md` §2). `settings.age` is a compatible extension
   (`format.md` §7.5), an unknown file to older readers.
+
+| `$schemaVersion` | Date | Change | Migration |
+| --- | --- | --- | --- |
+| 1 | 2026-10-09 | first version | none |
+
+| `$minReaderVersion` | Date | Breaking change and why it could not be additive |
+| --- | --- | --- |
+| 1 | 2026-10-09 | first version: every reader of the format reads it |
 
 ## 7. The CLI
 
@@ -331,6 +375,8 @@ sempere settings schema
   `$meta`, in a private temporary file it deletes afterwards. On save it validates the
   result, refuses an invalid file without writing anything, and records each changed key
   in `$meta` before re-encrypting.
+- A file whose `$minReaderVersion` is newer than the CLI is refused (exit 7), never
+  rewritten.
 - `validate` checks the file against the schema: unknown keys and blocks are
   information, invalid values of known keys are errors (exit 1).
 - `$meta` is never shown. **The CLI has no device overrides**: it is not a device that
@@ -363,8 +409,9 @@ sempere settings schema
 ## 9. The app
 
 - Settings gains a first section, **Sync Settings with This Vault**: the switch, and under
-  it what it does and whether sync is paused (locked, read-only, a tampered device list)
-  or found a settings file it cannot read.
+  it what it does and whether sync is paused (locked, read-only, a tampered device list,
+  a file that needs a newer Sempere: the banner of rule 4) or found a settings file it
+  cannot read.
 - Rows of settings get a context menu (Only on This Device, Only on iPads, Use Synced
   Value, Use on All Devices) and, when overridden or type-specific, a badge (`.help` on
   the Mac). Spanish strings for every new string.
@@ -379,11 +426,15 @@ sempere settings schema
   (property test over random slots, type blocks included), the write rule beats a skewed
   clock, resets win and lose by the same order, unknown keys, blocks and `$` members
   survive a merge and a rewrite, resolution order (override > block > top > default),
+  dual-written legacy keys, the compatibility matrix (every older reader, by its version
+  and registry snapshot, loads every newer fixture and keeps what it does not know), the
+  `$minReaderVersion` refusal and its doc row,
   invalid values fall back with a warning, limits and hostile files fail with typed errors
   (and a fuzz target), the tag binds the file, recipient changes rewrap the file, read-only
   and legacy vaults refuse writes; the schema file matches the registry; the migration
   machinery (renames, remaps, splits, a newer version left alone) and the v1 fixture.
-- Device logic (`SettingsSyncStateTests`): first enable on an empty vault (seed) and on a
+- Device logic (`SettingsSyncStateTests`): the pause when the file needs a newer reader
+  (nothing applied or written, last values kept); first enable on an empty vault (seed) and on a
   vault with settings (agree, use the vault's, replace the vault's); override lifecycle;
   type blocks (only on this type, use on all); passes push local edits to the slot they
   resolve from, apply remote ones, seed new keys, write back a file behind its copy.
