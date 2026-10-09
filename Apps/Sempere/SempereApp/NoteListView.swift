@@ -236,6 +236,7 @@ struct NoteListView: View {
         case .notebook(let n): return NotebookPath.components(n).last ?? n
         case .tag(let t): return "#\(t)"
         case .deleted: return String(localized: "Recently Deleted", comment: "Sidebar row: deleted notes")
+        case .favorites: return String(localized: "Favorites", comment: "Sidebar row: notes marked as favorites")
         case .recentlyRecognized: return String(localized: "Recently Recognized", comment: "Sidebar row: notes whose handwriting was recognized in the last 7 days")
         }
     }
@@ -273,6 +274,10 @@ struct NoteListView: View {
             }
             Button("Rename…", systemImage: "pencil") {
                 promptText = note.title; prompt = Prompt(kind: .rename, note: note.id)
+            }
+            Button(LocalizedStringKey(note.favorite ? "Remove from Favorites" : "Add to Favorites"),
+                   systemImage: note.favorite ? "star.slash" : "star") {
+                run { try await model.setFavorite(!note.favorite, for: note.id) }
             }
             Button("Add Tag…", systemImage: "tag") { promptText = ""; prompt = Prompt(kind: .tag, note: note.id) }
             if !note.tags.isEmpty {

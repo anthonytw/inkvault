@@ -93,7 +93,6 @@ private struct NewNoteSettingsSection: View {
     @State private var format = NewNoteSettings.titleFormat()
     /// The custom pattern as typed (stored only while it checks).
     @State private var pattern = NewNoteSettings.titlePattern()
-    @State private var notebook = NewNoteSettings.voiceNotebook()
     @State private var paper = PaperPreference.load()
     @State private var choosingPaper = false
 
@@ -131,28 +130,16 @@ private struct NewNoteSettingsSection: View {
                     PaperPreference.save(chosen)
                 }
             }
-            LabeledContent("Voice Notes") {
-                TextField(NewNoteSettings.defaultVoiceNotebook, text: $notebook)
-                    .multilineTextAlignment(.trailing)
-                    .autocorrectionDisabled()
-                    .onSubmit(commitNotebook)
-                    .onChange(of: notebook) { NewNoteSettings.setVoiceNotebook(notebook) }
-            }
         } header: {
             Text("New Notes")
         } footer: {
-            Text("A new note whose title you leave empty is named \(sample). Quick voice notes go to the notebook “\(NewNoteSettings.canonicalNotebook(notebook))”; use / for levels.")
+            Text("A new note whose title you leave empty is named \(sample).")
         }
     }
 
     private var sample: String {
         let t = NewNoteSettings.title(format, pattern: NewNoteSettings.titlePattern())
         return t.isEmpty ? String(localized: "“Untitled”", comment: "Settings ▸ New Notes footer: how a note with no title is shown, in quotes") : "“\(t)”"
-    }
-
-    private func commitNotebook() {
-        NewNoteSettings.setVoiceNotebook(notebook)
-        notebook = NewNoteSettings.voiceNotebook()
     }
 }
 
@@ -299,6 +286,7 @@ private struct TranscriptionSettingsSection: View {
     @State private var enabled = TranscriptionSettings.isEnabled()
     @State private var locale = TranscriptionSettings.localeIdentifier()
     @State private var status = TranscriptionSettings.ModelStatus.unavailable
+    @State private var engines: [TranscriptionSettings.EngineLine] = []
     @State private var downloading = false
     @State private var failure: String?
 
@@ -315,7 +303,14 @@ private struct TranscriptionSettingsSection: View {
                 }
                 .onChange(of: locale) { TranscriptionSettings.setLocaleIdentifier(locale) }
                 LabeledContent("Language Model", value: status.text)
-                if status == .notDownloaded, TranscriptionSettings.downloader != nil {
+                LabeledContent("Engine in Use", value: engines.first(where: \.isUsed)?.title
+                               ?? String(localized: "None available", comment: "Settings ▸ Transcription: no speech engine can transcribe the chosen language"))
+                ForEach(engines, id: \.title) { engine in
+                    LabeledContent(engine.title, value: engine.state)
+                        .font(.footnote)
+                        .foregroundStyle(engine.available ? Color.primary : Color.secondary)
+                }
+                if TranscriptionSettings.offersDownload(status, hasDownloader: TranscriptionSettings.downloader != nil) {
                     Button(LocalizedStringKey(downloading ? "Downloading…" : "Download Language Model")) { Task { await download() } }
                         .disabled(downloading)
                 }
@@ -335,12 +330,14 @@ private struct TranscriptionSettingsSection: View {
     private func refresh() async {
         guard enabled else { return }
         status = await TranscriptionSettings.statusProvider(locale)
+        engines = await TranscriptionSettings.enginesProvider(locale)
     }
 
     private func download() async {
         guard let download = TranscriptionSettings.downloader else { return }
         downloading = true
         failure = nil
+        status = .downloading(fraction: nil)
         defer { downloading = false }
         do { try await download(locale) } catch {
             failure = String(localized: "The language model could not be downloaded: \(String(describing: error))",

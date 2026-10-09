@@ -139,6 +139,10 @@ enum EditorCommands {
             ui.choosingPaper = true
         case .showRecordings:
             if editor != nil { ui.showingRecordings = true }
+        case .toggleRecording:
+            if let editor { Task { await editor.toggleRecording() } }
+        case .duplicateItem, .bringItemToFront, .deleteItem:
+            editor?.canvasTarget?.perform(itemCommand: command)
         case .previousPage:
             if let editor { editor.selectPage(editor.pageIndex - 1) }
         case .nextPage:
@@ -195,6 +199,8 @@ enum EditorCommands {
         context.canEditNote = editor.map { !$0.isReadOnly } ?? false
         context.notePageless = editor?.isPageless ?? false
         context.hasPage = editor?.currentPage != nil
+        context.hasItemSelection = editor?.hasItemSelection ?? false
+        context.isRecording = editor?.recordingSession?.isActive == true
         context.pageIndex = editor?.pageIndex ?? 0
         context.pageCount = editor?.pages.count ?? 0
         context.canDeletePage = editor?.canDeletePage ?? false

@@ -2190,14 +2190,14 @@
         }
       }
     },
-    "A new note whose title you leave empty is named %@. Quick voice notes go to the notebook “%@”; use / for levels." : {
-      "comment" : "Settings ▸ New Notes footer; the first value is a quoted sample title, the second a notebook name",
+    "A new note whose title you leave empty is named %@." : {
+      "comment" : "Settings ▸ New Notes footer; the value is a quoted sample title",
       "extractionState" : "manual",
       "localizations" : {
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Una nota nueva cuyo título dejes vacío se llama %1$@. Las notas de voz rápidas van al cuaderno «%2$@»; usa / para los niveles."
+            "value" : "Una nota nueva cuyo título dejes vacío se llama %@."
           }
         }
       }
@@ -2672,6 +2672,30 @@
         }
       }
     },
+    "Add this note to Favorites" : {
+      "comment" : "Tooltip of the favorite button",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Añadir esta nota a Favoritas"
+          }
+        }
+      }
+    },
+    "Add to Favorites" : {
+      "comment" : "Note menu and toolbar: mark the note as a favorite",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Añadir a Favoritas"
+          }
+        }
+      }
+    },
     "Added %@" : {
       "comment" : "When a device key was added; the value is a date",
       "extractionState" : "manual",
@@ -3051,6 +3075,78 @@
         }
       }
     },
+    "Available" : {
+      "comment" : "Settings ▸ Transcription: engine status",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Disponible"
+          }
+        }
+      }
+    },
+    "Available, asks for permission on first use" : {
+      "comment" : "Settings ▸ Transcription: engine status",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Disponible, pide permiso la primera vez"
+          }
+        }
+      }
+    },
+    "Available, but speech recognition is not allowed" : {
+      "comment" : "Settings ▸ Transcription: engine status",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Disponible, pero el reconocimiento de voz no está permitido"
+          }
+        }
+      }
+    },
+    "Available, language model downloads on first use" : {
+      "comment" : "Settings ▸ Transcription: engine status",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Disponible, el modelo de idioma se descarga al usarlo por primera vez"
+          }
+        }
+      }
+    },
+    "Available, language model installed" : {
+      "comment" : "Settings ▸ Transcription: engine status",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Disponible, modelo de idioma instalado"
+          }
+        }
+      }
+    },
+    "Available, permission granted" : {
+      "comment" : "Settings ▸ Transcription: engine status",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Disponible, permiso concedido"
+          }
+        }
+      }
+    },
     "Back Up Now" : {
       "comment" : "Settings ▸ Backups: button",
       "extractionState" : "manual",
@@ -3285,6 +3381,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Negrita"
+          }
+        }
+      }
+    },
+    "Bring Item to Front" : {
+      "comment" : "Note menu: draw the selected item above the others",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Traer elemento al frente"
           }
         }
       }
@@ -4657,6 +4765,18 @@
         }
       }
     },
+    "Delete Item" : {
+      "comment" : "Note menu: delete the selected image, text box or other item",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Eliminar elemento"
+          }
+        }
+      }
+    },
     "Delete Page" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -5087,6 +5207,18 @@
         }
       }
     },
+    "Duplicate Item" : {
+      "comment" : "Note menu: duplicate the selected image, text box or other item",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Duplicar elemento"
+          }
+        }
+      }
+    },
     "Duplicate Page" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -5247,6 +5379,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Final"
+          }
+        }
+      }
+    },
+    "Engine in Use" : {
+      "comment" : "Settings ▸ Transcription: the speech engine transcription would use",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Motor en uso"
           }
         }
       }
@@ -5549,6 +5693,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Face ID o Touch ID se ha bloqueado tras demasiados intentos. Bloquea el dispositivo y desbloquéalo con su código; después, vuelve a intentarlo."
+          }
+        }
+      }
+    },
+    "Favorites" : {
+      "comment" : "Sidebar row and note list title: notes marked as favorites",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Favoritas"
           }
         }
       }
@@ -6519,6 +6675,18 @@
         }
       }
     },
+    "In Favorites" : {
+      "comment" : "Search scope",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "En Favoritas"
+          }
+        }
+      }
+    },
     "In Recently Deleted" : {
       "comment" : "Search scope",
       "extractionState" : "manual",
@@ -6962,6 +7130,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Modelo de idioma"
+          }
+        }
+      }
+    },
+    "Language not supported" : {
+      "comment" : "Settings ▸ Transcription: engine status",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Idioma no admitido"
           }
         }
       }
@@ -7932,6 +8112,18 @@
         }
       }
     },
+    "No on-device model for this language" : {
+      "comment" : "Settings ▸ Transcription: engine status",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sin modelo en el dispositivo para este idioma"
+          }
+        }
+      }
+    },
     "No pages" : {
       "comment" : "Page counter in the Pages menu when the note has none",
       "extractionState" : "manual",
@@ -8008,6 +8200,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Ninguno"
+          }
+        }
+      }
+    },
+    "None available" : {
+      "comment" : "Settings ▸ Transcription: no speech engine can transcribe the chosen language",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ninguno disponible"
           }
         }
       }
@@ -10645,6 +10849,18 @@
         }
       }
     },
+    "Remove from Favorites" : {
+      "comment" : "Note menu and toolbar: take the favorite mark off",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Quitar de Favoritas"
+          }
+        }
+      }
+    },
     "Remove restores the last checked list and re-encrypts every note with a new vault key, so no other device can read them." : {
       "comment" : "Device list alert: what its Remove button does",
       "extractionState" : "manual",
@@ -10665,6 +10881,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "¿Quitar esta clave?"
+          }
+        }
+      }
+    },
+    "Remove this note from Favorites" : {
+      "comment" : "Tooltip of the favorite button",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Quitar esta nota de Favoritas"
           }
         }
       }
@@ -11255,6 +11483,42 @@
         }
       }
     },
+    "Rotate" : {
+      "comment" : "Undo action name (Edit menu: Undo …)",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Girar"
+          }
+        }
+      }
+    },
+    "Rotate 90° Left" : {
+      "comment" : "Item menu on the canvas",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Girar 90° a la izquierda"
+          }
+        }
+      }
+    },
+    "Rotate 90° Right" : {
+      "comment" : "Item menu on the canvas",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Girar 90° a la derecha"
+          }
+        }
+      }
+    },
     "Ruled" : {
       "comment" : "Paper kind",
       "extractionState" : "manual",
@@ -11309,6 +11573,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Elige Hacer copia ahora para reponer los archivos que faltan o están dañados y vuelve a verificar."
+          }
+        }
+      }
+    },
+    "SFSpeechRecognizer (on device)" : {
+      "comment" : "Settings ▸ Transcription: the older speech engine (a product name)",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "SFSpeechRecognizer (en el dispositivo)"
           }
         }
       }
@@ -12319,6 +12595,18 @@
         }
       }
     },
+    "SpeechTranscriber (on device)" : {
+      "comment" : "Settings ▸ Transcription: the speech engine of iPadOS 26 (a product name)",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "SpeechTranscriber (en el dispositivo)"
+          }
+        }
+      }
+    },
     "Staff line spacing" : {
       "comment" : "Paper parameter",
       "extractionState" : "manual",
@@ -12339,6 +12627,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Inicio"
+          }
+        }
+      }
+    },
+    "Start Recording" : {
+      "comment" : "Note menu: start recording audio in the note",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Empezar a grabar"
           }
         }
       }
@@ -15509,18 +15809,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Nota de voz"
-          }
-        }
-      }
-    },
-    "Voice Notes" : {
-      "comment" : "Settings ▸ New Notes: notebook that quick voice notes go to",
-      "extractionState" : "manual",
-      "localizations" : {
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Notas de voz"
           }
         }
       }

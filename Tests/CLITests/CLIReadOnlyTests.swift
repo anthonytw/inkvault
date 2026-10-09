@@ -88,6 +88,7 @@ final class CLIReadOnlyTests: CLITestCase {
             ["notes", "new", "Fresh"],
             ["notes", "rename", Self.mixed, "Renamed"],
             ["notes", "tag", Self.mixed, "--add", "x"],
+            ["notes", "favorite", Self.mixed],
             ["notes", "delete", Self.mixed],
             ["notes", "checkpoint", Self.mixed],
             ["pages", "add", Self.mixed],

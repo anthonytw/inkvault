@@ -176,14 +176,28 @@ struct RecordingsMenu: View {
         return name + length + transcribed
     }
 
-    private func startRecording() async {
+    private func startRecording() async { await editor.askAndStartRecording() }
+}
+
+extension NoteEditor {
+    /// Asks for the microphone if needed, then starts a recording; what fails is shown in `recordingError`.
+    func askAndStartRecording() async {
         guard await AVAudioCaptureBackend.requestMicrophone() else {
-            editor.recordingError = RecordingError.microphoneDenied.description
+            recordingError = RecordingError.microphoneDenied.description
             return
         }
-        do { try editor.startRecording() } catch {
+        do { try startRecording() } catch {
             let detail = "\(error)"
-            editor.recordingError = (error as? RecordingError)?.description ?? String(localized: "Could not record: \(detail)")
+            recordingError = (error as? RecordingError)?.description ?? String(localized: "Could not record: \(detail)")
+        }
+    }
+
+    /// Record / Stop Recording of the Mac menu and its shortcut, as the toolbar button's tap does.
+    func toggleRecording() async {
+        if recordingSession?.isActive == true {
+            await stopRecording()
+        } else if !isReadOnly {
+            await askAndStartRecording()
         }
     }
 }

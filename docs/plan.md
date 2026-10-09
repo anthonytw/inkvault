@@ -120,6 +120,14 @@ sidebar drops and shared Recently Recognized (#102), Mac polish (#101), quick vo
 | G2 ✅ | `video` items (blob kind `video`, 1 GiB cap, poster, AVPlayer, attached in "PDF + attachments"); ✅ **done (#93)**: format §8.2.7, CLI, exports, sync, app, web viewer | `Apps/`, `Sources/`, `web/` | E4 | format §8.2.7 defined |
 | L ✅ | ✅ **Done (#92)**: app UI localization with String Catalogs (`Apps/Sempere/Localization/`: `Localizable`, `InfoPlist`, `AppShortcuts`); Spanish complete (plurals, device variants, glossary in `docs/localization.md`); `LocalizationCatalogTests` (Linux), `scripts/app.sh pseudo` layout check (double-length, right-to-left, Spanish); CONTRIBUTING "Adding a language". CLI stays English | `Apps/` | — | Spanish catalog complete; contributor guide |
 
+## Gap audit follow-ups
+
+From `docs/research/gap-audit-2026-10.md` (rows `GA-nn`; `docs/ROADMAP.md` "Gap audit" has the full list).
+Done in 🚧 #131: GA-01 favorites (`notes favorite`, the app's menu, toolbar and Favorites list), GA-02 rotate items in the
+app (quarter-turn menu entries, two-finger turn), GA-04 one voice-notebook setting (Quick Voice Notes; the New Notes field
+is gone and its stored value migrated), GA-05 the transcription download button (`SpeechTranscription.downloadModel`,
+`transcribe --download-model`), GA-13 Mac shortcuts for item actions and recording. Open: the rest of the audit.
+
 The gap audit (`docs/research/gap-audit-2026-10.md`) rows are not tasks here: they sit in their
 component sections of `docs/ROADMAP.md` with their `GA-nn` ids, all planned for the first release
 except the ones the maintainer dropped (GA-11, GA-12, GA-22, GA-24, GA-25, GA-26). The "First release" section there (one public
