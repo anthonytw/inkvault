@@ -31,7 +31,9 @@ What it does:
   key, §5.4.1), favorites and deleted notes; **search** titles, tags,
   notebooks and recognised handwriting (the same rules as the app's
   `NoteSearch`: case, accents and width ignored, every word must match,
-  `#word` matches tags only), with a snippet and a jump to the matching page;
+  `#word` matches tags only), with a snippet and a jump to the matching page
+  (the snippet quotes one part of the page, never an equation's LaTeX: a match
+  only inside an equation shows "[equation]");
   and, when asked, the recordings' transcripts (the CLI's `search
   --transcripts` rules), with a jump to the recording and time ("Searching
   transcripts").
