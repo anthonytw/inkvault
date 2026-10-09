@@ -289,7 +289,7 @@ extension NotabilityNote {
     /// Parses the bytes of a `.note` file (a zip package).
     ///
     /// - Throws: `ImportError.zip` for a bad container, `.archive` for a bad
-    ///   plist, `.notability` when `Session.plist` is missing or its
+    ///   plist, `.package` when `Session.plist` is missing or its
     ///   handwriting arrays are inconsistent.
     public static func parse(data: Data) throws -> NotabilityNote {
         try parse(package: NotePackage(data: data))
@@ -306,7 +306,7 @@ extension NotabilityNote {
         // `Session.plist` at the root of an unzipped package.
         let sessionPath = pkg.paths.first { $0 == "Session.plist" }
             ?? pkg.paths.first { $0.hasSuffix("/Session.plist") && $0.split(separator: "/").count == 2 }
-        guard let sessionPath else { throw ImportError.notability("no Session.plist in package") }
+        guard let sessionPath else { throw ImportError.package("no Session.plist in package") }
         let prefix = String(sessionPath.dropLast("Session.plist".count))
         func part(_ name: String) throws -> Data? {
             pkg.contains(prefix + name) ? try pkg.read(prefix + name) : nil
@@ -315,7 +315,7 @@ extension NotabilityNote {
         let session = try KeyedArchive(data: pkg.read(sessionPath))
         let root = try session.root(anyOf: ["$0", "root"])
         guard root.className != nil || root.raw("richText") != nil else {
-            throw ImportError.notability("Session.plist root is not a NoteTakingSession")
+            throw ImportError.package("Session.plist root is not a NoteTakingSession")
         }
 
         var meta = try parseMetadata(part("metadata.plist"), session: session, root: root,
@@ -473,14 +473,14 @@ extension NotabilityNote {
         let numPoints = Int(try a.field(hash, "numpoints").int ?? -1)
         let counts = try int32s(data("curvesnumpoints"), "curvesnumpoints")
         guard counts.count == n, counts.allSatisfy({ $0 >= 0 }) else {
-            throw ImportError.notability("curvesnumpoints has \(counts.count) entries for \(n) curves")
+            throw ImportError.package("curvesnumpoints has \(counts.count) entries for \(n) curves")
         }
         let total = counts.reduce(0, +)
         guard numPoints < 0 || total == numPoints else {
-            throw ImportError.notability("curvesnumpoints sums to \(total), numpoints is \(numPoints)")
+            throw ImportError.package("curvesnumpoints sums to \(total), numpoints is \(numPoints)")
         }
         let xy = try float32s(data("curvespoints"), "curvespoints")
-        guard xy.count == 2 * total else { throw ImportError.notability("curvespoints holds \(xy.count / 2) points, expected \(total)") }
+        guard xy.count == 2 * total else { throw ImportError.package("curvespoints holds \(xy.count / 2) points, expected \(total)") }
         // Per-curve attribute arrays. Notability has written notes whose
         // arrays are a few entries short of `numcurves` (`curvesstyles` 1–3
         // short, format 5): the missing entries get defaults (pen, black,
@@ -499,11 +499,11 @@ extension NotabilityNote {
         // A NaN or infinite width would only fail when the note is written
         // (JSON has no NaN); a huge one is garbage. Reject both here.
         guard widths.allSatisfy({ $0.isFinite && abs($0) <= maxCoordinate }) else {
-            throw ImportError.notability("curveswidth holds widths beyond ±\(Int(maxCoordinate))")
+            throw ImportError.package("curveswidth holds widths beyond ±\(Int(maxCoordinate))")
         }
         let colorData = try data("curvescolors")
         guard colorData.count % 4 == 0 else {
-            throw ImportError.notability("curvescolors has \(colorData.count) bytes, not whole RGBA values")
+            throw ImportError.package("curvescolors has \(colorData.count) bytes, not whole RGBA values")
         }
         note("curvescolors", present: colorData.count / 4)
         let colors: [Color] = (0..<n).map { i in
@@ -536,17 +536,17 @@ extension NotabilityNote {
             // One value per stored point throughout: every curve is a polyline.
             perNode = counts; isBezier = Array(repeating: false, count: n)
         } else {
-            throw ImportError.notability("curvesfractionalwidths has \(fw.count) values; expected \(mixed.reduce(0, +))")
+            throw ImportError.package("curvesfractionalwidths has \(fw.count) values; expected \(mixed.reduce(0, +))")
         }
         for i in 0..<n where counts[i] <= 1 { isBezier[i] = true }   // nothing to expand
         let nodesTotal = fw.count
         // Non-finite multipliers fall back to 1 (`BezierToBSpline`); finite ones must be sane.
         guard fw.allSatisfy({ !$0.isFinite || abs($0) <= maxCoordinate }) else {
-            throw ImportError.notability("curvesfractionalwidths holds values beyond ±\(Int(maxCoordinate))")
+            throw ImportError.package("curvesfractionalwidths holds values beyond ±\(Int(maxCoordinate))")
         }
         // Notability coordinates are within a few thousand units per page; reject garbage.
         guard xy.allSatisfy({ $0.isFinite && abs($0) <= maxCoordinate }) else {
-            throw ImportError.notability("curvespoints holds coordinates beyond ±\(Int(maxCoordinate))")
+            throw ImportError.package("curvespoints holds coordinates beyond ±\(Int(maxCoordinate))")
         }
         func optional(_ key: String, stride: Int) throws -> [Double]? {
             let v = try float32s(data(key), key)
@@ -609,7 +609,7 @@ extension NotabilityNote {
     }
 
     static func float32s(_ d: Data, _ name: String) throws -> [Double] {
-        guard d.count % 4 == 0 else { throw ImportError.notability("\(name) is not a whole number of float32s") }
+        guard d.count % 4 == 0 else { throw ImportError.package("\(name) is not a whole number of float32s") }
         return d.withUnsafeBytes { raw in
             (0..<(d.count / 4)).map { i in
                 Double(Float(bitPattern: UInt32(littleEndian: raw.loadUnaligned(fromByteOffset: 4 * i, as: UInt32.self))))
@@ -618,7 +618,7 @@ extension NotabilityNote {
     }
 
     static func int32s(_ d: Data, _ name: String) throws -> [Int] {
-        guard d.count % 4 == 0 else { throw ImportError.notability("\(name) is not a whole number of int32s") }
+        guard d.count % 4 == 0 else { throw ImportError.package("\(name) is not a whole number of int32s") }
         return d.withUnsafeBytes { raw in
             (0..<(d.count / 4)).map { i in
                 Int(Int32(littleEndian: raw.loadUnaligned(fromByteOffset: 4 * i, as: Int32.self)))

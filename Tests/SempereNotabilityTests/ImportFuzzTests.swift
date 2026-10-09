@@ -252,7 +252,7 @@ final class ImportFuzzTests: XCTestCase {
                     let state = NotabilityImporter.convert(note, attachments: a)
                     _ = NotabilityImporter.dropped(note, attachments: a)
                     for item in state.pages[0].items where item.validationError != nil {
-                        throw ImportError.notability("invalid item: \(item.validationError ?? "")")
+                        throw ImportError.package("invalid item: \(item.validationError ?? "")")
                     }
                     _ = try InkJSON.encoder().encode(NotabilityImporter.ops(for: state))
                 }
@@ -287,7 +287,7 @@ final class ImportFuzzTests: XCTestCase {
                     let a = NotabilityAttachments.resolve(note, package: pkg)
                     let state = NotabilityImporter.convert(note, attachments: a)
                     for item in state.pages[0].items where item.validationError != nil {
-                        throw ImportError.notability("invalid item: \(item.validationError ?? "")")
+                        throw ImportError.package("invalid item: \(item.validationError ?? "")")
                     }
                     _ = try InkJSON.encoder().encode(NotabilityImporter.ops(for: state))
                 }

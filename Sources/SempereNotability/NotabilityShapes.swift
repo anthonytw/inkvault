@@ -23,7 +23,7 @@ enum NotabilityShapes {
     /// that could not be converted.
     ///
     /// - Throws: `ImportError.archive` for a malformed plist,
-    ///   `ImportError.notability` when the shapes would decode into more
+    ///   `ImportError.package` when the shapes would decode into more
     ///   points than `pointsPerByte` allows for the plist's size.
     static func curves(_ data: Data?) throws -> (curves: [NotabilityNote.Curve], unsupported: Int) {
         guard let data, !data.isEmpty else { return ([], 0) }
@@ -32,7 +32,7 @@ enum NotabilityShapes {
 
     /// `curves(_:)` on the parsed plist.
     ///
-    /// - Throws: `ImportError.notability` when the curves would hold more
+    /// - Throws: `ImportError.package` when the curves would hold more
     ///   than `maxPoints` points (checked before a path is decoded).
     static func curves(plist: PlistValue, maxPoints: Int = .max) throws
         -> (curves: [NotabilityNote.Curve], unsupported: Int) {
@@ -41,7 +41,7 @@ enum NotabilityShapes {
         }
         var points = 0
         func overBudget() -> ImportError {
-            ImportError.notability("shapes decode into more than \(maxPoints) points (shared references?)")
+            ImportError.package("shapes decode into more than \(maxPoints) points (shared references?)")
         }
         var kinds: [String] = []
         if case .array(let k)? = root["kinds"] { kinds = k.map { $0.string ?? "" } }

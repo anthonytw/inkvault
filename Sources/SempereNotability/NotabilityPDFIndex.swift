@@ -122,9 +122,9 @@ public enum NotabilityPDFIndex {
         let fb = FlatBuffer(data)
         do {
             let root = try fb.root()
-            guard let listField = try fb.field(root, 2) else { throw ImportError.notability("no field 2") }
+            guard let listField = try fb.field(root, 2) else { throw ImportError.package("no field 2") }
             let list = try fb.table(atRef: listField)
-            guard let pagesField = try fb.field(list, 0) else { throw ImportError.notability("no page list") }
+            guard let pagesField = try fb.field(list, 0) else { throw ImportError.package("no page list") }
             var out: [Int: String] = [:]
             // Page tables can all reference one text: charge each text's bytes (as strokes are).
             var budget = NotabilityBundle.Budget(limit: NotabilityBundle.decodeBudgetFactor * data.count + 65_536)

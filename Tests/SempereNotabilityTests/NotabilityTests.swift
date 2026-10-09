@@ -436,7 +436,7 @@ final class NotabilityTests: XCTestCase {
         cs[0].points[2] = (3e38, 3e38)
         let data = SyntheticNote.package(curves: cs)
         XCTAssertThrowsError(try NotabilityNote.parse(data: data)) { e in
-            guard case ImportError.notability = e else { return XCTFail("\(e)") }
+            guard case ImportError.package = e else { return XCTFail("\(e)") }
         }
         // The sampler itself clamps rather than trapping.
         let curve = NotabilityNote.Curve(points: [.init(x: 0, y: 0), .init(x: 3e38, y: 0), .init(x: -3e38, y: 0),
@@ -494,7 +494,7 @@ final class NotabilityTests: XCTestCase {
         // A package without Session.plist.
         let bad = TestZip.write([.init(path: "x/metadata.plist", data: SyntheticNote.metadata())])
         XCTAssertThrowsError(try NotabilityNote.parse(data: bad)) { e in
-            guard case ImportError.notability = e else { return XCTFail("\(e)") }
+            guard case ImportError.package = e else { return XCTFail("\(e)") }
         }
     }
 }

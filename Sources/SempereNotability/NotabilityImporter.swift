@@ -1134,7 +1134,7 @@ public enum NotabilityImporter {
         switch error {
         case ImportError.zip(let s): return "zip: \(s)"
         case ImportError.archive(let s): return "plist: \(s)"
-        case ImportError.notability(let s): return "note: \(s)"
+        case ImportError.package(let s): return "note: \(s)"
         case ImportError.io(let s): return "io: \(s)"
         default: return "\(error)"
         }

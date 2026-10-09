@@ -1,7 +1,7 @@
 import Foundation
 
 /// A strict reader for binary property lists (`bplist00`), the format of
-/// every plist inside a Notability package.
+/// every plist inside an importable package.
 ///
 /// The importer does not use `PropertyListSerialization` for untrusted
 /// packages: swift-corelibs-foundation's binary plist bridging crashes

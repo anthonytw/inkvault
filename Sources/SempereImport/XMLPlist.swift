@@ -2,7 +2,7 @@ import Foundation
 import Sempere
 
 /// A strict reader for XML property lists, the format of some small files
-/// inside Notability packages (`Recordings/library.plist`).
+/// inside packages (a recordings library, say).
 ///
 /// Like `BinaryPlist`, it avoids `PropertyListSerialization` for untrusted
 /// input. It accepts only Apple's plist vocabulary. It expands no entities
@@ -10,7 +10,7 @@ import Sempere
 /// refuses a DOCTYPE with an internal subset, so nothing is fetched or
 /// expanded. Size and nesting are capped.
 package enum XMLPlist {
-    /// Largest file accepted. The XML plists Notability writes are a few hundred bytes.
+    /// Largest file accepted. The XML plists apps write here are a few hundred bytes.
     package static let maxBytes = 4 << 20
     /// Deepest container nesting accepted.
     package static let maxDepth = 64

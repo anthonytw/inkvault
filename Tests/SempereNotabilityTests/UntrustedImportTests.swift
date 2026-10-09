@@ -172,7 +172,7 @@ final class UntrustedImportTests: XCTestCase {
         let data = Self.sharedShapesPlist(references: 5000, segments: 1000)
         XCTAssertLessThan(data.count, 60_000)
         XCTAssertThrowsError(try NotabilityShapes.curves(data)) { e in
-            guard case ImportError.notability? = e as? ImportError else { return XCTFail("\(e)") }
+            guard case ImportError.package? = e as? ImportError else { return XCTFail("\(e)") }
         }
         XCTAssertThrowsError(try NotabilityNote.parse(data: SyntheticNote.package(shapes: data)))
         // A few references are fine.

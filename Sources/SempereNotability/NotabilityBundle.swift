@@ -23,12 +23,12 @@ public enum NotabilityBundle {
 
     /// Parses an `.ntb` package (already opened as a zip or directory).
     ///
-    /// - Throws: `ImportError.notability` when there is no `noteBundle` or it
+    /// - Throws: `ImportError.package` when there is no `noteBundle` or it
     ///   is not a bundle this reader understands.
     public static func parse(package pkg: NotePackage) throws -> NotabilityNote {
         guard let path = pkg.paths.first(where: { $0 == "noteBundle" })
                 ?? pkg.paths.first(where: { $0.hasSuffix("/noteBundle") && $0.split(separator: "/").count == 2 }) else {
-            throw ImportError.notability("no noteBundle in .ntb package")
+            throw ImportError.package("no noteBundle in .ntb package")
         }
         var note = try parse(bundle: pkg.read(path))
         note.bundleFiles = attachmentFiles(pkg)
@@ -52,7 +52,7 @@ public enum NotabilityBundle {
     /// them through `NotabilityImporter.recognition` exactly as the bundle's
     /// strokes are placed.
     ///
-    /// - Throws: `ImportError.notability` for a malformed buffer.
+    /// - Throws: `ImportError.package` for a malformed buffer.
     static func parseHandwritingIndex(_ data: Data, inset: Double) throws -> [Int: NotabilityNote.RecognizedPage] {
         let fb = FlatBuffer(data)
         let root = try fb.root()
@@ -74,7 +74,7 @@ public enum NotabilityBundle {
                 let (start, count) = try fb.vector(atRef: boxField, elementSize: 8)
                 try budget.spend(8 * count)
                 guard count <= text.utf16.count else {
-                    throw ImportError.notability(".ntb: more character boxes than characters on page \(number)")
+                    throw ImportError.package(".ntb: more character boxes than characters on page \(number)")
                 }
                 boxes = NotabilityNote.halfRects(Data(fb.bytes[start..<(start + 8 * count)]))
                     .map { $0.flatMap { b in
@@ -95,7 +95,7 @@ public enum NotabilityBundle {
 
     /// Parses the bytes of a `noteBundle`.
     ///
-    /// - Throws: `ImportError.notability` when the bundle is malformed or
+    /// - Throws: `ImportError.package` when the bundle is malformed or
     ///   references its payloads so often that decoding would exceed
     ///   `decodeBudgetFactor` times its size.
     public static func parse(bundle data: Data) throws -> NotabilityNote {
@@ -103,7 +103,7 @@ public enum NotabilityBundle {
         var budget = Budget(limit: decodeBudgetFactor * data.count + 65_536)
         let root = try fb.root()
         guard let recordsField = try fb.field(root, 6) else {
-            throw ImportError.notability(".ntb: no record list")
+            throw ImportError.package(".ntb: no record list")
         }
         let records = try fb.tables(atVectorRef: recordsField)
         let createdMs = try fb.field(root, 4).map { try fb.i64($0) }
@@ -234,7 +234,7 @@ public enum NotabilityBundle {
         let all = curves + lines
         guard all.allSatisfy({ $0.points.allSatisfy { abs($0.x) <= NotabilityNote.maxCoordinate
                 && abs($0.y) <= NotabilityNote.maxCoordinate } }) else {
-            throw ImportError.notability(".ntb: coordinates beyond ±\(Int(NotabilityNote.maxCoordinate))")
+            throw ImportError.package(".ntb: coordinates beyond ±\(Int(NotabilityNote.maxCoordinate))")
         }
 
         let kind: PaperKind
@@ -335,7 +335,7 @@ public enum NotabilityBundle {
     static func pageIndex(_ fb: FlatBuffer, _ payload: Int) throws -> Int {
         guard let f = try fb.field(payload, 0) else { return 0 }
         let page = Int(try fb.u32(f + 8))
-        guard page < 100_000 else { throw ImportError.notability(".ntb: page index \(page)") }
+        guard page < 100_000 else { throw ImportError.package(".ntb: page index \(page)") }
         return page
     }
 
@@ -482,7 +482,7 @@ extension NotabilityBundle {
         mutating func spend(_ n: Int) throws {
             used += n
             guard used <= limit else {
-                throw ImportError.notability(".ntb: decode budget exceeded (payloads referenced repeatedly)")
+                throw ImportError.package(".ntb: decode budget exceeded (payloads referenced repeatedly)")
             }
         }
     }
@@ -535,7 +535,7 @@ struct FlatBuffer {
 
     func check(_ pos: Int, _ size: Int) throws {
         guard pos >= 0, size >= 0, pos <= bytes.count - size else {
-            throw ImportError.notability(".ntb: read of \(size) bytes at \(pos) beyond \(bytes.count)")
+            throw ImportError.package(".ntb: read of \(size) bytes at \(pos) beyond \(bytes.count)")
         }
     }
 
@@ -560,7 +560,7 @@ struct FlatBuffer {
     func table(_ t: Int) throws -> Int {
         let vt = t - (try i32(t))
         let size = try u16(vt)
-        guard size >= 4, size % 2 == 0 else { throw ImportError.notability(".ntb: bad vtable at \(vt)") }
+        guard size >= 4, size % 2 == 0 else { throw ImportError.package(".ntb: bad vtable at \(vt)") }
         try check(vt, size)
         return t
     }
@@ -601,7 +601,7 @@ struct FlatBuffer {
         let off = try u16(vt + slot)
         guard off != 0 else { return nil }
         let tableSize = try u16(vt + 2)
-        guard off < tableSize else { throw ImportError.notability(".ntb: field outside its table at \(t)") }
+        guard off < tableSize else { throw ImportError.package(".ntb: field outside its table at \(t)") }
         return t + off
     }
 
@@ -619,7 +619,7 @@ struct FlatBuffer {
         let v = try ref(p)
         let count = Int(try u32(v))
         guard count <= (bytes.count - v - 4) / max(elementSize, 1) else {
-            throw ImportError.notability(".ntb: vector of \(count) overruns the buffer")
+            throw ImportError.package(".ntb: vector of \(count) overruns the buffer")
         }
         return (v + 4, count)
     }
