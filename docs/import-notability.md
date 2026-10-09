@@ -598,7 +598,12 @@ Notability's order. The bytes are sniffed: JPEG and PNG are stored with
 metadata stripped (`format.md` §8.2.5; the EXIF orientation becomes the
 item's `orientation`, `pixelSize` is after it) unless `--keep-image-metadata`;
 HEIC is stored as is (sized from its `ispe`, metadata not stripped, with a
-warning); GIF, TIFF, WebP, BMP and AVIF are left out, and so is an image over
+warning); a GIF (its first frame, on a transparent canvas of the logical
+screen) or a baseline TIFF (grey, palette or RGB(A), 1–16 bits, strips,
+uncompressed, PackBits, LZW or Deflate, orientation applied) is decoded by the
+importer itself (pure Swift, so on Linux too) and stored as a PNG; a TIFF
+with tiles, planar data, CMYK or YCbCr is left out. WebP, BMP and AVIF are
+left out (no decoder here; converting them needs the app's ImageIO), and so is an image over
 100 megapixels (`format.md` §8.4). At most 2 GiB of PDFs and images is held for
 one note while it is imported, recordings included (a package entry may be
 1 GiB, and a small zip can hold many): past that an attachment is left out with
@@ -944,7 +949,7 @@ PDF backgrounds, images, typed text and recordings are imported
 | --- | --- |
 | Pages of two heights (paper pages inserted into a note made from a PDF: 4 of the notes with a Notability PDF export) | the note has one `breakHeight`, so exports break where the PDF pages do throughout; ink positions are exact, page breaks after an inserted page and recognition boxes on later pages are not |
 | PDF pages whose PDF is missing, encrypted or unreadable; `.ntb` records naming no bundle file; template PDFs not found in the package; PDF highlights | counted (`dropped.pdfPages`, `pdfs`, `bundleRecordsWithoutFile`, `templatePDFs`, `pdfHighlights`) with a warning |
-| Media objects that are not images, or have no file or frame; GIF, TIFF, WebP images | counted in `dropped.media` with a warning naming the class and fields |
+| Media objects that are not images, or have no file or frame; WebP, BMP and AVIF images, TIFFs the decoder does not read (tiles, planar, CMYK, YCbCr) and unreadable GIFs | counted in `dropped.media` with a warning naming the class and fields (GIF and readable TIFF are converted to PNG) |
 | Typed text beyond the per-item limits | counted in `dropped.typedTextCharacters` |
 | Recordings without an audio file, or in an unknown container; `eventTokens` that do not read as times in the one recording | counted (`dropped.recordings`, `dropped.recLinks`) with a warning |
 | Dashed strokes | no dash attribute; imported solid and counted |

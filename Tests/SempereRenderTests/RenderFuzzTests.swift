@@ -224,6 +224,7 @@ final class ImageFuzzTests: XCTestCase {
     /// orientation, HEIF sizes and stripping. Only `Failure` may be thrown.
     func testFuzzImageImport() throws {
         let seeds = try Array(Self.fixtures(".jpg").prefix(6)) + Array(Self.fixtures(".png").prefix(4))
+            + Array(Self.fixtures(".gif")) + Array(Self.fixtures(".tif"))
         let report = Fuzz.run("image-import", seeds: seeds, quick: 300, maxSize: 64 << 10,
                               generate: Self.generateJPEG) { input in
             _ = JPEG.exifOrientation(input)

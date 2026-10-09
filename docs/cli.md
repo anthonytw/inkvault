@@ -1201,8 +1201,8 @@ to runs), and recordings become the note's recordings with their audio
 (strokes get `rec` where `eventTokens` read as times in the one recording);
 blobs are written before the note's delta.
 JPEG and PNG metadata (camera, location) is stripped unless
-`--keep-image-metadata`; HEIC is stored as is; GIF, TIFF, WebP and other
-formats are reported and left out. `--no-attachments` imports ink, recognised
+`--keep-image-metadata`; HEIC is stored as is; GIF (first frame) and baseline
+TIFF are converted to PNG; WebP and other formats are reported and left out. `--no-attachments` imports ink, recognised
 handwriting and metadata only and reports every attachment as dropped. A note with
 no ink and none of its PDF pages imported gets a `no ink in …` line. A note
 already in the vault is skipped unless `--overwrite`, which
