@@ -962,6 +962,9 @@ public struct Recording: Hashable, Sendable, Codable, Identifiable {
     public var transcript: BlobRef?
     /// The recording this one replaces (restored from history).
     public var parent: UUID?
+    /// Immutable: who captured it, for a voice note adopted from the inbox
+    /// (format.md §8.3.1, §11.3). Nil otherwise, or when the value is malformed.
+    public var captured: CaptureAttribution?
     /// Snapshot only, as on items.
     public var origin: String?
     /// Snapshot only: register name → `"<hlc>-<device>"` stamp.
@@ -971,12 +974,12 @@ public struct Recording: Hashable, Sendable, Codable, Identifiable {
 
     public init(id: UUID = UUID(), blob: BlobRef, started: Date, duration: Double? = nil, codec: String? = nil,
                 sampleRate: Int? = nil, channels: Int? = nil, bitRate: Int? = nil, title: String? = nil,
-                transcript: BlobRef? = nil, parent: UUID? = nil, origin: String? = nil,
+                transcript: BlobRef? = nil, parent: UUID? = nil, captured: CaptureAttribution? = nil, origin: String? = nil,
                 clocks: [String: String]? = nil, extra: [String: JSONValue] = [:]) {
         self.id = id; self.blob = blob; self.started = started; self.duration = duration; self.codec = codec
         self.sampleRate = sampleRate; self.channels = channels; self.bitRate = bitRate; self.title = title
-        self.transcript = transcript; self.parent = parent; self.origin = origin; self.clocks = clocks
-        self.extra = extra
+        self.transcript = transcript; self.parent = parent; self.captured = captured; self.origin = origin
+        self.clocks = clocks; self.extra = extra
     }
 
     /// Snapshot order (format.md §5.4): by `started`, then lowercase `id`.
@@ -986,7 +989,7 @@ public struct Recording: Hashable, Sendable, Codable, Identifiable {
     }
 
     static let knownFields: Set<String> = ["id", "blob", "started", "duration", "codec", "sampleRate", "channels",
-                                           "bitRate", "title", "transcript", "parent", "origin", "clocks"]
+                                           "bitRate", "title", "transcript", "parent", "captured", "origin", "clocks"]
 
     /// Fields `setRecording` may not name: all but the registers `title` and
     /// `transcript` and unknown fields.
@@ -1005,6 +1008,8 @@ public struct Recording: Hashable, Sendable, Codable, Identifiable {
         title = try c.decodeIfPresent(String.self, "title")
         transcript = try c.decodeIfPresent(BlobRef.self, "transcript")
         parent = try c.decodeIfPresent(LowercaseUUID.self, "parent")?.uuid
+        // Informational: a malformed value reads as absent, never rejects the revision.
+        captured = (try? c.decodeIfPresent(CaptureAttribution.self, "captured")) ?? nil
         origin = try c.decodeIfPresent(String.self, "origin")
         clocks = try c.decodeIfPresent([String: String].self, "clocks")
         extra = try c.extra(excluding: Self.knownFields)
@@ -1023,9 +1028,45 @@ public struct Recording: Hashable, Sendable, Codable, Identifiable {
         try c.encodeIfPresent(title, "title")
         try c.encodeIfPresent(transcript, "transcript")
         try c.encodeIfPresent(parent.map(LowercaseUUID.init), "parent")
+        try c.encodeIfPresent(captured, "captured")
         try c.encodeIfPresent(origin, "origin")
         if let clocks, !clocks.isEmpty { try c.encode(clocks, "clocks") }
         try c.encodeExtra(extra, excluding: Self.knownFields)
+    }
+}
+
+/// Who captured a voice note adopted from the inbox (format.md §8.3.1,
+/// §11.3): the capturing device's id, as its capture named it, and the
+/// fingerprint of the vault recipient whose device capture key sealed it
+/// (authenticated against profile holders: only that device's profile, and
+/// holders of the vault secret itself, hold the key). No
+/// `recipient` means the capture was sealed with the vault capture key, by a
+/// profile made before attribution: then `device` is only a claim.
+public struct CaptureAttribution: Hashable, Sendable, Codable {
+    /// 8 lowercase hex digits (format.md §5).
+    public var device: String
+    /// `CaptureKey.fingerprint` of the recipient (64 lowercase hex digits).
+    public var recipient: String?
+
+    public init(device: String, recipient: String?) {
+        self.device = device; self.recipient = recipient
+    }
+
+    enum CodingKeys: String, CodingKey { case device, recipient }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        device = try c.decode(String.self, forKey: .device)
+        recipient = try c.decodeIfPresent(String.self, forKey: .recipient)
+        guard DeviceID(device) != nil, recipient.map({ RecipientsAuth.unhex($0) != nil }) ?? true else {
+            throw DecodingError.dataCorruptedError(forKey: .device, in: c, debugDescription: "malformed attribution")
+        }
+    }
+
+    /// The recipient's label in `recipients` (vault.json), when it is still listed.
+    public func label(in recipients: [VaultManifest.Recipient]) -> String? {
+        guard let recipient else { return nil }
+        return recipients.first { CaptureKey.fingerprint(of: $0.key) == recipient }?.label
     }
 }
 

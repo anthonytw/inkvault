@@ -62,16 +62,21 @@ extension AppModel {
     }
 
     /// After an unlock or a key change: the stored profile of this vault gets
-    /// the current recipients and capture key (a removed key rotates both).
+    /// the current recipients and this device's capture key (a removed key
+    /// rotates both), and a profile made before attribution (the vault
+    /// capture key) becomes an attributed one (format.md §11.1, security
+    /// review 2026-10, C2).
     func refreshQuickCaptureProfile() {
         migrateLegacyVoiceNotebook()
         // Never a list that does not check (format.md §2.1, §11.1): captures are sealed to it.
         guard let vault, vault.canRead, vault.recipientsStatus.allowsWriting, var stored = quickCaptureProfile,
-              stored.profile.vaultId == vault.vaultId, let key = try? vault.captureKey() else { return }
-        let recipients = vault.recipients.map(\.key)
-        guard stored.profile.recipients != recipients || stored.profile.key != key.bytes else { return }
-        stored.profile.recipients = recipients
-        stored.profile.key = key.bytes
+              stored.profile.vaultId == vault.vaultId, let device = DeviceID(stored.profile.device),
+              let fresh = try? vault.captureProfile(device: device, notebook: stored.profile.notebook) else { return }
+        guard stored.profile.recipients != fresh.recipients || stored.profile.key != fresh.key
+              || stored.profile.recipient != fresh.recipient else { return }
+        stored.profile.recipients = fresh.recipients
+        stored.profile.key = fresh.key
+        stored.profile.recipient = fresh.recipient
         if let url = vaultURL, let bookmark = try? url.bookmarkData(options: [], includingResourceValuesForKeys: nil, relativeTo: nil) {
             stored.bookmark = bookmark
         }

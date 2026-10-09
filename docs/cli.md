@@ -210,6 +210,8 @@ sempere vault recipients remove age1... [--rewrap header|reencrypt]
 sempere vault recipients replace age1old... age1pq1new... [--label TEXT] [--rewrap header|reencrypt] [--store-key FILE ...]
 sempere vault recipients repair [--keep age1pq1... ...] [--dry-run] [--rewrap header|reencrypt]
 sempere vault recipients confirm
+sempere vault link [status|upgrade]
+sempere vault markers [status|tag|repair]
 sempere vault rewrap-resume
 sempere vault verify
 sempere vault index [--out PATH|-]
@@ -308,7 +310,10 @@ sempere vault summaries [--out PATH|-] [--plaintext] [--no-cache]
   offline for two or more key changes), an
   untagged copy older than the tag (a restored backup), which it tags again,
   or a trust record of this machine that no longer reads (it is written again).
-  Never for a tag that does not verify. Confirming a list an attacker wrote
+  Never for a tag that does not verify, and never for changed version markers
+  (`markersMismatch`, `markersRemoved`, `markersRolledBack`: exit 1, use
+  `markers repair`); markers that do not check behind a list problem are
+  written back as `markers repair` would. Confirming a list an attacker wrote
   lets them read what this machine writes.
 - `link` (or `link status`) shows the form of `vault.json`'s `secretLink`
   (`none`, `signed`, `legacy` HMAC, `malformed`), whether the vault is marked
@@ -325,6 +330,21 @@ sempere vault summaries [--out PATH|-] [--plaintext] [--no-cache]
   (exit 6). Any write also upgrades this machine's record; a legacy record
   never confirms a changed secret, so a machine that missed a key change
   before upgrading runs `recipients confirm`.
+- `markers` (or `markers status`) shows whether `vault.json`'s `format` and
+  `features` are authenticated (`format.md` §2.1 "Version markers", security
+  review 2026-10, N3) and check: `--json` gives `format`, `features`,
+  `tagged`, `status` (`verified`, `untagged`, `tampered`, `not-checked`
+  without a key), `reason` and `recorded` (the markers this machine last
+  verified). A vault whose markers were changed without the key
+  (`markersMismatch`), lost their tag (`markersRemoved`) or went back to an
+  older `vault.json` (`markersRolledBack`, which only a machine that wrote to
+  it can tell) is refused for every write (exit 6) and reported by `info`,
+  `verify` and the device-list lines; reading works. `markers tag` (needs the
+  key) authenticates the markers of an older vault once, as its first write
+  would anyway (`--json`: `tagged`, `status`). `markers repair` (needs the key)
+  writes the larger of the markers on disk and those this machine last verified
+  (the higher format, every feature of either), tagged; it refuses a result
+  naming a format or feature this version does not implement.
 - `rewrap-resume` finishes an interrupted change; it refuses (exit 6) a list
   that does not check, so a planted journal cannot re-encrypt the vault to a
   planted key.
@@ -1574,9 +1594,13 @@ sempere inbox import [CAPTURE...] [--dry-run] [--retry]          (needs the key)
 Voice notes without the key (`format.md` §11, `docs/quick-capture.md`), the
 same path as the app's widgets, Control Center control and Siri. `enable`
 writes this machine's **capture profile** (the vault's public recipients and
-its capture key, which can only add captures and never reads anything) to
-`$XDG_STATE_HOME/sempere/capture/<vault id>.json`, mode 0600. Run it again after
-a key is removed from the vault: that rotates the capture key. It refuses (exit
+the device capture key of the key it was unlocked with, which can only add
+captures and never reads anything) to
+`$XDG_STATE_HOME/sempere/capture/<vault id>.json`, mode 0600. Captures are
+**attributed** to that key's device (`format.md` §11.1): another machine's
+profile cannot seal one that passes as this one's. Run it again after a key is
+removed from the vault (that rotates the capture key), and once to replace a
+profile made before attribution (its captures are adopted as unattributed). It refuses (exit
 6) a device list that does not check (`format.md` §2.1): captures are sealed to
 the profile's list and nothing else, so a profile is only ever made from a
 checked one. `capture` reads
@@ -1587,11 +1611,17 @@ with the capture key) and prints the capture id. `--transcript` seals a
 way its recording id is replaced by the capture's, and it is bound to the
 capture's audio (`format.md` §11.2): `transcript` needs that audio file
 (`--audio`, the bytes that were captured), and a transcript bound to other
-audio is never adopted. Both refuse (exit 7) a vault of a newer format. `list` shows the inbox:
-ids and file kinds without a key, titles and whether each verifies with one.
+audio is never adopted, nor is one sealed by another device than its
+capture's. Both refuse (exit 7) a vault of a newer format. `list` shows the inbox:
+ids and file kinds without a key, with one the titles, whether each verifies
+and who captured it (`from iPad (device 0b0b0b0b)`, or `(unattributed)`).
+A capture sealed by a device that is no longer in the vault never verifies,
+also while the rewrap of its removal is unfinished (security review 2026-10,
+C3): it is reported and kept.
 `import` adopts each capture as a note in the capture's notebook ("Inbox"),
 titled from its date: the audio and transcript as blobs, then one delta as this
-machine, then the inbox files are deleted. The note, page and recording ids
+machine (the recording records who captured it, `captured`, `format.md`
+§8.3.1), then the inbox files are deleted. The note, page and recording ids
 derive from the capture id, so importing on two machines gives one note. A
 capture that does not verify is reported (exit 1) and kept. Each file's tag
 is checked as it is decrypted, before the file is read whole, and a
@@ -1601,8 +1631,12 @@ read again for an hour, then twice as long after each failure (up to a
 week), while it does not change: `import` reports it as `failed N time(s)
 …; not read again before TIME`. Naming the capture, or `--retry`, reads it
 now. `--json`:
-`capture` gives `{capture, note, files}`; `import` gives `{dryRun, captures:
-[{capture, note, title, created, transcript, file, removed, error}]}`.
+`enable` gives `{profile, device, notebook, recipient}`; `capture` gives
+`{capture, note, files}`; `list` gives `[{capture, kinds, title, started,
+duration, device, recipient, capturedBy, error}]` (`recipient` is the
+fingerprint of the key the capture is attributed to, `capturedBy` its label);
+`import` gives `{dryRun, captures: [{capture, note, title, created,
+transcript, file, removed, error, captured, capturedBy}]}`.
 
 ### Shared settings
 

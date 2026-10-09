@@ -12354,6 +12354,17 @@
         }
       }
     },
+    "Repair it with `sempere vault markers repair` on a computer that has opened this vault before, or restore vault.json from a backup." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Repáralo con `sempere vault markers repair` en un ordenador que ya haya abierto esta bóveda, o restaura vault.json de una copia de seguridad."
+          }
+        }
+      }
+    },
     "Repeat passphrase" : {
       "comment" : "Secure text field placeholder",
       "extractionState" : "manual",
@@ -14159,6 +14170,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Alguien que puede cambiar la carpeta de la bóveda (un servicio de sincronización, una carpeta compartida) ha editado su lista de dispositivos sin la clave de la bóveda."
+          }
+        }
+      }
+    },
+    "Someone who can change the vault's folder changed which version of Sempere may write to it, without the vault's key. This version would otherwise write to a vault it must only read." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Alguien que puede cambiar la carpeta de la bóveda cambió qué versión de Sempere puede escribir en ella, sin la clave de la bóveda. De lo contrario, esta versión escribiría en una bóveda que solo debe leer."
           }
         }
       }
@@ -16773,6 +16795,18 @@
         }
       }
     },
+    "This vault's format was changed without its key" : {
+      "comment" : "Alert title: vault.json's format or features were edited without the vault key",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "El formato de esta bóveda se cambió sin su clave"
+          }
+        }
+      }
+    },
     "This vault's key on this device: forget it or keep it in iCloud Keychain" : {
       "comment" : "Help tag of the Vault Key menu",
       "extractionState" : "manual",
@@ -18137,6 +18171,54 @@
         }
       }
     },
+    "Voice note from %@" : {
+      "comment" : "The value is the capturing device's name, e.g. iPad",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nota de voz de %@"
+          }
+        }
+      }
+    },
+    "Voice note from a device no longer in this vault" : {
+      "comment" : "The capturing device's key was removed from the vault",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nota de voz de un dispositivo que ya no está en esta bóveda"
+          }
+        }
+      }
+    },
+    "Voice note from a device without a name" : {
+      "comment" : "The capturing device's key has no label",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nota de voz de un dispositivo sin nombre"
+          }
+        }
+      }
+    },
+    "Voice note from an unverified device" : {
+      "comment" : "A voice note captured before captures were attributed to devices",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nota de voz de un dispositivo no verificado"
+          }
+        }
+      }
+    },
     "Voice notes could not be read from the inbox: %@" : {
       "comment" : "%@ is the error",
       "extractionState" : "manual",
@@ -18445,6 +18527,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Tus notas se pueden seguir leyendo. No se escribe nada en esta bóveda hasta que se corrija la lista."
+          }
+        }
+      }
+    },
+    "Your notes can still be read. Nothing is written to this vault until this is fixed." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tus notas se pueden seguir leyendo. No se escribe nada en esta bóveda hasta que se arregle."
           }
         }
       }

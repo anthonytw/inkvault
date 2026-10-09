@@ -205,7 +205,7 @@ struct RootView: View {
             Text(model.errorMessage ?? "")
         }
         // format.md §2.1: never write to a list nobody with the key wrote.
-        .alert(RecipientsAlert.title, isPresented: Binding(get: { model.recipientsAlert != nil },
+        .alert(model.recipientsAlert?.displayTitle ?? RecipientsAlert.title, isPresented: Binding(get: { model.recipientsAlert != nil },
                                                            set: { if !$0 { model.dismissRecipientsAlert() } })) {
             if model.recipientsAlert?.canRemove == true {
                 Button("Remove", role: .destructive) {
