@@ -140,7 +140,6 @@ struct PaperPickerView: View {
                 .accessibilityLabel(kind.localizedTitle)
                 .accessibilityAddTraits(kind == draft.kind ? .isSelected : [])
             }
-        }
     }
 
     private func thumbnail(for kind: PaperKind) -> some View {
