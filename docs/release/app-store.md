@@ -148,7 +148,8 @@ manifest and files, each checked against the SHA-256 the catalogue pins). It is 
 only from a Download button in Settings → Handwritten Math, one per `MathModelCatalog.entries`
 entry, and that catalogue is empty (`Sources/SempereRender/MathModel.swift`), so the button
 never appears and there is no URL to fetch; the Mac build also lacks `network.client`, so the
-sandbox would refuse it. `scripts/release-check.sh` fails on networking anywhere else in those
+sandbox would refuse it. "Add Model from Files" in the same section copies a model folder or zip the
+user picks (`MathModelImport`, #127): a local file, no connection. `scripts/release-check.sh` fails on networking anywhere else in those
 folders (`NETWORK_ALLOWED`) and on a non-empty catalogue. Offering a model is a release
 decision that changes these answers: add `network.client` (Mac) to the entitlements and their
 allow-list, name the download host in the privacy policy (both copies) and here, and update
