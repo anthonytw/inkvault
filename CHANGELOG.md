@@ -298,6 +298,20 @@ The section for a version is the body of its GitHub Release (`docs/releasing.md`
 
 ### Security
 
+- `sempere vault summaries --plaintext --out FILE` writes the decrypted summaries owner-only (0600 from the
+  moment the file exists, replacing any older file) instead of with the umask's mode (security review P5).
+- Web viewer: a key remembered with a passkey is bound to where the vault was opened (its URL, or a folder on
+  this computer) as well as its id, in the HKDF info and the AAD, and offered only there: an address that
+  claims the id of a vault remembered elsewhere no longer gets "Unlock with passkey" (security review P3).
+  Keys remembered before still open, and are tied to the address where they first unlock the vault.
+  Remembering again tells the passkey provider the old passkey is unused, and the viewer's IndexedDB database
+  is created only when a key is first remembered.
+- Release checks: `scripts/release-check.sh` fails on networking in the app (`URLSession`, Network.framework,
+  sockets, web views, …) outside the dormant handwriting-model downloader, and on a non-empty model catalogue;
+  it checks SwiftMath's exact pin and, in CI's app job, scans its sources. The privacy policy (both copies),
+  the App Store answers and `DESIGN.md` now say exactly what network code the app contains and that it never
+  runs in this version. The CLI release refuses a CHANGELOG section that still holds `TODO(user)` or has no
+  date.
 - Security review of October 2026 (`docs/security-review-2026-10.md`):
   - A `rewrap-journal.json` planted in the vault folder, or sent by a sync server, made revisions and
     blobs tagged under a secret of the attacker's verify, and a resumed rewrap re-tagged them under the real

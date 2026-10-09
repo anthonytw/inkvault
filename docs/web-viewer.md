@@ -59,15 +59,42 @@ How (`web/src/vault/passkey.ts`):
    salt. Authenticators that evaluate PRF only on an assertion get one more
    prompt (`get`) right after.
 2. The 32-byte PRF output goes through HKDF-SHA-256 (empty salt, info
-   `sempere-viewer/1 passkey key-wrap` ‖ 0 ‖ vault id ‖ 0 ‖ credential id) to
+   `sempere-viewer/2 passkey key-wrap` ‖ 0 ‖ L(vault id) ‖ L(location) ‖
+   L(credential id), where L(x) is x's length as 32-bit big-endian then x) to
    an AES-256-GCM key, which encrypts the identity text with a random 96-bit
-   nonce and additional data `sempere-viewer/1` ‖ 0 ‖ vault id ‖ 0 ‖ credential
-   id. The AES key is a non-extractable `CryptoKey`; neither it nor the PRF
-   output is kept.
+   nonce and additional data `sempere-viewer/2` ‖ 0 ‖ L(vault id) ‖
+   L(location) ‖ L(credential id). The AES key is a non-extractable
+   `CryptoKey`; neither it nor the PRF output is kept.
 3. IndexedDB (database `sempere-viewer`, store `passkey-keys`, keyed by vault
-   id) holds `{version: 1, vaultId, credentialId, salt, iv, ciphertext,
-   created}`: nothing the key can be recovered from without the passkey. The
-   vault id and the date are readable by whoever reads that storage.
+   id, one record per vault) holds `{version: 2, vaultId, location,
+   credentialId, salt, iv, ciphertext, created}`: nothing the key can be
+   recovered from without the passkey. The vault id, the location and the
+   date are readable by whoever reads that storage. The database is created
+   by the first remembered key: looking for one on the unlock screen leaves
+   none behind.
+
+**The location.** `vault.json` is not authenticated until a key has opened
+it, so any server can serve one with the id of a vault you remembered (and a
+secret of its own, encrypted to your public key). A record is therefore bound
+to where the vault was opened, not only to its id: the vault's normalised URL
+(`HTTPSource.label`: no query, fragment or credentials, a trailing slash; a
+different host, port or path is a different location), or `local:` for any
+folder opened from this computer (picked by the user; its name is no
+identity). The location is bound into the HKDF info and the AAD, so a record
+edited to name another location does not decrypt. The passkey is offered only
+at the record's own location: elsewhere the unlock screen says "Remembered for
+another address", names it, and offers no passkey (paste the key; remembering
+it there replaces the record). The same vault served at two addresses keeps
+one record, for the address where it was last remembered.
+
+Records written before the location existed (`version: 1`: info
+`sempere-viewer/1 passkey key-wrap` ‖ 0 ‖ vault id ‖ 0 ‖ credential id, AAD
+`sempere-viewer/1` ‖ 0 ‖ vault id ‖ 0 ‖ credential id) still open. The card
+names the current address and says the key will be tied to it; once the
+remembered key has unlocked the vault there, the record is sealed again as
+version 2 for that location (same passkey, salt and date, a fresh nonce, no
+second prompt). A version 1 record whose key does not open the vault at that
+address stays as it was.
 
 Next time, the unlock screen shows "Unlock with passkey": one prompt with the
 stored credential id and salt (user verification required; the viewer also
@@ -75,9 +102,10 @@ checks the UV flag of the authenticator data), PRF, HKDF, AES-GCM decrypt, and
 the identity goes to typage's `Decrypter` in memory as if it had been pasted.
 A record that does not decrypt (another passkey, an altered or moved record)
 or a key the vault no longer lists is an error that says to forget it and
-paste the key. "Forget this key" deletes the record; where the browser has the
-WebAuthn Signal API it also tells the passkey provider the credential is gone
-(`signalUnknownCredential`), otherwise delete the passkey ("Sempere: <vault>")
+paste the key. "Forget this key" deletes the record, and remembering the
+vault's key again replaces it; either way, where the browser has the
+WebAuthn Signal API the viewer tells the passkey provider the old credential is
+gone (`signalUnknownCredential`), otherwise delete the passkey ("Sempere: <vault>")
 in your passkey manager. Lock still reloads the page and keeps the record.
 
 **No PRF, no remembering.** If the browser reports no PRF
@@ -497,9 +525,14 @@ the site's data in the browser deletes both.
   account still needs the record. Someone with both (the sync account and a
   copy of this browser's storage) has the key; a device-bound passkey
   (security key, or a provider that does not sync) avoids that.
-- *Content of the vault or the server* cannot reach any of this: the passkey
-  code never runs on vault data, and the record is keyed by the vault id the
-  user's unlock already accepted.
+- *Content of the vault or the server* cannot read any of this: the passkey
+  code never runs on vault data. A server chooses which record the unlock
+  screen looks up, though (the vault id in `vault.json`, read before any
+  unlock), so records are bound to the vault's location (above): a hostile
+  address that claims the id of a vault you remembered elsewhere (a link to
+  `?vault=https://elsewhere/`, say) is not offered the passkey. At the same
+  address the server is trusted as for a pasted key: a key it opens is still
+  only in this tab's memory, and the vault it serves is what you see.
 
 Forgetting deletes the record; JavaScript cannot guarantee that the browser
 wipes deleted storage from disk at once.

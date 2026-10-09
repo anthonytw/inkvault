@@ -20,6 +20,7 @@ import { NoteBlobs } from "../vault/blobs.ts";
 import { canPickDirectory, fromDrop, fromFileList, pickDirectory } from "./pickers.ts";
 import { clearCacheButton, fileCache } from "./caching.ts";
 import { passkeyVault, rememberOption, rememberScreen, rememberedCard } from "./passkey.ts";
+import { vaultLocation } from "../vault/passkey.ts";
 import { type PhraseHit } from "../format/phrasesearch.ts";
 import { foldTerm, occurrences, prepare, swiftCompare, trimTerm } from "../format/occurrences.ts";
 import { readBlob } from "../vault/blobs.ts";
@@ -40,6 +41,8 @@ function message(e: unknown): string {
 export class App {
   private source?: VaultSource;
   private manifest?: VaultManifest;
+  /** Where the vault was opened (`vaultLocation`): what a remembered key is bound to. */
+  private location = "";
   private vault?: UnlockedVault;
   private notes = new Map<string, NoteSummary>();
   private loading: ListingProgress & { listed: boolean } = { checked: 0, total: 0, read: 0, toRead: 0, listed: false };
@@ -169,6 +172,7 @@ export class App {
       this.showOpen(e instanceof SourceError && e.notFound ? `${src.label} has no vault.json: is it a Sempere vault?` : message(e));
       return;
     }
+    this.location = vaultLocation(src);
     // Encrypted revisions and blobs fetched over HTTP are kept in the browser (write-once files).
     this.source = src instanceof HTTPSource ? new CachingSource(src, await fileCache(), `${src.label}\n${manifest.vaultId}`) : src;
     this.manifest = manifest;
@@ -198,7 +202,7 @@ export class App {
       const pv = passkeyVault();
       if (remember && pv) {
         clear(this.root);
-        this.root.append(rememberScreen(pv, identity, m.vaultId, src.label, () => this.showMain()));
+        this.root.append(rememberScreen(pv, identity, m.vaultId, this.location, src.label, () => this.showMain()));
       } else {
         this.showMain();
       }
@@ -270,9 +274,11 @@ export class App {
       }
     };
     const pv = passkeyVault();
-    const remembered = pv ? rememberedCard(pv, m.vaultId,
-      (text) => unlock(text).then(() => this.showMain(), (err: unknown) =>
-        failed(err instanceof VaultError ? `The remembered key no longer opens this vault (${err.message}). Forget it and paste the key.` : err)),
+    const remembered = pv ? rememberedCard(pv, m.vaultId, this.location,
+      (text) => unlock(text).then(() => this.showMain(), (err: unknown) => {
+        failed(err instanceof VaultError ? `The remembered key no longer opens this vault (${err.message}). Forget it and paste the key.` : err);
+        throw err;
+      }),
       (msg) => this.showUnlock(msg), () => this.showUnlock()) : null;
     const stored = storedKeyCard(src, m, async (identity, rememberIt) => {
       try {

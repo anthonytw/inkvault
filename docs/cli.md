@@ -362,7 +362,9 @@ sempere vault summaries [--out PATH|-] [--plaintext] [--no-cache]
   note changed (a failure is a warning); commands without the key leave it
   alone, so it may lag until the next one. `--plaintext` writes the JSON
   content instead, in the clear (for checks and the web goldens); it needs
-  `--out`, so it never lands at the vault's sealed path by default. Legacy
+  `--out`, so it never lands at the vault's sealed path by default, and a
+  file it writes is readable by its owner only (created 0600 next to the
+  target, then renamed over it). Legacy
   vaults are refused (exit 5). `--json` emits `path`, `notes`, `entries`,
   `read` (notes summarised again) and `bytes`.
 

@@ -10,7 +10,8 @@ An independent review, made on 2026-10-08, of the work merged in the week of 202
 
 The web viewer PRs #99 (passkey) and #100 (cache and summaries) were reviewed from their branches while
 they were open. Their findings are posted as comments on those PRs and summarised at the end. #99 and #100
-merged during the review, so their findings are now open items on `main` (P1–P3, P4–P5).
+merged during the review, so their findings became open items on `main` (P1–P3, P4–P5); P1 is fixed in
+#114, P3 and P5 in #130.
 
 Method: the code was read against `DESIGN.md`, `docs/format.md` (§2.1, §3.3, §7, §8.2.7, §9, §11),
 `docs/quick-capture.md` and `docs/web-viewer.md` "Threat model". Each finding marked *reproduced* was run
@@ -51,6 +52,8 @@ File:line references are to this branch.
 | R5 | Low | recipients | The trust store fails open: an unreadable record reads as "first use" | Fixed (#114) |
 | W5 | Low | sync | No overall bound on notes, entries, bytes or time per sync run | Fixed (#114) |
 | N3 | Low (design) | newer format | `format` and `features` in `vault.json` are not authenticated | Open |
+| P3 | Low | web passkey (#99) | The remembered record is chosen by the vault id of an unauthenticated `vault.json` | Fixed (#130: bound to the vault's location) |
+| P5 | Low | CLI (#100) | `vault summaries --plaintext --out` writes the file world-readable | Fixed (#130) |
 | R6, C6–C9, N4, N5, V3, W6 | Info | various | See below | — |
 
 ## Fixed in this PR
@@ -344,6 +347,38 @@ journal is plaintext that a removed device (which holds the old capture key) cou
 would have to be MACed under the new secret. That is a format change to the journal and the rewrap, not a
 small fix; the window stays documented in `quick-capture.md`.
 
+## Fixed in the follow-up (#130)
+
+### P3: a remembered key is bound to where the vault was opened
+
+The unlock screen looked a passkey record up by the `vaultId` of a `vault.json` that no key had opened
+yet, so any address (a `?vault=` link, say) could claim the id of a vault the user remembered and be
+offered "Unlock with passkey"; the remembered key then opened the attacker's vault (its own secret,
+encrypted to the user's public recipient), which looked like the user's own. Records are now
+`version: 2` and carry the vault's location: its normalised base URL (`HTTPSource.label`), or `local:`
+for a folder opened from this computer. The location is bound into the HKDF info and the AES-GCM AAD
+(length-prefixed fields, label `sempere-viewer/2`), so a record edited to name another location, or
+downgraded to version 1, does not decrypt. `PasskeyVault.unlock(vaultId, location, use)` refuses a record
+of another location before any prompt (`otherLocation`); the card names the remembered address and offers
+no passkey there. Version 1 records still open (the card says the key will be tied to this address) and
+are sealed again for the location once their key has unlocked the vault there, under the same passkey,
+salt and PRF output with a fresh IV; a key that does not open the vault leaves the record as it was.
+`docs/web-viewer.md`'s claim that the record is "keyed by the vault id the user's unlock already
+accepted" is replaced by the actual rule. At the remembered address the server is trusted as for a
+pasted key (the key stays in the tab's memory). The two Info items are fixed too: remembering again
+signals the replaced passkey unknown, and the `sempere-viewer` database is created only by the first
+remembered key. Tests: `web/test/passkey.test.ts` ("remembered keys are bound to the vault's location",
+including a version 1 record built with the old construction, and "IndexedDB storage of remembered keys",
+on `fake-indexeddb`); `web/scripts/smoke-passkey.mjs` passes in Chromium with a virtual authenticator.
+
+### P5: the plaintext summaries file is owner-only
+
+`vault summaries --plaintext --out FILE` writes a temporary file next to `FILE` created `0600` with
+`O_EXCL`, flushes it and renames it over `FILE` (`writePrivateFile`), so the titles and text are never in a
+file others can open, and an existing file (of any mode, or a symlink) is replaced rather than rewritten.
+The sealed file keeps the umask's mode: the web server publishes it. Test:
+`CLISummariesTests.testPlaintextFileIsOwnerOnly` (fails on the old code with mode 0644).
+
 ## Open findings (reported, not fixed in the review PR)
 
 The original text of each finding follows; those fixed since say so in their heading.
@@ -543,16 +578,18 @@ Each request is bounded by size and time, but a run is not:
     tests (which cannot run outside the macOS CI job), and the policy (Face ID only? the passcode on a Mac
     without Touch ID?) is the maintainer's call. The paper recovery kit (`recoveryKitPDF`) has the same gap.
 - P2, Low: the share sheet's Copy puts the key file on the general pasteboard.
-- P3, Low: the remembered record is chosen by an unauthenticated vault id; the doc says otherwise.
+- P3, Low: the remembered record is chosen by an unauthenticated vault id; the doc says otherwise. Fixed
+  in #130 (above).
 - Info: the IndexedDB database is created before the user opts in; old passkeys are not signalled unknown
-  when a key is remembered again; #99 and #100 contradict each other in `docs/web-viewer.md`.
+  when a key is remembered again (both fixed in #130); #99 and #100 contradict each other in
+  `docs/web-viewer.md`.
 - The PRF, HKDF, AES-GCM and AAD handling is sound, and nothing is stored in plaintext.
 
 **#100 (cache and summaries), merged during the review:**
 - P4, Low: cached ciphertext from before a rewrap stays openable by a removed key (`web/src/vault/cache.ts`,
   namespace without a recipients fingerprint).
 - P5, Low: `vault summaries --plaintext --out` writes the file world-readable
-  (`Sources/SempereCLI/Summaries.swift`).
+  (`Sources/SempereCLI/Summaries.swift`). Fixed in #130 (above).
 - Info: summary rows hide damaged revisions until the note is opened.
 - Fixed by R4: summaries sealed under the journal's previous secret were accepted during a rewrap. The web
   viewer now derives the previous summaries key only from a journal secret that `secretLink` links.
