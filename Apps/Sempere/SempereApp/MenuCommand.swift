@@ -13,17 +13,20 @@ enum MenuCommand: String, CaseIterable, Sendable {
     case newNote, openNoteInWindow, newVault, openVault, reopenVault, closeVault, reloadVault
     case importPDF, importNotability, insertPDFPages, insertPhoto, exportNotes
     case bulkExport
+    /// Start or stop a quick voice note (`toggleVoiceNote`, docs/quick-capture.md "Surfaces").
+    case toggleVoiceNote
     // Note
-    case renameNote, editTags, changePaper, saveVersion, showRecordings, deleteNote, restoreNote
-    case previousPage, nextPage, addPage
+    case renameNote, editTags, changePaper, saveVersion, versionHistory, showRecordings, deleteNote, restoreNote
+    case previousPage, nextPage, addPage, addPageAtEnd, duplicatePage, deletePage, undoDeletePage, toggleLayout
     // Note > the selected item on the canvas, and recording
     case duplicateItem, bringItemToFront, deleteItem, toggleRecording
     // Edit
     case find, undo, redo
     // Tools
     case toolPen, toolMarker, toolPencil, toolEraser, toolLasso, toggleRuler, togglePalette
+    case toolText, toolSelect, eraserSmaller, eraserLarger, toggleCompactPalette
     // View
-    case zoomIn, zoomOut, fitWidth, actualSize, toggleNoteList
+    case zoomIn, zoomOut, fitWidth, actualSize, toggleNoteList, togglePageStrip
     // Window
     case showLibrary, showKeys, showSettings
 
@@ -76,6 +79,27 @@ enum MenuCommand: String, CaseIterable, Sendable {
         }
     }
 
+    /// The menu item's title in `context` (nil: no window state known). Commands that
+    /// switch something on and off say what they do next; the others are `title`.
+    func title(in context: Context?, paletteVisible: Bool = true) -> String {
+        switch self {
+        case .togglePalette:
+            return paletteVisible ? String(localized: "Hide Tool Palette") : title
+        case .toggleCompactPalette:
+            return context?.paletteCompact == true ? String(localized: "Use Full Palette") : title
+        case .togglePageStrip:
+            return context?.pageStripVisible == true ? String(localized: "Hide Pages") : title
+        case .toggleLayout:
+            return context?.notePageless == true ? String(localized: "Switch to Paged Layout") : title
+        case .toggleVoiceNote:
+            return context?.voiceNote == .recording ? String(localized: "Stop Voice Note") : title
+        case .toggleRecording:
+            return context?.isRecording == true ? String(localized: "Stop Recording") : title
+        default:
+            return title
+        }
+    }
+
     var title: String {
         switch self {
         case .newNote: return String(localized: "New Note…")
@@ -91,16 +115,23 @@ enum MenuCommand: String, CaseIterable, Sendable {
         case .insertPhoto: return String(localized: "Insert Photo…")
         case .exportNotes: return String(localized: "Export…", comment: "File menu: open the export sheet")
         case .bulkExport: return String(localized: "Export Notes…")
+        case .toggleVoiceNote: return String(localized: "Start Voice Note", comment: "File menu: record a quick voice note into the inbox")
         case .renameNote: return String(localized: "Rename Note…")
         case .editTags: return String(localized: "Edit Tags…")
         case .changePaper: return String(localized: "Paper…", comment: "Note menu: choose the page's paper")
         case .saveVersion: return String(localized: "Save Version…")
+        case .versionHistory: return String(localized: "Version History…", comment: "Note menu: browse earlier versions")
         case .showRecordings: return String(localized: "Recordings…", comment: "Note menu: the note's recordings list")
         case .deleteNote: return String(localized: "Move to Recently Deleted")
         case .restoreNote: return String(localized: "Restore Note")
         case .previousPage: return String(localized: "Previous Page")
         case .nextPage: return String(localized: "Next Page")
-        case .addPage: return String(localized: "Add Page")
+        case .addPage: return String(localized: "Add Page After This One")
+        case .addPageAtEnd: return String(localized: "Add Page at End")
+        case .duplicatePage: return String(localized: "Duplicate Page")
+        case .deletePage: return String(localized: "Delete Page")
+        case .undoDeletePage: return String(localized: "Undo Delete Page")
+        case .toggleLayout: return String(localized: "Switch to Pageless Layout", comment: "Note menu: make the note one infinite page")
         case .duplicateItem: return String(localized: "Duplicate Item", comment: "Note menu: duplicate the selected image, text box or other item")
         case .bringItemToFront: return String(localized: "Bring Item to Front", comment: "Note menu: draw the selected item above the others")
         case .deleteItem: return String(localized: "Delete Item", comment: "Note menu: delete the selected image, text box or other item")
@@ -115,11 +146,17 @@ enum MenuCommand: String, CaseIterable, Sendable {
         case .toolLasso: return String(localized: "Lasso", comment: "Tools menu: select the lasso")
         case .toggleRuler: return String(localized: "Ruler", comment: "Tools menu: show or hide the ruler")
         case .togglePalette: return String(localized: "Show Tool Palette")
+        case .toolText: return String(localized: "Text", comment: "Tools menu: type text boxes on the page")
+        case .toolSelect: return String(localized: "Select", comment: "Tools menu: select images, text boxes and PDF pages")
+        case .eraserSmaller: return String(localized: "Smaller Object Eraser", comment: "Tools menu")
+        case .eraserLarger: return String(localized: "Larger Object Eraser", comment: "Tools menu")
+        case .toggleCompactPalette: return String(localized: "Use Compact Palette", comment: "Tools menu: the short tool palette")
         case .zoomIn: return String(localized: "Zoom In", comment: "View menu")
         case .zoomOut: return String(localized: "Zoom Out", comment: "View menu")
         case .fitWidth: return String(localized: "Fit Page Width")
         case .actualSize: return String(localized: "Actual Size", comment: "View menu: zoom to 100%")
         case .toggleNoteList: return String(localized: "Hide or Show Note List")
+        case .togglePageStrip: return String(localized: "Show Pages", comment: "View menu: the page thumbnails beside the canvas")
         case .showLibrary: return String(localized: "Library", comment: "View menu: show the library window")
         case .showKeys: return String(localized: "Vault Keys", comment: "View menu: open the vault keys window")
         case .showSettings: return String(localized: "Settings…", comment: "View menu: open Settings")
@@ -132,6 +169,8 @@ enum MenuCommand: String, CaseIterable, Sendable {
         let cmd: Shortcut.Modifiers = [.command]
         let shift: Shortcut.Modifiers = [.command, .shift]
         let option: Shortcut.Modifiers = [.command, .option]
+        let control: Shortcut.Modifiers = [.command, .control]
+        let shiftOption: Shortcut.Modifiers = [.command, .shift, .option]
         switch self {
         case .newNote: return Shortcut("n", cmd)
         case .openNoteInWindow: return Shortcut("n", option)
@@ -147,23 +186,32 @@ enum MenuCommand: String, CaseIterable, Sendable {
         case .insertPhoto: return Shortcut("i", option)
         case .exportNotes: return Shortcut("e", shift)
         case .bulkExport: return nil
+        // ⇧⌘M: UIKit has no item on it (⌥⌘M is Minimize All).
+        case .toggleVoiceNote: return Shortcut("m", shift)
         case .renameNote: return Shortcut("r", shift)
         case .editTags: return Shortcut("t", option)
         case .changePaper: return Shortcut("p", option)
         case .saveVersion: return Shortcut("s", option)
+        case .versionHistory: return Shortcut("y", shift)
         case .showRecordings: return Shortcut("r", [.command, .control])
         case .deleteNote: return Shortcut(Shortcut.backspace, cmd)
         case .restoreNote: return nil
         case .previousPage: return Shortcut("[", cmd)
         case .nextPage: return Shortcut("]", cmd)
         case .addPage: return Shortcut("a", shift)
-        // Item commands follow the Mac apps that have them (Pages and Keynote: ⌘D duplicates, ⌥⇧⌘F brings to front);
-        // ⌥⌘⌫ keeps ⌘⌫ for Move to Recently Deleted. Not UIKit's: checked against its menus (`MacWindowUITests`).
+        case .addPageAtEnd: return Shortcut("a", shiftOption)
+        case .duplicatePage: return Shortcut("d", shift)
+        case .deletePage: return Shortcut(Shortcut.backspace, option)
+        case .undoDeletePage: return Shortcut("z", control)
+        case .toggleLayout: return Shortcut("l", control)
+        // Item commands follow the Mac apps that have them (Pages and Keynote: ⌘D duplicates, ⌥⇧⌘F brings to front).
+        // ⌘⌫ is Move to Recently Deleted and ⌥⌘⌫ Delete Page, so Delete Item is ⌃⌘⌫. Not UIKit's: checked against
+        // its menus (`MacWindowUITests`).
         case .duplicateItem: return Shortcut("d", cmd)
-        case .bringItemToFront: return Shortcut("f", [.command, .option, .shift])
-        case .deleteItem: return Shortcut(Shortcut.backspace, option)
-        // ⌘M minimises; ⇧⌘M is free in UIKit's menus.
-        case .toggleRecording: return Shortcut("m", shift)
+        case .bringItemToFront: return Shortcut("f", shiftOption)
+        case .deleteItem: return Shortcut(Shortcut.backspace, control)
+        // ⇧⌘M is File > Start Voice Note; ⌃⌘M sits next to the note's Recordings (⌃⌘R).
+        case .toggleRecording: return Shortcut("m", control)
         case .find: return Shortcut("f", cmd)
         case .undo: return Shortcut("z", cmd)
         case .redo: return Shortcut("z", shift)
@@ -174,11 +222,17 @@ enum MenuCommand: String, CaseIterable, Sendable {
         case .toolLasso: return Shortcut("5", option)
         case .toggleRuler: return Shortcut("r", option)
         case .togglePalette: return Shortcut("p", shift)
+        case .toolText: return Shortcut("6", option)
+        case .toolSelect: return Shortcut("7", option)
+        case .eraserSmaller: return Shortcut("[", option)
+        case .eraserLarger: return Shortcut("]", option)
+        case .toggleCompactPalette: return Shortcut("p", shiftOption)
         case .zoomIn: return Shortcut("=", cmd)
         case .zoomOut: return Shortcut("-", cmd)
         case .fitWidth: return Shortcut("0", cmd)
         case .actualSize: return Shortcut("1", cmd)
         case .toggleNoteList: return Shortcut("l", option)
+        case .togglePageStrip: return Shortcut("t", control)
         case .showLibrary: return Shortcut("0", option)
         case .showKeys: return Shortcut("k", option)
         case .showSettings: return Shortcut(",", cmd)
@@ -189,6 +243,8 @@ enum MenuCommand: String, CaseIterable, Sendable {
     struct Context: Equatable, Sendable {
         enum Vault: Equatable, Sendable { case none, locked, migrating, unlocked }
         enum Window: Equatable, Sendable { case library, note, other }
+        /// What the recorder is doing, as far as File > Start/Stop Voice Note goes.
+        enum VoiceNote: Equatable, Sendable { case idle, recording, busy }
 
         var window: Window = .library
         var vault: Vault = .none
@@ -203,6 +259,16 @@ enum MenuCommand: String, CaseIterable, Sendable {
         var vaultReadOnly = false
         /// The notes File > Export acts on (`CommandRouter.exportIDs`) are not empty.
         var hasExportTargets = false
+        /// The open note has more than one page (a note keeps at least one).
+        var canDeletePage = false
+        /// Pages deleted in this editor session can be brought back.
+        var hasDeletedPages = false
+        /// The compact tool palette is chosen (`ToolPalette.compactKey`).
+        var paletteCompact = false
+        /// The page thumbnails are shown beside the canvas (`PageStrip.visibleKey`).
+        var pageStripVisible = false
+        /// The quick voice note recorder (`QuickCapture.state`).
+        var voiceNote = VoiceNote.idle
         /// The canvas has a page to show.
         var hasPage = false
         /// An item (image, text box, PDF page…) is selected on the canvas.
@@ -237,6 +303,10 @@ enum MenuCommand: String, CaseIterable, Sendable {
         case .newNote: return unlocked && context.hasNoteList
         case .openNoteInWindow: return unlocked && context.hasNoteList && context.hasNote && !context.noteDeleted
         case .renameNote, .editTags, .saveVersion: return unlocked && context.hasNote && !context.noteDeleted
+        // Browsing is read-only: a deleted note's history can be looked at too.
+        case .versionHistory: return unlocked && context.hasNote
+        // Needs no vault: the capture profile is all a voice note needs (it opens the setup when missing).
+        case .toggleVoiceNote: return context.voiceNote != .busy
         case .deleteNote: return unlocked && context.hasNote && !context.noteDeleted && !context.editingText
         case .restoreNote: return unlocked && context.hasNote && context.noteDeleted
         // The importers and their sheets are per window (`WindowSheets`): any window with a vault.
@@ -248,7 +318,16 @@ enum MenuCommand: String, CaseIterable, Sendable {
         case .changePaper: return context.canEditNote && context.hasPage
         // The note's recordings, read-only notes included (they can still be played).
         case .showRecordings: return unlocked && context.hasPage
-        case .addPage: return context.canEditNote
+        // The toolbar's page actions are for paged notes (a pageless note is one infinite page).
+        case .addPage, .addPageAtEnd: return context.canEditNote && !context.notePageless
+        case .duplicatePage: return context.canEditNote && !context.notePageless && context.hasPage
+        case .deletePage:
+            return context.canEditNote && !context.notePageless && context.hasPage && context.canDeletePage
+                && !context.editingText
+        case .undoDeletePage: return context.canEditNote && !context.notePageless && context.hasDeletedPages
+        // Either way round, as long as the note can be written.
+        case .toggleLayout: return context.canEditNote
+        case .togglePageStrip: return context.hasPage && !context.notePageless
         case .duplicateItem, .bringItemToFront: return context.canEditNote && context.hasItemSelection
         // As ⌘⌫: off while a text field may have focus.
         case .deleteItem: return context.canEditNote && context.hasItemSelection && !context.editingText
@@ -257,8 +336,10 @@ enum MenuCommand: String, CaseIterable, Sendable {
         case .nextPage: return context.hasPage && context.pageIndex + 1 < context.pageCount
         case .find, .toggleNoteList: return unlocked && context.hasNoteList
         case .undo, .redo: return context.canEditNote
-        case .toolPen, .toolMarker, .toolPencil, .toolEraser, .toolLasso, .toggleRuler, .togglePalette:
+        case .toolPen, .toolMarker, .toolPencil, .toolEraser, .toolLasso, .toggleRuler, .togglePalette,
+             .eraserSmaller, .eraserLarger, .toggleCompactPalette:
             return context.canEditNote
+        case .toolText, .toolSelect: return context.canEditNote && context.hasPage
         case .zoomIn, .zoomOut, .fitWidth, .actualSize: return context.hasPage
         case .showLibrary: return !context.libraryWindowOpen
         case .showKeys: return unlocked
@@ -278,20 +359,26 @@ enum MenuLayout {
         [.insertPDFPages, .insertPhoto],
         [.exportNotes, .bulkExport],
         [.reloadVault],
+        [.toggleVoiceNote],
     ]
     static let note: [[MenuCommand]] = [
         [.renameNote, .editTags, .changePaper],
-        [.saveVersion, .showRecordings, .toggleRecording],
-        [.previousPage, .nextPage, .addPage],
+        [.saveVersion, .versionHistory, .showRecordings, .toggleRecording],
+        [.previousPage, .nextPage],
+        [.addPage, .addPageAtEnd, .duplicatePage, .deletePage, .undoDeletePage],
+        [.toggleLayout],
         [.duplicateItem, .bringItemToFront, .deleteItem],
         [.deleteNote, .restoreNote],
     ]
     static let tools: [[MenuCommand]] = [
         [.toolPen, .toolMarker, .toolPencil, .toolEraser, .toolLasso],
-        [.toggleRuler, .togglePalette],
+        [.toolText, .toolSelect],
+        [.eraserSmaller, .eraserLarger],
+        [.toggleRuler, .togglePalette, .toggleCompactPalette],
     ]
     static let view: [[MenuCommand]] = [
         [.zoomIn, .zoomOut, .fitWidth, .actualSize],
+        [.togglePageStrip],
         [.toggleNoteList],
     ]
     static let window: [[MenuCommand]] = [[.showLibrary, .showKeys, .showSettings]]

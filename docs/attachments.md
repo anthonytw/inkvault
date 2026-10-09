@@ -1595,7 +1595,7 @@ synthetic `.note` fixture so CI covers the mapping.
   the selected item (the picture follows the fingers; the end snaps to a multiple
   of 15° within 3°), one delta and one undo step each (`ItemActions.rotate`,
   `NoteOps.rotation(_:turnedBy:)`); a rotate handle was not built. Mac shortcuts
-  (GA-13): Note > Duplicate Item ⌘D, Bring Item to Front ⌥⇧⌘F, Delete Item ⌥⌘⌫
+  (GA-13): Note > Duplicate Item ⌘D, Bring Item to Front ⌥⇧⌘F, Delete Item ⌃⌘⌫
   (`MenuCommand`, enabled while an item is selected; `docs/mac.md`).
 - **E1 — images:** Photos picker, camera, paste/drop, the privacy setting
   (HEIC → JPEG and metadata stripping, on by default), orientation, crop UI.
@@ -1736,7 +1736,7 @@ synthetic `.note` fixture so CI covers the mapping.
   and record it here). The Settings ▸ Transcription download button (GA-05) runs
   `SpeechTranscription.downloadModel` (`AssetInventory`, Apple's asset service) when
   SpeechTranscriber's model is missing; `sempere transcribe --download-model` does the
-  same. Mac menu: Note > Start / Stop Recording ⇧⌘M (GA-13).
+  same. Mac menu: Note > Start / Stop Recording ⌃⌘M (GA-13).
 - **E6 — Settings panel:** one Settings screen (sheet from the library) with
   the sections of §15: recording (codec, quality, sample rate, channels,
   size per hour), photos (privacy and HEIC), transcription (opt-in, locale),

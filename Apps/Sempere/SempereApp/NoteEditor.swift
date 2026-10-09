@@ -695,6 +695,10 @@ final class NoteEditor {
 
     /// Whether a page can be deleted: a note keeps at least one page.
     var canDeletePage: Bool { !isReadOnly && !isShutDown && pages.count > 1 }
+    /// A text box on one of this note's canvases is being typed in (`TextBoxEditorController`).
+    /// Menu commands whose shortcuts are text-editing keys on a Mac (⌘⌫ Move to Recently
+    /// Deleted, ⌥⌘⌫ Delete Page) are off meanwhile (`EditorCommands.fill`).
+    var typingInTextBox = false
 
     /// Deletes a page (`removePage`; its strokes go with it). Undo with
     /// `undoDeletePage`. The last page is never deleted.

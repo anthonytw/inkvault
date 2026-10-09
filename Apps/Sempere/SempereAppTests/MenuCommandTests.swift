@@ -140,9 +140,16 @@ struct MenuCommandTests {
     @Test func itemAndRecordingShortcuts() throws {
         #expect(MenuCommand.duplicateItem.shortcut == MenuCommand.Shortcut("d", [.command]))
         #expect(MenuCommand.bringItemToFront.shortcut == MenuCommand.Shortcut("f", [.command, .option, .shift]))
-        #expect(MenuCommand.deleteItem.shortcut == MenuCommand.Shortcut(MenuCommand.Shortcut.backspace, [.command, .option]))
-        #expect(MenuCommand.toggleRecording.shortcut == MenuCommand.Shortcut("m", [.command, .shift]))
+        #expect(MenuCommand.deleteItem.shortcut == MenuCommand.Shortcut(MenuCommand.Shortcut.backspace, [.command, .control]))
+        #expect(MenuCommand.toggleRecording.shortcut == MenuCommand.Shortcut("m", [.command, .control]))
         #expect(MenuCommand.deleteNote.shortcut != MenuCommand.deleteItem.shortcut, "⌘⌫ stays the note's")
+        #expect(MenuCommand.deletePage.shortcut != MenuCommand.deleteItem.shortcut, "⌥⌘⌫ stays the page's")
+        #expect(MenuCommand.toggleVoiceNote.shortcut != MenuCommand.toggleRecording.shortcut, "⇧⌘M stays the voice note's")
+        // The title follows the state, like Start / Stop Voice Note.
+        var c = MenuCommand.Context(window: .note, vault: .unlocked, hasNote: true)
+        #expect(MenuCommand.toggleRecording.title(in: c) == MenuCommand.toggleRecording.title)
+        c.isRecording = true
+        #expect(MenuCommand.toggleRecording.title(in: c) == String(localized: "Stop Recording"))
         // UIKit's own menus use these: the Mac menu bar starts from them (CLAUDE.md "The Mac menu bar").
         let uikit: Set<MenuCommand.Shortcut> = [.init("m"), .init("w"), .init("h"), .init("q"), .init("p"), .init("a"),
                                                 .init("c"), .init("x"), .init("v"), .init("b"), .init("i"), .init("u"),
@@ -176,5 +183,112 @@ struct MenuCommandTests {
         #expect(ToolChoice(.zoomIn) == nil)
         let mapped = MenuCommand.allCases.compactMap { ToolChoice($0) }
         #expect(Set(mapped) == Set(ToolChoice.allCases))
+    }
+}
+
+/// Gap audit GA-14: the toolbar-only commands now have menu entries.
+struct MenuParityTests {
+    static func editable(pages: Int = 3, index: Int = 1) -> MenuCommand.Context {
+        var c = MenuCommand.Context(window: .note, vault: .unlocked, hasNote: true)
+        c.canEditNote = true
+        c.hasPage = true
+        c.pageCount = pages
+        c.pageIndex = index
+        c.canDeletePage = pages > 1
+        return c
+    }
+
+    @Test func everyToolbarOnlyCommandIsInAMenu() {
+        let added: [MenuCommand] = [.versionHistory, .addPage, .addPageAtEnd, .duplicatePage, .deletePage, .undoDeletePage,
+                                    .toggleLayout, .togglePageStrip, .toolText, .toolSelect, .eraserSmaller, .eraserLarger,
+                                    .toggleCompactPalette, .toggleVoiceNote]
+        for command in added {
+            #expect(MenuLayout.all.contains(command), "\(command)")
+            #expect(command.shortcut != nil, "\(command) has a shortcut")
+        }
+    }
+
+    @Test func pageCommandsNeedAPagedEditableNote() {
+        var c = Self.editable()
+        c.hasDeletedPages = true
+        let paged: [MenuCommand] = [.addPage, .addPageAtEnd, .duplicatePage, .deletePage, .undoDeletePage, .togglePageStrip]
+        for command in paged { #expect(command.isEnabled(in: c), "\(command)") }
+        c.notePageless = true
+        for command in paged { #expect(!command.isEnabled(in: c), "\(command) on a pageless note") }
+        #expect(MenuCommand.toggleLayout.isEnabled(in: c), "back to pages")
+        c.notePageless = false
+        c.canEditNote = false
+        for command in [MenuCommand.addPage, .addPageAtEnd, .duplicatePage, .deletePage, .undoDeletePage, .toggleLayout] {
+            #expect(!command.isEnabled(in: c), "\(command) on a read-only note")
+        }
+        #expect(MenuCommand.togglePageStrip.isEnabled(in: c), "thumbnails are for reading too")
+    }
+
+    @Test func deleteKeepsTheLastPageAndIsOffWhileTyping() {
+        var c = Self.editable(pages: 1, index: 0)
+        #expect(!MenuCommand.deletePage.isEnabled(in: c), "a note keeps one page")
+        c = Self.editable()
+        #expect(MenuCommand.deletePage.isEnabled(in: c))
+        c.editingText = true
+        #expect(!MenuCommand.deletePage.isEnabled(in: c), "⌥⌘⌫ in a text field")
+    }
+
+    @Test func undoDeleteNeedsADeletedPage() {
+        var c = Self.editable()
+        #expect(!MenuCommand.undoDeletePage.isEnabled(in: c))
+        c.hasDeletedPages = true
+        #expect(MenuCommand.undoDeletePage.isEnabled(in: c))
+    }
+
+    @Test func textAndSelectNeedAPageToPutThingsOn() {
+        var c = Self.editable()
+        #expect(MenuCommand.toolText.isEnabled(in: c) && MenuCommand.toolSelect.isEnabled(in: c))
+        c.hasPage = false
+        #expect(!MenuCommand.toolText.isEnabled(in: c) && !MenuCommand.toolSelect.isEnabled(in: c))
+        #expect(MenuCommand.eraserLarger.isEnabled(in: c) && MenuCommand.toggleCompactPalette.isEnabled(in: c))
+    }
+
+    @Test func versionHistoryOpensForAnyShownNote() {
+        var c = MenuCommand.Context(window: .library, vault: .unlocked)
+        #expect(!MenuCommand.versionHistory.isEnabled(in: c))
+        c.hasNote = true
+        #expect(MenuCommand.versionHistory.isEnabled(in: c))
+        c.noteDeleted = true
+        #expect(MenuCommand.versionHistory.isEnabled(in: c), "a deleted note's history can be looked at")
+        c.vault = .locked
+        #expect(!MenuCommand.versionHistory.isEnabled(in: c))
+    }
+
+    @Test func switchesSayWhatTheyDoNext() {
+        var c = Self.editable()
+        #expect(MenuCommand.toggleLayout.title(in: c) == MenuCommand.toggleLayout.title)
+        c.notePageless = true
+        #expect(MenuCommand.toggleLayout.title(in: c) != MenuCommand.toggleLayout.title)
+        #expect(MenuCommand.togglePageStrip.title(in: c) == MenuCommand.togglePageStrip.title)
+        c.pageStripVisible = true
+        #expect(MenuCommand.togglePageStrip.title(in: c) != MenuCommand.togglePageStrip.title)
+        #expect(MenuCommand.toggleCompactPalette.title(in: c) == MenuCommand.toggleCompactPalette.title)
+        c.paletteCompact = true
+        #expect(MenuCommand.toggleCompactPalette.title(in: c) != MenuCommand.toggleCompactPalette.title)
+        #expect(MenuCommand.togglePalette.title(in: c, paletteVisible: true) != MenuCommand.togglePalette.title(in: c, paletteVisible: false))
+        #expect(MenuCommand.toggleVoiceNote.title(in: c) == MenuCommand.toggleVoiceNote.title)
+        c.voiceNote = .recording
+        #expect(MenuCommand.toggleVoiceNote.title(in: c) != MenuCommand.toggleVoiceNote.title)
+        #expect(MenuCommand.undo.title(in: nil) == MenuCommand.undo.title)
+    }
+
+    @Test func theMenusAddPageMatchesTheToolbars() {
+        // The toolbar's Add Page adds after the page on the canvas; the end has an entry of its own.
+        #expect(MenuCommand.addPage.title.contains("After"))
+        #expect(MenuCommand.addPage.shortcut != MenuCommand.addPageAtEnd.shortcut)
+    }
+
+    @Test func voiceNoteNeedsNoVaultButNotABusyRecorder() {
+        var c = MenuCommand.Context(window: .library, vault: .none)
+        #expect(MenuCommand.toggleVoiceNote.isEnabled(in: c))
+        c.voiceNote = .recording
+        #expect(MenuCommand.toggleVoiceNote.isEnabled(in: c), "Stop")
+        c.voiceNote = .busy
+        #expect(!MenuCommand.toggleVoiceNote.isEnabled(in: c))
     }
 }
