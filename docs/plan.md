@@ -39,7 +39,7 @@ need a hand test on a real Mac (`docs/mac.md` "To try by hand"); build 7 polish 
 ## Phase 3 — nice to have
 
 Built-in WebDAV client (`sempere sync webdav`, `docs/io.md`; the iPad app UI
-is still open 💡); compaction UI (✅ #74 thinning setting and "Thin Now");
+is still open 📋, planned for the first release); compaction UI (✅ #74 thinning setting and "Thin Now");
 ~~PNG export~~ (done: `sempere export --format png [--dpi N]`, pure-Swift rasterizer in
 `Sources/SempereRender`, `docs/cli.md`); page backgrounds (PDF and image attachments: in the reference
 Notability backup 26 of 130 notes are annotated PDFs and 4 hold images, all
@@ -79,8 +79,7 @@ criteria) and `docs/format.md` §8 (normative). Status: **decisions final**
 goes first; after it, the rest run in parallel along the dependencies in
 `docs/attachments.md` §14. G1 (both parts; part 2 has no model yet), G2, E7 and L are done; none blocks anything.
 
-Status per task: ✅ done on `main` (PR number) · 🚧 in progress (open PR) · 📋 planned ·
-💡 future. Checked against `main` at `ecc62ec` (#119) on 2026-10-08. Beyond this table, the
+Status per task: ✅ done on `main` (PR number) · 🚧 in progress (open PR) · 📋 planned for the first release. Checked against `main` at `ecc62ec` (#119) on 2026-10-08. Beyond this table, the
 build 7 follow-ups are all ✅ merged, none yet tried on a device: selecting items and Replace Image (#104), audio items on the page (#103),
 sidebar drops and shared Recently Recognized (#102), Mac polish (#101), quick voice fixes (#106, #107), bulk export (#109) and backups in the app (#110).
 
@@ -111,6 +110,10 @@ sidebar drops and shared Recently Recognized (#102), Mac polish (#101), quick vo
 | G1 ✅ | `math` items (LaTeX source, typeset on device with SwiftMath/MIT, rendered PDF blob). ✅ **Done (#96)**: `format.md` §8.2.8; core `MathItems.swift` (`MathContent`, `MathSource` limits, `NoteOps.placeMath`/`setMath`); render `MathRendering.swift`; CLI `attach math`, `items math`; app `MathTypesetter`, `MathEditor`; web viewer. Handwriting→LaTeX (part 2) ✅ #118: researched in `docs/research/handwriting-to-latex.md`; the pipeline is built behind a setting (CLI `recognize-math`, app Convert to Math), no model offered until the training-data question is settled | `Apps/`, `Sources/` | C3, E2 | format §8.2.8 defined; exports embed the rendering |
 | G2 ✅ | `video` items (blob kind `video`, 1 GiB cap, poster, AVPlayer, attached in "PDF + attachments"); ✅ **done (#93)**: format §8.2.7, CLI, exports, sync, app, web viewer | `Apps/`, `Sources/`, `web/` | E4 | format §8.2.7 defined |
 | L ✅ | ✅ **Done (#92)**: app UI localization with String Catalogs (`Apps/Sempere/Localization/`: `Localizable`, `InfoPlist`, `AppShortcuts`); Spanish complete (plurals, device variants, glossary in `docs/localization.md`); `LocalizationCatalogTests` (Linux), `scripts/app.sh pseudo` layout check (double-length, right-to-left, Spanish); CONTRIBUTING "Adding a language". CLI stays English | `Apps/` | — | Spanish catalog complete; contributor guide |
+
+The gap audit (`docs/research/gap-audit-2026-10.md`) rows are not tasks here: they sit in their
+component sections of `docs/ROADMAP.md` with their `GA-nn` ids, all planned for the first release
+except the ones the maintainer dropped (GA-12, GA-22, GA-24, GA-25, GA-26).
 
 ## Working agreements
 
