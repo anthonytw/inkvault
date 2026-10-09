@@ -54,6 +54,13 @@ access to vaults of a newer format version~~ (done in #94: `format.md` §7,
 
 Done from this list:
 
+- **Security review and gap audit follow-ups** (`docs/security-review-2026-10.md`,
+  `docs/research/gap-audit-2026-10.md`): P3 (web passkey records bound to the vault's
+  location) and P5 (`vault summaries --plaintext` written 0600) ✅ #130; release hygiene
+  GA-40 to GA-42 (exact network statements, the `release-check.sh` networking rule and
+  SwiftMath pin and checkout scan, the CHANGELOG `TODO(user)` guard) ✅ #130. C2, C3, N3,
+  P4 and C8 are #125's; the rest is the ROADMAP's "Gap audit" table.
+
 - **Recovery kit and backups** (`docs/cli.md` "Keys" and "Backup and restore",
   `DESIGN.md` "Recovery"): `sempere keys paper` prints the key (or the
   passphrase-wrapped key file) as a QR code and checked text with stock-tool

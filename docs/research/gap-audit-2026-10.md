@@ -60,7 +60,7 @@ CLI work; L = a design question, a format change or an outside decision.
 | GA-25 | Web | Ink linked to audio (`rec`): tap to seek, playback highlight | `web-viewer.md` Limits | missing (documented) | no `rec` handling in `web/src/ui` or `web/src/render` | M |
 | GA-26 | Web | Search matches highlighted on the page and in audio cards | `web-viewer.md` Limits | missing (documented) | doc only | M |
 | GA-27 | Import | Dashed strokes imported solid; strokes and shapes of undecoded `.ntb` kinds not converted (counted and reported); highlighter-behind-PDF, pages of two heights | `import-notability.md` "Not imported" | partial (documented, counted) | `Sources/SempereImport/NotabilityImporter.swift:487`; `NotabilityBundle.swift:181,193` | M–L |
-| GA-28 | Web | A cached or remembered thing the docs call safe is not: web cache ciphertext from before a rewrap stays openable by a removed key (P4); passkey record keyed by an unauthenticated vault id (P3) | `web-viewer.md` "Opening fast", "A key remembered with a passkey"; `security-review-2026-10.md` P3, P4 | open findings | `web/src/vault/cache.ts:141,151,224`; `web/src/vault/passkey.ts:28,43` | S each |
+| GA-28 | Web | A cached or remembered thing the docs call safe is not: web cache ciphertext from before a rewrap stays openable by a removed key (P4); passkey record keyed by an unauthenticated vault id (P3) | `web-viewer.md` "Opening fast", "A key remembered with a passkey"; `security-review-2026-10.md` P3, P4 | P3 fixed in #130 (records bound to the vault's location, version 1 records migrated); P4 in #125 | `web/src/vault/cache.ts:141,151,224`; `web/src/vault/passkey.ts:28,43` | S each |
 
 ## B. Security review: findings still open on main
 
@@ -69,7 +69,7 @@ Fixed items (R4/W1, W2–W5, C5, R5, N2, P1) each have code and a test.
 
 | ID | Finding | State on main | Evidence | Size |
 | --- | --- | --- | --- | --- |
-| GA-30 | P5: `vault summaries --plaintext --out` writes a world-readable file ✔ | open | `Sources/SempereCLI/Summaries.swift:55` (`.atomic`, no 0600) | S |
+| GA-30 | P5: `vault summaries --plaintext --out` writes a world-readable file ✔ | fixed in #130 (created 0600, then renamed into place) | `Sources/SempereCLI/Summaries.swift:55` (`.atomic`, no 0600) | S |
 | GA-31 | C2: a forged capture's attribution (capturing device not stored, notebook from the manifest) | open (title and notebook bounds fixed) | `Sources/Sempere/CaptureInbox.swift` (`boundedName`) | M |
 | GA-32 | C3: a removed device's captures are adopted while its rewrap is unfinished | open; needs an authenticated names list (format change) | review "C3: left open"; `quick-capture.md` | L |
 | GA-33 | N3: `format` and `features` in `vault.json` are not covered by `recipientsTag` | open; limit documented | `format.md:274` | L |
@@ -79,9 +79,9 @@ Fixed items (R4/W1, W2–W5, C5, R5, N2, P1) each have code and a test.
 
 | ID | Item | State on main | Evidence | Size |
 | --- | --- | --- | --- | --- |
-| GA-40 | The privacy policy (both copies), App Store answers and `DESIGN.md` say the app makes no network connections; the app now contains a model downloader. It never runs (empty catalogue) and the Mac build lacks `network.client`, so it could not run sandboxed anyway. `release-check.sh` has no check for `URLSession` in `Apps/` | doc-stale, and an unguarded drift | `Apps/Sempere/SempereApp/MathModels.swift:185-191` (comment: "the app's only network use"); `docs/release/app-store.md` §3, §6; `docs/appstore/privacy-policy.md:11`; `docs/privacy/index.html:30`; `scripts/release-check.sh` (no match) ✔ | M |
-| GA-41 | `CHANGELOG.md` `## [0.5.0] - TODO(user): date…` would ship as the release-notes heading; `release.yml` only checks the section is non-empty | open before first release | `CHANGELOG.md:357` ✔ | S |
-| GA-42 | SwiftMath's privacy manifest TODO and version pin unverifiable from the root `Package.resolved` | open (marked `TODO(maintainer)`) | `docs/release/app-store.md` §2; `project.pbxproj:703` | S |
+| GA-40 | The privacy policy (both copies), App Store answers and `DESIGN.md` say the app makes no network connections; the app now contains a model downloader. It never runs (empty catalogue) and the Mac build lacks `network.client`, so it could not run sandboxed anyway. `release-check.sh` has no check for `URLSession` in `Apps/` | doc-stale, and an unguarded drift | `Apps/Sempere/SempereApp/MathModels.swift:185-191` (comment: "the app's only network use"); `docs/release/app-store.md` §3, §6; `docs/appstore/privacy-policy.md:11`; `docs/privacy/index.html:30`; `scripts/release-check.sh` (no match) ✔; fixed in #130: the documents describe the dormant downloader, `release-check.sh` fails on networking outside `NETWORK_ALLOWED` and on a non-empty catalogue | M |
+| GA-41 | `CHANGELOG.md` `## [0.5.0] - TODO(user): date…` would ship as the release-notes heading; `release.yml` only checks the section is non-empty | guarded in #130 (`changelog-section.sh` refuses `TODO(user)` and an undated heading, so the tag fails); the date itself is the maintainer's | `CHANGELOG.md:357` ✔ | S |
+| GA-42 | SwiftMath's privacy manifest TODO and version pin unverifiable from the root `Package.resolved` | fixed in #130: the pin is in the project's own `Package.resolved` (1.7.3, `fa8244ed`) and `release-check.sh` matches it to the pbxproj; CI's `app` job scans the checkout (`--checkouts`) | `docs/release/app-store.md` §2; `project.pbxproj:703` | S |
 | GA-43 | The App Store review notes / listing draft claims highlighted words on the page; not re-checked against the iPhone, which has none | to check | `docs/release/app-store.md` §8; `iphone.md:104` | S |
 
 ## D. Tests and CI: behaviour exists, nothing checks it

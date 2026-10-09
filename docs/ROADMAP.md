@@ -255,9 +255,10 @@ Existing rows were not touched.
 | Capture | Mac menu-bar item for quick capture; adopting captures from a key that no longer verifies | M / L | GA-23, GA-24 | 💡 |
 | Web viewer | Ink linked to audio (`rec`) and search highlights | M | GA-25, GA-26 | 📋 |
 | Import | Undecoded `.ntb` stroke and shape kinds, dashed strokes | M–L | GA-27 | 💡 |
-| Security | Open review findings: P3, P4 (web), P5 (`vault summaries` file mode), C2, C8 | S–M | GA-28, GA-30, GA-31, GA-34 | 📋 |
+| Security | Review findings P3 (web passkey record bound to the vault's location; version 1 records migrated; no database before opting in) and P5 (`vault summaries --plaintext --out` written 0600) | S | GA-28, GA-30 | ✅ #130 |
+| Security | Open review findings: P4 (web), C2, C8 | S–M | GA-28, GA-31, GA-34 | 📋 (#125) |
 | Security | Open review findings needing a format change: C3 (removed device's captures), N3 (`format`/`features` outside `recipientsTag`) | L | GA-32, GA-33 | 💡 |
-| Release | Privacy policy (both copies), App Store answers and `DESIGN.md` say "no network"; add a `release-check.sh` rule for `URLSession` in `Apps/`; replace the CHANGELOG `TODO(user)` date; SwiftMath privacy manifest | M | GA-40 to GA-42 | 📋 |
+| Release | Privacy policy (both copies), App Store answers and `DESIGN.md` describe the dormant model downloader exactly; `release-check.sh` fails on networking in the app outside it and on a non-empty catalogue, checks the SwiftMath pin and (CI `app` job) scans its checkout; the CLI release refuses a CHANGELOG section with `TODO(user)` | M | GA-40 to GA-42 | ✅ #130 (the 0.5.0 date is the maintainer's) |
 | CI | Run the WebDAV integration tests (a server container); the pseudo-language layout test; all web smoke scripts; fail instead of skip for zbar, zip, pdftotext, `BidiTest.txt`, macOS poppler | M | GA-50 to GA-52, GA-61 | 📋 |
 | Tests | CLI: exit 7 for every write command, untested flags, Linux errors for `recognize` and `attach video --from-clip` | M | GA-53, GA-65, GA-66 | 📋 |
 | Tests | App: `writeEpoch`, `summaryEpochs`, `DerivedLists`, `validateVault`, `backgroundTimeExpired`, quick-capture intents and Live Activity, menu handlers, iPhone toolbar, key export, PDF-drag purge | M | GA-54 to GA-59 | 📋 |

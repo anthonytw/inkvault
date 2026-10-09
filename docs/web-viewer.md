@@ -69,7 +69,9 @@ How (`web/src/vault/passkey.ts`):
    id, one record per vault) holds `{version: 2, vaultId, location,
    credentialId, salt, iv, ciphertext, created}`: nothing the key can be
    recovered from without the passkey. The vault id, the location and the
-   date are readable by whoever reads that storage.
+   date are readable by whoever reads that storage. The database is created
+   by the first remembered key: looking for one on the unlock screen leaves
+   none behind.
 
 **The location.** `vault.json` is not authenticated until a key has opened
 it, so any server can serve one with the id of a vault you remembered (and a
