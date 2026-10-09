@@ -16,6 +16,10 @@ public struct WebDAVVaultListing: Codable, Hashable, Sendable {
     public var format: String?
     /// The collection's URL.
     public var url: String
+
+    public init(path: [String], name: String, vaultId: String, format: String?, url: String) {
+        self.path = path; self.name = name; self.vaultId = vaultId; self.format = format; self.url = url
+    }
 }
 
 /// What a connection check found at a URL.
@@ -37,6 +41,12 @@ public struct WebDAVCheckResult: Codable, Hashable, Sendable {
     public var foldersSkipped: Int
     /// Collections holding a `vault.json` that is not a vault manifest.
     public var unreadable: [String]
+
+    public init(outcome: Outcome, vaults: [WebDAVVaultListing], foldersChecked: Int, foldersSkipped: Int,
+                unreadable: [String]) {
+        self.outcome = outcome; self.vaults = vaults; self.foldersChecked = foldersChecked
+        self.foldersSkipped = foldersSkipped; self.unreadable = unreadable
+    }
 }
 
 /// Testing a WebDAV URL and finding the vaults there ("Test Connection" and
