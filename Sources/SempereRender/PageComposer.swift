@@ -121,7 +121,13 @@ struct PreparedPage {
         for item in page.items.sorted(by: Item.drawsBefore).prefix(RenderLimits.maxItemsPerPage) {
             do {
                 let p = try PreparedItem(item, pageNumber: pageNumber)
-                placed.append(p)
+                if let pieces = MarkdownItems.expand(p, shaper: options.shaper) {
+                    // A Markdown box is drawn as its pieces (format.md §8.5.4).
+                    placed += pieces
+                    for q in pieces { low = max(low, q.maxY) }
+                } else {
+                    placed.append(p)
+                }
                 low = max(low, p.maxY)
             } catch {
                 notes.append("page \(pageNumber): item \(item.id.uuidString.lowercased().prefix(8)): "
