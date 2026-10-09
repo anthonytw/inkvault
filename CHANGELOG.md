@@ -337,6 +337,16 @@ The section for a version is the body of its GitHub Release (`docs/releasing.md`
 
 ### Fixed
 
+- Two devices slicing (pixel eraser), moving or recolouring the same stroke without seeing each other's
+  edit no longer leave both sets of pieces drawn over each other, each bringing back ink the other
+  erased: the later edit wins, everywhere and in any order (`format.md` §5.6.1), including what the
+  other device did to its pieces afterwards. Snapshots keep what the rule needs (`replaces`,
+  `tombstones.lineage`, `tombstones.superseded`), so compaction never changes the result; the web viewer
+  merges the same way. New `sempere notes dedupe (ID… | --all) [--dry-run]` lists and removes strokes
+  left over in existing vaults (hidden ones older builds still draw, and duplicates the merge cannot
+  resolve, such as an undo racing a slice). The app now links a stroke it moves or recolours to the
+  original (`parent`), so those edits take part.
+
 - Dragging notes onto a notebook in the sidebar, and a notebook onto another, works on the iPad and the
   Mac. The sidebar asked the drag for a "move" operation, which drags started from a list do not allow,
   so the system cancelled every drop when it was released (the row still lit up while hovering). A

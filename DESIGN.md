@@ -129,8 +129,13 @@ Consequences:
 - Recovery without the app reads the newest snapshot; at worst the deltas
   since it are lost, never the note.
 
-Known limitation: two devices slicing the same stroke concurrently keep both
-sets of pieces (overlapping duplicates). Acceptable for one person.
+Two devices slicing, moving or recolouring the same stroke concurrently would
+keep both sets of pieces (overlapping copies, each bringing back ink the other
+erased). Readers keep the later edit instead, last writer wins like any other
+register (`format.md` §5.6.1); snapshots carry what the rule needs, so
+compaction never changes the result. A stroke brought back by undo while
+another device sliced it still shows twice; `sempere notes dedupe` finds and
+removes such leftovers.
 
 ## Recovery
 

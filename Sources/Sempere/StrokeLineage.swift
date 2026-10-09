@@ -239,3 +239,31 @@ extension NoteReducer {
         return StrokeConflicts(superseded: r.superseded.sorted(), duplicates: duplicates.sorted())
     }
 }
+
+extension Vault {
+    /// What concurrent edits of one stroke left over in a note (format.md
+    /// §5.6.1; `NoteReducer.strokeConflicts`).
+    ///
+    /// - Throws: `VaultError.revision` when a revision is unreadable.
+    public func strokeConflicts(of noteId: UUID) throws -> StrokeConflicts {
+        try requireMigrated()
+        return try NoteReducer.strokeConflicts(Self.strictRevisions(of: try loadNote(noteId)))
+    }
+
+    /// Writes one delta that removes every stroke `strokeConflicts(of:)`
+    /// reports, computed from the note as it is on disk now, as this device
+    /// (`apply`). Returns what was found and the delta, nil when there was
+    /// nothing to remove.
+    @discardableResult
+    public func dedupeStrokes(of noteId: UUID, deviceState: URL, app: String,
+                              wall: Date = Date()) throws -> (conflicts: StrokeConflicts, revision: Revision?) {
+        try requireMigrated()
+        guard canRead else { throw isLocked ? VaultError.locked : VaultError.noIdentities }
+        let loaded = try loadNote(noteId)
+        let conflicts = try NoteReducer.strokeConflicts(Self.strictRevisions(of: loaded))
+        guard !conflicts.isEmpty else { return (conflicts, nil) }
+        let revision = try writeDelta(conflicts.ops, to: noteId, loaded: loaded, deviceState: deviceState, app: app,
+                                      wall: wall)
+        return (conflicts, revision)
+    }
+}
