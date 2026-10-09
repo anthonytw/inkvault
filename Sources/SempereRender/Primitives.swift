@@ -126,6 +126,12 @@ public struct RenderOptions: Sendable {
     /// attachments", format.md §8.2.7). Off: only their posters are drawn and
     /// the clips are counted in the report.
     public var embedVideos: Bool = false
+    /// PDF only: a final page (or pages) listing each note's recordings,
+    /// transcripts and video clips (kind, title, pages, duration, size),
+    /// linked to the embedded files and the pages they appear on (task C4,
+    /// docs/attachments.md §10). On with "PDF + attachments" (the CLI's
+    /// `--attachments`, `--recordings attach|list`). Needs `shaper`.
+    public var listAttachments: Bool = false
     /// Most bytes of recordings and videos one PDF embeds; beyond it, the rest
     /// are left out with a warning. `PDFWriter.render` builds the PDF in
     /// memory, so this is its budget; `PDFWriter.write(…to:)` streams videos

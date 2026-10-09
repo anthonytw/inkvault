@@ -111,6 +111,10 @@ extension AppModel {
                 for clip in ExportVideos.clips(of: state) { try? await ensureBlobLocal(clip.ref, of: summary.id) }
             }
             try ensureCurrent(gen)
+        } else if options.format == .media {
+            // "Media": every file the export writes, fetched now; one that cannot be is left out and reported.
+            for (summary, state) in loaded { await ensureMediaLocal(state, of: summary.id) }
+            try ensureCurrent(gen)
         }
         let source = "sempere:\(vault.vaultId.uuidString.lowercased())"
         let total = ids.count
@@ -135,6 +139,16 @@ extension AppModel {
 }
 
 extension AppModel {
+    /// Downloads (iCloud) every blob a media export of `state` writes:
+    /// recordings and their transcripts, clips, images and PDFs
+    /// (`MediaExport.plan`). Failures are left to the export, which reports them.
+    func ensureMediaLocal(_ state: NoteState, of id: UUID) async {
+        for p in MediaExport.plan(state) {
+            try? await ensureBlobLocal(p.ref, of: id)
+            if let t = p.transcript { try? await ensureBlobLocal(t, of: id) }
+        }
+    }
+
     /// Reads one note for an export: downloaded first in iCloud Drive, read
     /// inside one coordinated read that checks every revision is local before
     /// and after (an evicted or newly listed revision would export an older

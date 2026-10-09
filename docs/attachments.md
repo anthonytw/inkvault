@@ -945,13 +945,19 @@ Pages show a recording only where an audio item places it: its card
   file attachment (`/Names /EmbeddedFiles`, PDF 1.4). Preview, Acrobat and
   most viewers list them and let the user save or play them;
 - CLI `--recordings attach`: the same embedded files;
-- CLI `--recordings list`: an appended page listing each recording's
-  title, start time, duration and its transcript text (when there is one);
-  `--recordings list,attach` does both.
+- CLI `--recordings list`: an appended page listing each recording (and
+  clip) with its title, the pages it appears on, duration and size;
+  `--recordings list,attach` does both. As built (#122) every PDF that embeds
+  files ends with that page, its rows linked to the embedded files
+  (FileAttachment annotations) and to their first page; transcripts are
+  linked as their `.txt` rather than printed on the page (docs/io.md "The
+  attachment list page").
 
 SVG and PNG exports omit recordings. A separate `sempere export --format
-media` writes the note's original blobs (images, PDFs, audio, transcripts) as
-files, named `<title>-<n>.<ext>`.
+media` (the app's "Media") writes the note's original blobs (images, PDFs,
+audio, transcripts as text, clips) as files, named
+`<title>-<Kind>-<n>[-<recording title>].<ext>`, with a `media.json` manifest
+(docs/io.md "Media export").
 
 ### Video in exports
 

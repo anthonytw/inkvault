@@ -15,7 +15,7 @@ working state.
 | 2 | Rename sweep to Sempere (one PR; touches every file) | new feature branches; start them after this to avoid conflicts | ✅ (2026-10-05) |
 | 3 | Rebuild the test vault (post-quantum key, full import) → first TestFlight | device testing | ✅ (TestFlight builds 6 and 7 are out) |
 | 4 | iPad round 2 and attachments A0 (in parallel) | the rest of attachments | ✅ |
-| 5 | Attachments, batches of 3–4 cloud sessions along the §14 dependencies | math, video | ✅ every §14 task on `main` (video #93, math #96, E7 #95, L #92); open: C4's `--recordings list` and `--format media` 📋, handwriting → math has no model yet (#118) |
+| 5 | Attachments, batches of 3–4 cloud sessions along the §14 dependencies | math, video | ✅ every §14 task on `main` (video #93, math #96, E7 #95, L #92); open: C4's `--recordings list` and `--format media` 🔀 #122, handwriting → math has no model yet (#118) |
 | 6 | Mac polish → App Store submission (iPad + Mac) → `/ultrareview` | public release | 🚧 Mac polish ✅ #101, submission prep ✅ #113; the submission (the maintainer's) and `/ultrareview` 📋 |
 
 ## Shared library (`Sources/`: Age, Sempere, SempereRender, SempereImport, SempereWebDAV)
@@ -46,7 +46,7 @@ working state.
 | Render | PDF page backgrounds in exports (Form XObjects in PDF, rasterizer in SVG/PNG, placeholders, export report) and the `SemperePDF` reader (C3) | ✅ |
 | Render | Images in exports: JPEG passthrough, PNG/JPEG decoders, SVG data URIs or `--assets`, placeholders (C1) | ✅ #62 |
 | Render | Unicode text in exports: bundled Noto + font packs, UAX #9/#14/#29, shaper, font subsets in PDF/SVG, missing-script report (C2) | ✅ #64 |
-| Render | Recordings in exports (C4): embedded in PDFs with their transcripts ("PDF + attachments") | ✅ #87 (the list page and `--format media` 📋) |
+| Render | Recordings in exports (C4): embedded in PDFs with their transcripts ("PDF + attachments"); the attachment list page (kind, title, pages, duration, size; links to the embedded files and pages) and `--format media` (recordings, transcripts, clips, images, PDFs as files with `media.json`), shared by the CLI and the app (`AttachmentList`, `MediaExport`) | ✅ #87; list page and media 🔀 #122 |
 | Import | Notability `.note` / `.ntb` / full Google Drive backup, recognised text | ✅ |
 | Import | Notability PDF backgrounds and images (D1, D2) | ✅ #70 |
 | Import | Notability typed text, recordings and stroke links (D3, D4) | ✅ #73 |
@@ -92,6 +92,7 @@ The CLI gets every feature first, or at the latest with the app (`CLAUDE.md`
 | `recognize --recent [--days N]`: the shared "Recently Recognized" (`meta.recognized`, written by every `recognize` run and the app's "Recognize All") | ✅ #102 | ✅ #102 |
 | `transcribe` (on-device Speech framework: SpeechTranscriber, else SFSpeechRecognizer on device; `--check` lists the engines); Linux gives a clear error (`--dry-run`, `--check` work) | — (error) | ✅ #87 |
 | `export --recordings attach` (recordings and transcripts embedded in the PDF, the app's "PDF + attachments") | ✅ #87 | ✅ #87 |
+| `export --recordings list` and the attachment list page of every PDF that embeds files; `export --format media` (single note and `--all`, with `--layout`, `--zip`, resuming) | 🔀 #122 | 🔀 #122 |
 | `notes new` without a title: named after the date and time, `--title-format` (the app's default title) | ✅ #84 | ✅ #84 |
 | `notes new --title-format`: strftime too, validated with the app's messages (exit 2), `SEMPERE_TITLE_FORMAT` as this machine's default | ✅ #102 | ✅ #102 |
 | `inbox enable/capture/transcript/list/import`: voice notes sealed without the key (capture profile), adopted as notes with it (`format.md` §11) | ✅ #89 | ✅ #89 |
@@ -152,7 +153,7 @@ The CLI gets every feature first, or at the latest with the app (`CLAUDE.md`
 | Notes | Drops on the sidebar, build 7: rows proposed a `.move` the drag session does not allow, so UIKit cancelled every drop at the release; they propose `.copy` now. Notebook rows drag from a UIKit drag interaction of their own (a list never routes its own drags to its rows), which also carries their context menu. Real-drag UI tests on the iPad simulator (every app CI run) and Mac Catalyst | ✅ #102 (not yet tried on the iPad) |
 | Notes | Default title of a new note from its date and time (app: Settings → New Notes, `NewNoteSettings` #86; CLI: `notes new` without a title, any date pattern with `--title-format`) | ✅ #84, #86 |
 | Notes | Title presets (date and time, date, year-month-day time, weekday) and a custom pattern (Unicode or strftime) checked as it is typed, with a live preview, the reason it is refused and an Insert menu of fields | ✅ #102 (not yet tried on the iPad) |
-| App | Share/export from the app: PDF, PNG pages, Text (Markdown, PDF optional), one note or a multi-selection, share sheet + Save to Files, progress and cancel (`ShareExport`, `ExportJob`; Catalyst menu bar via `ExportMenuCommands`); HTML in the CLI only | ✅ #42, text export ✅ #56 |
+| App | Share/export from the app: PDF, PNG pages, Text (Markdown, PDF optional), one note or a multi-selection, share sheet + Save to Files, progress and cancel (`ShareExport`, `ExportJob`; Catalyst menu bar via `ExportMenuCommands`); HTML in the CLI only | ✅ #42, text export ✅ #56, Media (and in "Export Notes…") 🔀 #122 (not yet tried on a device) |
 | App | Import from Notability in the app (the note list's toolbar, and the File menu on the Mac): `.note`/`.ntb` files, folders or backup zips through the CLI's importer (`NotabilityImporter`, same defaults: folder tags, attachments, existing notes skipped), filed in the sidebar's notebook, result alert | ✅ #101 (not yet tried on the iPad or a Mac) |
 | App | PDFs opened with Sempere (iPad share sheet / Open In; Mac Finder Open With) become new notes of the open vault, waiting for a vault to be opened and unlocked; Sempere is a PDF Viewer at rank Alternate, never the default | ✅ #101 (not yet tried on the iPad or a Mac) |
 | App | Bulk export ("Export Notes…"): list selection, notebook or whole vault; PDF, PDF + attachments, PNG pages; notebook folders or flat; a chosen folder (resumable: unchanged notes skipped) or a zip (share sheet / Save to Files); progress with Stop, per-note failures at the end; File menu on a Mac (docs/io.md "Bulk export") | ✅ #109 (not yet tried on the iPad or a Mac) |

@@ -42,10 +42,14 @@ extension BulkExportRequest {
         case .notebook(let path): args += ["--notebook", Self.shellQuoted(NotebookPath.canonical(path) ?? path)]
         case .vault: break
         }
-        args += ["--format", options.format == .png ? "png" : "pdf"]
+        switch options.format {
+        case .png: args += ["--format", "png"]
+        case .media: args += ["--format", "media"]
+        case .pdf, .pdfAttachments: args += ["--format", "pdf"]
+        }
         if options.format == .pdfAttachments { args.append("--attachments") }
         if options.format == .png && options.dpi != 144 { args += ["--dpi", String(Int(options.dpi))] }
-        if !options.paper { args.append("--no-paper") }
+        if !options.paper && options.format != .media { args.append("--no-paper") }
         if options.layout == .notebooks { args += ["--layout", "notebooks"] }
         if zip { args += ["--zip", "--out", Self.shellQuoted(archiveName)] } else { args += ["--out", "FOLDER"] }
         return args.joined(separator: " ")
@@ -157,6 +161,9 @@ extension AppModel {
                         if let t = r.transcript { try? await ensureBlobLocal(t, of: id) }
                     }
                     for clip in ExportVideos.clips(of: item.state) { try? await ensureBlobLocal(clip.ref, of: id) }
+                    try ensureCurrent(gen)
+                } else if session.options.format == .media {
+                    await ensureMediaLocal(item.state, of: id)
                     try ensureCurrent(gen)
                 }
                 let render = Task.detached(priority: .userInitiated) { [session] in
