@@ -240,6 +240,18 @@ Deliberately absent:
 Adding any entitlement means editing the allow-list in `scripts/release-check.sh` and this
 table, in the same PR.
 
+### The menu-bar bundle
+
+The Mac build embeds `Contents/PlugIns/SempereStatusItem.bundle`, a small AppKit bundle that draws
+the menu-bar icon (`docs/mac.md` "Menu-bar item"). It is signed with the app by Xcode (the embed
+phase has `CodeSignOnCopy`), has no entitlements of its own (it runs in the app's sandbox), no
+network code and no required-reason API, so it carries no privacy manifest and
+`release-check.sh` lists no entry for it. Its bundle id `io.github.anthonytw.sempere.statusitem`
+sits under the app's, as the script requires. Check on the first archive that it validates: a
+macOS-SDK bundle inside a Catalyst app is the documented way to reach AppKit
+(Apple's "Mac Catalyst" guidance), but it has not been through App Review yet. If App Review
+objects, turn the item off by removing the embed phase: the app does not depend on it.
+
 ### Building and uploading the Mac version
 
 The maintainer's upload script handles both platforms (`docs/HANDOFF.md`:

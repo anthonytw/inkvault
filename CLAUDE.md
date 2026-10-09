@@ -432,6 +432,14 @@ Branch per task, PR to `main`, squash merge, CI green. Commit messages:
   that into ordinary `removeStroke` ops. The pixel eraser stays PencilKit's.
   Radius presets (`ObjectEraserSize`, page points) are in `UserDefaults`
   under `Sempere.objectEraserRadius`; the size menu is in the editor toolbar.
+- The Mac menu-bar item (`docs/mac.md` "Menu-bar item") is an AppKit bundle, target
+  `SempereStatusItem` (`Apps/Sempere/SempereStatusItem/`, SDK macOS, Swift 5 mode), embedded in
+  `PlugIns` for Catalyst only (`platformFilter = maccatalyst` on the dependency and the embed
+  phase). The Catalyst app cannot link AppKit types, so `StatusItemHost` loads the bundle and the
+  two only post notifications on the default center (`StatusItemProtocol`, in `StatusItemShared/`,
+  compiled into both): state and localized titles go in, the chosen entry comes out. The bundle
+  has no strings, no logic and no network; keep it that way. The app must work with it missing.
+  A new entry is a case of `StatusItemProtocol.Action` handled in `StatusItemHost.run`.
 - Mac (Catalyst) behaviour is in `docs/mac.md`. Menu entries are cases of
   `MenuCommand` (title, shortcut, enabling in one place; `MenuCommandTests`
   checks shortcut clashes); never add a menu item elsewhere. Menus act through
