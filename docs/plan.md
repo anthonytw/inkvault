@@ -39,13 +39,13 @@ need a hand test on a real Mac (`docs/mac.md` "To try by hand"); build 7 polish 
 ## Phase 3 — nice to have
 
 Built-in WebDAV client (`sempere sync webdav`, `docs/io.md`; the iPad app UI
-is still open 💡); compaction UI (✅ #74 thinning setting and "Thin Now");
+is still open 📋, planned for the first release); compaction UI (✅ #74 thinning setting and "Thin Now");
 ~~PNG export~~ (done: `sempere export --format png [--dpi N]`, pure-Swift rasterizer in
 `Sources/SempereRender`, `docs/cli.md`); page backgrounds (PDF and image attachments: in the reference
 Notability backup 26 of 130 notes are annotated PDFs and 4 hold images, all
 imported today as ink on blank paper; now designed with text boxes and audio,
 see "Attachments" below); ~~stroke
-dedupe after concurrent slicing~~ (done in 🚧 #126: `format.md` §5.6.1, the later of two
+dedupe after concurrent slicing~~ (done in #126: `format.md` §5.6.1, the later of two
 concurrent replacements of a stroke wins; `sempere notes dedupe` checks and repairs vaults
 written before); ~~post-quantum recipient type~~ (done:
 MLKEM768-X25519, `docs/post-quantum.md`); ~~read-only
@@ -79,8 +79,7 @@ criteria) and `docs/format.md` §8 (normative). Status: **decisions final**
 goes first; after it, the rest run in parallel along the dependencies in
 `docs/attachments.md` §14. G1 (both parts; part 2 has no model yet), G2, E7 and L are done; none blocks anything.
 
-Status per task: ✅ done on `main` (PR number) · 🚧 in progress (open PR) · 📋 planned ·
-💡 future. Checked against `main` at `ecc62ec` (#119) on 2026-10-08. Beyond this table, the
+Status per task: ✅ done on `main` (PR number) · 🚧 in progress (open PR) · 📋 planned for the first release. Checked against `main` at `ecc62ec` (#119) on 2026-10-08. Beyond this table, the
 build 7 follow-ups are all ✅ merged, none yet tried on a device: selecting items and Replace Image (#104), audio items on the page (#103),
 sidebar drops and shared Recently Recognized (#102), Mac polish (#101), quick voice fixes (#106, #107), bulk export (#109) and backups in the app (#110).
 
@@ -119,6 +118,12 @@ Done in 🚧 #131: GA-01 favorites (`notes favorite`, the app's menu, toolbar an
 app (quarter-turn menu entries, two-finger turn), GA-04 one voice-notebook setting (Quick Voice Notes; the New Notes field
 is gone and its stored value migrated), GA-05 the transcription download button (`SpeechTranscription.downloadModel`,
 `transcribe --download-model`), GA-13 Mac shortcuts for item actions and recording. Open: the rest of the audit.
+
+The gap audit (`docs/research/gap-audit-2026-10.md`) rows are not tasks here: they sit in their
+component sections of `docs/ROADMAP.md` with their `GA-nn` ids, all planned for the first release
+except the ones the maintainer dropped (GA-11, GA-12, GA-22, GA-24, GA-25, GA-26). The "First release" section there (one public
+"Initial commit" with the history archived privately, the project website at
+`sempere.anthonywertz.com`, a legal review of the Notability importer) is the maintainer's.
 
 ## Working agreements
 
