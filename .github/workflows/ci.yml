@@ -234,6 +234,10 @@ jobs:
       - name: Test on an iPad simulator
         shell: bash
         run: mkdir -p build && scripts/app.sh test 2>&1 | tee build/app-test.log
+      # The packages are resolved now: scan SwiftMath's sources (networking, required-reason APIs,
+      # its privacy manifest) and check the checkout is the pinned revision (GA-42).
+      - name: Third-party package privacy (SwiftMath)
+        run: scripts/release-check.sh --checkouts .build/xcode/SourcePackages/checkouts
       # The iPhone suites on an iPhone simulator: the build products are the iPad run's,
       # so this adds a boot and a few seconds of tests.
       - name: Test the iPhone layouts on an iPhone simulator
