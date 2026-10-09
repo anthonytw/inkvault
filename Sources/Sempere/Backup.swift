@@ -311,11 +311,12 @@ public enum Backup {
     // MARK: - Listing
 
     /// Relative paths of the vault's format files: `vault.json`,
-    /// `rewrap-journal.json`, `keys/*.key.age`, `notes/<id>/<revision>`.
+    /// `rewrap-journal.json`, `settings.age` (format.md §13), `keys/*.key.age`,
+    /// `notes/<id>/<revision>`.
     /// Temporary and unknown files are skipped.
     static func formatFiles(in root: URL) throws -> [String] {
         var out: [String] = []
-        for name in [Vault.manifestName, Vault.journalName] {
+        for name in [Vault.manifestName, Vault.journalName, SharedSettings.fileName] {
             let u = root.appendingPathComponent(name)
             if FileIO.exists(u) && !FileIO.isDirectory(u) { out.append(name) }
         }
@@ -352,6 +353,7 @@ public enum Backup {
         let parts = path.split(separator: "/").map(String.init)
         guard let last = parts.last else { return BoundedRead.maxRevisionBytes }
         if last == Vault.manifestName || last == Vault.journalName { return BoundedRead.maxManifestBytes }
+        if parts.count == 1, last == SharedSettings.fileName { return SharedSettings.maxFileBytes }
         if parts.count >= 2, parts[parts.count - 2] == Vault.keysName { return BoundedRead.maxSmallFileBytes }
         if parts.count >= 2, parts[parts.count - 2] == attachmentsName { return BoundedRead.maxBlobFileBytes }
         return BoundedRead.maxRevisionBytes
@@ -533,7 +535,7 @@ public enum Backup {
         // run was cut short never holds a vault.json newer than its notes.
         let ordered = sourceFiles.filter { $0.hasPrefix(Vault.notesName + "/") }
             + sourceFiles.filter { $0.hasPrefix(Vault.keysName + "/") }
-            + [Vault.journalName, Vault.manifestName].filter(sourceFiles.contains)
+            + [SharedSettings.fileName, Vault.journalName, Vault.manifestName].filter(sourceFiles.contains)
         for path in ordered {
             do {
                 let src = url(source.url, path)

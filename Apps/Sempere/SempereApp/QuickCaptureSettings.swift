@@ -36,9 +36,11 @@ struct QuickCaptureSettingsSection: View {
             if let stored, model.quickCaptureIsForOpenVault {
                 TextField("Notebook", text: $notebook)
                     .onSubmit { update { $0.profile.notebook = NoteOps.normalizedNotebook(notebook) ?? CaptureProfile.defaultNotebook } }
+                    .syncedSetting("quickCapture.notebook")
                 Toggle("Transcribe Voice Notes", isOn: Binding(get: { stored.transcribe }, set: { on in
                     update { $0.transcribe = on }
                 }))
+                .syncedSetting("quickCapture.transcribe")
             } else if let stored {
                 LabeledContent("Voice notes go to", value: stored.vaultName)
             }
@@ -61,6 +63,7 @@ struct QuickCaptureSettingsSection: View {
             }
         }
         .id(Self.anchor)
+        .onChange(of: model.settingsAppliedRevision) { reload() }
         .onAppear {
             model.migrateLegacyVoiceNotebook()
             reload()
@@ -79,6 +82,7 @@ struct QuickCaptureSettingsSection: View {
         change(&s)
         do { try model.quickCapture.store.save(s) } catch { problem = "\(error)" }
         model.quickCapture.publishStatus()
+        model.settingsChanged()   // a synced setting (docs/settings-sync.md §5.2)
         reload()
     }
 }

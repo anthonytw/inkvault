@@ -45,6 +45,7 @@ GA-12, GA-22, GA-24, GA-25, GA-26.
 | Vault | Attachment merge (A1): items and recordings in merge, snapshots, history/restore, summaries | ✅ #66 |
 | Vault | Video items (G2, `format.md` §8.2.7): `VideoProbe` (pure-Swift MP4/MOV reader, fuzzed), location metadata blanked in place, clips streamed into blobs (never in memory), `poster` register | ✅ #93 |
 | Vault | Concurrent replacements of one stroke (`format.md` §5.6.1): two devices slicing, moving or recolouring the same stroke keep the later edit, not both sets of pieces; property-tested (any order, compaction, snapshots), snapshots keep `replaces` / `lineage` / `superseded`; web viewer ported (shared vectors); app links moved and recoloured strokes to their originals | ✅ #126 |
+| Vault | Shared settings `settings.age` (`format.md` §13, `docs/settings-sync.md`): a VS Code-style settings.json encrypted and tagged like a revision; flat keys, `[mac]` / `[ipad]` / `[iphone]` blocks, per-key last-writer-wins merge (`$meta`), `$schemaVersion` with additive migrations and dual-written legacy keys, `$minReaderVersion` (older readers pause, never write); JSON Schema generated from the registry; rewrapped with the revisions, backed up, merged by WebDAV sync; fuzzed | 🚧 #144 |
 | Vault | Read-only access to newer format versions (`format.md` §7): vaults and revisions of a later `format` open read-only, unknown ops, fields and snapshot elements are skipped and reported, every write refused; CLI exit 7, app banner, web viewer | ✅ #94 |
 | Render | PDF, SVG, PNG export of ink and paper | ✅ |
 | Render | Pageless pages cut at gaps in the ink; paged notes one PDF page per page (`format.md` §5.4.3) | ✅ #52 |
@@ -90,6 +91,7 @@ The CLI gets every feature first, or at the latest with the app (`CLAUDE.md`
 | Feature | Linux | macOS |
 | --- | --- | --- |
 | keys, vault init/info/recipients/verify, notes, history/restore, compact, snapshot | ✅ | ✅ |
+| `settings list/get/set/reset/edit/validate/schema` (`--type mac\|ipad\|iphone` for type blocks; no device overrides) | 🚧 #144 | 🚧 #144 |
 | `notes layout paged\|pageless`, `export --breaks gaps\|fixed` | ✅ #52 | ✅ #52 |
 | `notes dedupe (ID… \| --all) [--dry-run]`: strokes left over by concurrent edits of one stroke (`format.md` §5.6.1), check and repair | ✅ #126 | ✅ #126 |
 | import notability, search (recognised text) | ✅ | ✅ |
@@ -218,6 +220,8 @@ The CLI gets every feature first, or at the latest with the app (`CLAUDE.md`
 | Search | Transcripts in the app's search (`TranscriptSearch`, shared with `search --transcripts`) (GA-06, M); highlights inside text boxes (`TextMatchBoxes`; CLI `search --show-boxes` too) (GA-07, M) | ✅ #134 (not yet tried on the iPad) |
 | Import | App Notability import: an options sheet (attachments, photo metadata, PDF page text, folder tags, read handwriting) and the full report (`dropped.*`, warnings) (GA-08, M) | ✅ #134 (not yet tried on the iPad) |
 | Keys | Recipient `repair --keep` and replace-recipient in the app: the recipients alert's Choose Devices to Keep… and the key window's Replace… (GA-17, M); `--prune` and `--archive` stay CLI-only on purpose (`docs/cli.md` "The app's Backups", GA-18) | ✅ #135 (not yet tried on a device) |
+| Settings | Settings sync through the vault (`docs/settings-sync.md`): Settings ▸ Sync Settings with This Vault (opt-in per device and vault; first enable seeds or asks Use the Vault's / Replace with This Device's), every setting synced (per-type keys ignored by other types), Only on This Device overrides (explicit until Use Synced Value), Only on iPads / Macs / iPhones type blocks, pause banner for a file that needs a newer Sempere | 🚧 #144 (not yet tried on a device) |
+| Settings | Device names: tell devices of one type apart ("my Mac", "the family Mac") so a setting can be scoped to one named device; until then all devices of a type share its block and a local override covers one device (maintainer, 2026-10-09: later) | later |
 | Capture | C8: stale `completeUnlessOpen` comments in `QuickCapture.swift` (GA-34, S) | 📋 |
 | Release | Privacy policy (both copies), App Store answers and `DESIGN.md` describe the dormant model downloader exactly; `release-check.sh` fails on networking in the app outside it and on a non-empty catalogue, checks the SwiftMath pin and (CI `app` job) scans its checkout; the CLI release refuses a CHANGELOG section with `TODO(user)` or no date (GA-40 to GA-42, M) | ✅ #130 (the 0.5.0 date itself is the maintainer's) |
 | Tests | `writeEpoch`, `summaryEpochs`, `DerivedLists`, `validateVault`, `backgroundTimeExpired`, quick-capture intents and Live Activity, menu handlers and scene restore, key export, PDF-drag purge (GA-54 to GA-57, GA-59, M); settings confirmations (GA-64, S) | 📋 |

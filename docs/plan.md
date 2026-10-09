@@ -29,6 +29,15 @@ UI over it (done: `PageRecognizer.swift`, `NoteEditor` recognition,
 `AppModel+Search.swift`, `Sources/Sempere/NoteSearch.swift`). Status: ✅ on `main`, handwriting search
 not yet tried on the iPad.
 
+Settings sync through the vault (`docs/settings-sync.md`, `format.md` §13): the shared
+`settings.age` with per-key merge, device-type blocks, local overrides and versioned
+compatibility rules; CLI `sempere settings`; the app's Settings ▸ Sync Settings with This
+Vault. Status: 🚧 #144 (accepted by the maintainer 2026-10-09; device names later).
+
+| # | Task | Owner target | Done when |
+| --- | --- | --- | --- |
+| 1.S 🚧 | Settings sync through the vault: core (`SharedSettings`, `SharedSettingsCatalog`, `SharedSettingsMigrations`, `SettingsSyncState`), CLI `settings`, WebDAV merge, backups, app (`SettingsSyncBridge`, `AppModel+SettingsSync`, Settings section, row overrides), Spanish | `Sources/Sempere`, `Sources/SempereCLI`, `Sources/SempereWebDAV`, `Apps/` | core, CLI and WebDAV tests green on Linux; the `app` job green; tried on two devices (needs the maintainer) |
+
 The iPhone reader is the same target (`docs/iphone.md`, PR #65): compact stack, read-first note view,
 finger annotation behind a button, tests at iPhone sizes, 6.9" screenshots. Status: ✅ #65, not yet tried on a physical iPhone.
 

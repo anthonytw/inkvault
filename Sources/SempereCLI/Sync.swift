@@ -182,6 +182,7 @@ struct SyncWebDAVCommand: ParsableCommand {
             for d in r.deleted { print("\(verb)delete    \(d.path) (\(d.side))") }
             for s in r.skipped where output.verbose { print("skipped    \(s.path): \(s.message)") }
             for p in r.overwritten { print("\(verb)overwrite \(p) (server copy replaced)") }
+            for p in r.merged { print("\(verb)merge     \(p) (changed on both sides)") }
             for p in r.extraneous { print("extraneous \(p)") }
             for p in r.ignored where output.verbose { print("ignored    \(p)") }
         }
