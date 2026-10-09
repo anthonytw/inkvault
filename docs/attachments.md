@@ -1164,6 +1164,8 @@ for its note (§4).
   test on the user's iPad before building UI around it.
 - Fallback 1: `DictationTranscriber` (same `SpeechAnalyzer` API, the
   dictation model, broader device support, less accurate for long-form).
+  Not built: dropped by the maintainer on 2026-10-09 (gap audit GA-11); the
+  chain is `SpeechTranscriber`, then `SFSpeechRecognizer` on device.
 - Fallback 2: `SFSpeechRecognizer` with `requiresOnDeviceRecognition = true`
   (only if `supportsOnDeviceRecognition` for the locale) and an
   `SFSpeechURLRecognitionRequest`; word timestamps and confidence from
