@@ -22,6 +22,7 @@ struct SettingsView: View {
                 Form {
                     SettingsSyncSection()
                     GeneralSettings()
+                    AppIconSettingsSection().id(model.settingsAppliedRevision)
                     // Sections that hold copies of their values reload them when values arrive from the vault.
                     NewNoteSettingsSection().id(model.settingsAppliedRevision)
                     RecordingSettingsSection().id(model.settingsAppliedRevision)

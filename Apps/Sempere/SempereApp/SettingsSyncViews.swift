@@ -194,6 +194,7 @@ enum SettingsSyncText {
         case "mouse.smoothing": return String(localized: "Smooth Mouse Strokes")
         case "quickCapture.notebook": return String(localized: "Notebook")
         case "quickCapture.transcribe": return String(localized: "Transcribe Voice Notes")
+        case "appearance.icon": return String(localized: "App Icon")
         default: return key
         }
     }

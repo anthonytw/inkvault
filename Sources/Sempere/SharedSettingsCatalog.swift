@@ -179,6 +179,8 @@ public enum SharedSettingsCatalog {
               "Smooth mouse and trackpad strokes"),
         .init("quickCapture.notebook", types: touch, .notebook, default: .string("Inbox"), "Notebook of quick voice notes"),
         .init("quickCapture.transcribe", types: touch, .bool, default: .bool(true), "Transcribe quick voice notes"),
+        .init("appearance.icon", types: touch, .choice(["keyholeNib", "cemeteryDoor", "shadowS", "inkWind"]),
+              default: .string("keyholeNib"), "Home-screen icon"),
     ]
 
     /// The setting `name`; nil for a key this version does not know.

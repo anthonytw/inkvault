@@ -1,6 +1,7 @@
 import Foundation
 import os
 import Sempere
+import UIKit
 
 private let settingsLog = Logger(subsystem: "io.github.anthonytw.sempere", category: "settings")
 
@@ -279,6 +280,9 @@ extension AppModel {
                 extras.quickCapture = (stored.profile.notebook, stored.transcribe)
             }
         }
+        if AppIconSettingsSection.isSupported {
+            extras.appIcon = AppIconChoice(alternateName: UIApplication.shared.alternateIconName).rawValue
+        }
         return SettingsSyncBridge.values(for: settingsDeviceType, defaults: settingsDefaults, extras: extras)
     }
 
@@ -300,6 +304,14 @@ extension AppModel {
                 updateCaptureProfile { $0.profile.notebook = NoteOps.normalizedNotebook(name) ?? CaptureProfile.defaultNotebook }
             case ("quickCapture.transcribe", .bool(let on)):
                 updateCaptureProfile { $0.transcribe = on }
+            case ("appearance.icon", .string(let name)):
+                // iOS tells the user the icon changed; a failure leaves the current icon.
+                if AppIconSettingsSection.isSupported, let choice = AppIconChoice(rawValue: name),
+                   choice != AppIconChoice(alternateName: UIApplication.shared.alternateIconName) {
+                    UIApplication.shared.setAlternateIconName(choice.alternateName) { error in
+                        if let error { settingsLog.error("icon not changed: \(error.localizedDescription, privacy: .public)") }
+                    }
+                }
             default:
                 break
             }

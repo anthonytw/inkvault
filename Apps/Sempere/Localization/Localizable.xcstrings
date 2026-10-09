@@ -2862,6 +2862,18 @@
         }
       }
     },
+    "App Icon" : {
+      "comment" : "Settings section header (the app's home-screen icon picker)",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Icono de la app"
+          }
+        }
+      }
+    },
     "Applies to every note in “%@” and its sub-notebooks. Use / for levels, e.g. School/Math. An empty name takes the notes out of the notebook and lifts its sub-notebooks to the top." : {
       "comment" : "%@ is the notebook's path",
       "extractionState" : "manual",
@@ -3344,6 +3356,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "No se puede mostrar esta versión"
+          }
+        }
+      }
+    },
+    "Cemetery Door" : {
+      "comment" : "App icon name",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Puerta del cementerio"
           }
         }
       }
@@ -4333,6 +4357,18 @@
         }
       }
     },
+    "Couldn’t change the icon." : {
+      "comment" : "Alert when switching the app icon fails",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No se pudo cambiar el icono."
+          }
+        }
+      }
+    },
     "Counts of what Notability stores that Sempere does not convert (yet). Everything else of those notes was imported." : {
       "comment" : "Footer of the Not Imported section of the Notability import report",
       "extractionState" : "manual",
@@ -5284,6 +5320,18 @@
         }
       }
     },
+    "Every story leaves a trail." : {
+      "comment" : "App icon caption (Ink Wind)",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Toda historia deja su rastro."
+          }
+        }
+      }
+    },
     "Everything goes into one zip archive." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -5618,6 +5666,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Tipo de letra"
+          }
+        }
+      }
+    },
+    "For the notes that choose you." : {
+      "comment" : "App icon caption (Cemetery Door)",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Para las notas que te eligen."
           }
         }
       }
@@ -6484,6 +6544,18 @@
         }
       }
     },
+    "Ink Wind" : {
+      "comment" : "App icon name",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Viento de tinta"
+          }
+        }
+      }
+    },
     "Inline" : {
       "comment" : "Equation style (LaTeX inline math: as within a line of text)",
       "extractionState" : "manual",
@@ -6766,6 +6838,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Error del Llavero %d: %@"
+          }
+        }
+      }
+    },
+    "Keyhole Nib" : {
+      "comment" : "App icon name",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Plumín de cerradura"
           }
         }
       }
@@ -11973,6 +12057,18 @@
         }
       }
     },
+    "Shadow S" : {
+      "comment" : "App icon name",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "S con sombra"
+          }
+        }
+      }
+    },
     "Shapes not converted" : {
       "comment" : "Notability import report: not imported",
       "extractionState" : "manual",
@@ -13580,6 +13676,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "La clave con la que este dispositivo ha desbloqueado «%@»."
+          }
+        }
+      }
+    },
+    "The key to every page." : {
+      "comment" : "App icon caption (Keyhole Nib, the default)",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La llave de cada página."
           }
         }
       }
@@ -15779,6 +15887,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Blanco"
+          }
+        }
+      }
+    },
+    "Written on the wind." : {
+      "comment" : "App icon caption (Shadow S)",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Escrito en el viento."
           }
         }
       }

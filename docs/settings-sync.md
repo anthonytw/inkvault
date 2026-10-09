@@ -259,14 +259,16 @@ the other devices follow it.
 | `mouse.smoothing` | General ▸ Smooth Mouse Strokes | `mac` | `off`, `light`, `strong` | `light` |
 | `quickCapture.notebook` | Quick Voice Notes ▸ Notebook | `ipad`, `iphone` | a notebook path | `Inbox` |
 | `quickCapture.transcribe` | Quick Voice Notes ▸ Transcribe Voice Notes | `ipad`, `iphone` | `true`, `false` | `true` |
+| `appearance.icon` | App Icon (where iOS offers alternate icons) | `ipad`, `iphone` | `keyholeNib`, `cemeteryDoor`, `shadowS`, `inkWind` | `keyholeNib` |
 
 The quick-capture settings apply while quick capture is on for the vault on that device;
 switching it on or off is not a setting (it creates or deletes the device's capture key,
 which is state).
 
-Not built yet, and settings when they come: the app icon (`appearance.icon`), Pencil
-options such as the double-tap action (`pencil.doubleTap`, `ipad`), and how a device
-prefers to unlock (`security.unlock`); the remembered key itself stays state.
+The app icon is applied through iOS, which tells the user each time it changes; the Mac
+app keeps its one icon. Not built yet, and settings when they come: Pencil options such
+as the double-tap action (`pencil.doubleTap`, `ipad`), and how a device prefers to
+unlock (`security.unlock`); the remembered key itself stays state.
 
 ### 5.3 Device state (never in the file)
 

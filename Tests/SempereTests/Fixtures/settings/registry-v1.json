@@ -1,6 +1,7 @@
 {
   "schemaVersion": 1,
   "keys": [
+    "appearance.icon",
     "backup.reminderDays",
     "editor.compactPalette",
     "editor.defaultLayout",

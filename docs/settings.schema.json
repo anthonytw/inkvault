@@ -21,6 +21,16 @@
     },
     "settings" : {
       "properties" : {
+        "appearance.icon" : {
+          "default" : "keyholeNib",
+          "description" : "Home-screen icon. Used by: ipad, iphone.",
+          "enum" : [
+            "keyholeNib",
+            "cemeteryDoor",
+            "shadowS",
+            "inkWind"
+          ]
+        },
         "backup.reminderDays" : {
           "default" : 0,
           "description" : "Backup reminder after this many days (0: off).",

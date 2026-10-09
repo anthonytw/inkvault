@@ -21,21 +21,24 @@ enum SettingsSyncBridge {
         var quickCapture: (notebook: String, transcribe: Bool)?
         /// The open vault's backup reminder (`BackupRecord.reminderDays`).
         var backupReminderDays: Int?
+        /// The home-screen icon (`AppIconChoice` raw value), where iOS can switch icons.
+        var appIcon: String?
 
-        init(quickCapture: (notebook: String, transcribe: Bool)? = nil, backupReminderDays: Int? = nil) {
-            self.quickCapture = quickCapture; self.backupReminderDays = backupReminderDays
+        init(quickCapture: (notebook: String, transcribe: Bool)? = nil, backupReminderDays: Int? = nil,
+             appIcon: String? = nil) {
+            self.quickCapture = quickCapture; self.backupReminderDays = backupReminderDays; self.appIcon = appIcon
         }
 
         static func == (a: Extras, b: Extras) -> Bool {
             a.quickCapture?.notebook == b.quickCapture?.notebook && a.quickCapture?.transcribe == b.quickCapture?.transcribe
-                && a.backupReminderDays == b.backupReminderDays
+                && a.backupReminderDays == b.backupReminderDays && a.appIcon == b.appIcon
         }
     }
 
     /// Keys whose values live outside `UserDefaults` (or need the model to act):
     /// `apply` returns them for the model instead of writing them.
     static let modelKeys: Set<String> = ["quickCapture.notebook", "quickCapture.transcribe", "backup.reminderDays",
-                                         "handwriting.recognize", "search.transcripts"]
+                                         "handwriting.recognize", "search.transcripts", "appearance.icon"]
 
     /// This device's effective value of every setting a device of `type` uses,
     /// in the stored form of `SharedSettingSpec.validated`. A setting that cannot
@@ -84,6 +87,7 @@ enum SettingsSyncBridge {
                                                ?? MouseSmoothing.defaultLevel.rawValue)
         case "quickCapture.notebook": return extras.quickCapture.map { .string($0.notebook) }
         case "quickCapture.transcribe": return extras.quickCapture.map { .bool($0.transcribe) }
+        case "appearance.icon": return extras.appIcon.map { .string($0) }
         default: return nil
         }
     }
