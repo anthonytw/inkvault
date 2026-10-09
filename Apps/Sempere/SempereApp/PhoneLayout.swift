@@ -76,6 +76,35 @@ enum PhoneReading {
     }
 }
 
+/// Which controls the iPhone's note toolbar offers (`EditorView.phoneToolbar`): the
+/// Annotate toggle and the overflow menu's writing entries only for a note that can be
+/// written, the drawing aids only while annotating, and the page controls in the bottom
+/// bar while reading or in the overflow menu while annotating.
+enum PhoneToolbar {
+    struct Items: Equatable {
+        /// Annotate, Paper, Insert and the recordings entries.
+        var writes = false
+        /// Text and the eraser size: only while annotating.
+        var writingTools = false
+        /// Select (items on the page): while annotating, with a page on the canvas.
+        var selectToggle = false
+        /// Pages, in the overflow menu.
+        var pagesMenu = false
+        /// Previous / counter / Next in the bottom bar.
+        var pageBar = false
+    }
+
+    static func items(readOnly: Bool, annotating: Bool, pageCount: Int, hasPage: Bool) -> Items {
+        var items = Items()
+        items.writes = !readOnly
+        items.writingTools = !readOnly && annotating
+        items.selectToggle = items.writingTools && hasPage
+        items.pagesMenu = annotating && (pageCount > 1 || !readOnly)
+        items.pageBar = !items.pagesMenu && pageCount > 1
+        return items
+    }
+}
+
 /// The iPhone App Store sizes in pixels (`docs/appstore/screenshots.md`).
 enum PhoneScreenshotSize {
     /// 6.9" displays: iPhone 16/17 Pro Max and iPhone 15 Pro Max / 16 Plus.

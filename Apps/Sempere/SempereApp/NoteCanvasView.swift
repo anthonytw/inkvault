@@ -305,12 +305,17 @@ struct EditorView: View {
         }
     }
 
+    private var phoneItems: PhoneToolbar.Items {
+        PhoneToolbar.items(readOnly: editor.isReadOnly, annotating: annotating, pageCount: editor.pages.count,
+                           hasPage: editor.currentPage != nil)
+    }
+
     /// The iPhone's toolbar: one pencil button for light annotation, page
     /// controls in the bottom bar (in a menu while annotating, so the bar does
-    /// not sit on the palette), the rest in the overflow menu.
+    /// not sit on the palette), the rest in the overflow menu (`PhoneToolbar`).
     @ToolbarContentBuilder
     private var phoneToolbar: some ToolbarContent {
-        if !editor.isReadOnly {
+        if phoneItems.writes {
             ToolbarItem(placement: .primaryAction) {
                 Toggle("Annotate", systemImage: annotating ? "pencil.tip.crop.circle.fill" : "pencil.tip.crop.circle",
                        isOn: $annotating)
@@ -325,20 +330,20 @@ struct EditorView: View {
             ToolbarItem(placement: .secondaryAction) { insertMenu }
             ToolbarItem(placement: .secondaryAction) { recordingsMenu }
             ToolbarItem(placement: .secondaryAction) { recordingsListButton }
-            if annotating {
+            if phoneItems.writingTools {
                 ToolbarItem(placement: .secondaryAction) { textToolToggle }
                 ToolbarItem(placement: .secondaryAction) { eraserSizeMenu }
-                if showsItemSelection {
+                if phoneItems.selectToggle {
                     ToolbarItem(placement: .secondaryAction) { itemSelectionToggle }
                 }
             }
         }
-        if annotating, editor.pages.count > 1 || !editor.isReadOnly {
+        if phoneItems.pagesMenu {
             ToolbarItem(placement: .secondaryAction) {
                 Menu("Pages", systemImage: "doc.on.doc") { pageButtons }
                     .help("Go to another page, or add one")
             }
-        } else if editor.pages.count > 1 {
+        } else if phoneItems.pageBar {
             ToolbarItemGroup(placement: .bottomBar) {
                 Button("Previous Page", systemImage: "chevron.left") { editor.selectPage(editor.pageIndex - 1) }
                     .disabled(editor.pageIndex == 0)

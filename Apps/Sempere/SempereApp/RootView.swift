@@ -34,8 +34,8 @@ struct RootView: View {
     /// The split view's columns. An iPhone leaves them to the system (a stack when
     /// compact, columns in a wide landscape) and never stores a hidden list.
     private var columns: Binding<NavigationSplitViewVisibility> {
-        Binding(get: { Platform.isPhone ? .automatic : ColumnLayout.visibility(from: storedColumns) },
-                set: { if !Platform.isPhone { storedColumns = ColumnLayout.stored($0) } })
+        Binding(get: { ColumnLayout.visibility(from: storedColumns, isPhone: Platform.isPhone) },
+                set: { storedColumns = ColumnLayout.storing($0, over: storedColumns, isPhone: Platform.isPhone) })
     }
 
     /// The window: its content, then what the Mac menus and scene restoration need.
