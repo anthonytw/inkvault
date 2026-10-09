@@ -68,6 +68,9 @@ def main():
     p.add_argument("--model", help="folder of a VisionEncoderDecoderModel (from_pretrained)")
     p.add_argument("--tokenizer", help="tokenizer.json (default: MODEL/tokenizer.json)")
     p.add_argument("--tiny", action="store_true", help="convert a random tiny model instead (pipeline check)")
+    p.add_argument("--loader", help="a Python file defining load(model_dir) -> VisionEncoderDecoderModel, for models "
+                                    "whose encoder or config is not in transformers (see texo_loader.py, unimernet_loader.py)")
+    p.add_argument("--int8", action="store_true", help="also quantise weights to 8 bits (per-channel linear, coremltools.optimize)")
     p.add_argument("--trust-remote-code", action="store_true", help="allow the model folder's own Python code")
     p.add_argument("--out", required=True)
     p.add_argument("--id", default="tiny-test")
@@ -111,7 +114,14 @@ def main():
         if not a.model:
             sys.exit("--model or --tiny")
         from transformers import VisionEncoderDecoderModel
-        model = VisionEncoderDecoderModel.from_pretrained(a.model, trust_remote_code=a.trust_remote_code)
+        if a.loader:
+            import importlib.util
+            spec = importlib.util.spec_from_file_location("sempere_model_loader", a.loader)
+            loader = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(loader)
+            model = loader.load(a.model)
+        else:
+            model = VisionEncoderDecoderModel.from_pretrained(a.model, trust_remote_code=a.trust_remote_code)
         shutil.copyfile(a.tokenizer or os.path.join(a.model, "tokenizer.json"), tok_out)
         cfg = model.config
         start = cfg.decoder_start_token_id if cfg.decoder_start_token_id is not None else cfg.decoder.bos_token_id
@@ -167,6 +177,11 @@ def main():
     target = ct.target.iOS17
     ml_enc = ct.convert(traced_enc, outputs=[ct.TensorType(name="encoder_states", dtype=np.float32)],
                         minimum_deployment_target=target, compute_precision=precision, convert_to="mlprogram")
+    if a.int8:
+        import coremltools.optimize.coreml as cto
+        q = cto.OptimizationConfig(global_config=cto.OpLinearQuantizerConfig(mode="linear_symmetric", dtype="int8",
+                                                                             granularity="per_channel"))
+        ml_enc = cto.linear_quantize_weights(ml_enc, q)
     ml_enc.save(os.path.join(a.out, "encoder.mlpackage"))
     ml_dec = ct.convert(traced_dec,
                         inputs=[ct.TensorType(name="tokens", dtype=np.int32,
@@ -175,6 +190,8 @@ def main():
                                 ct.TensorType(name="encoder_states", shape=states.shape, dtype=np.float32)],
                         outputs=[ct.TensorType(name="logits", dtype=np.float32)],
                         minimum_deployment_target=target, compute_precision=precision, convert_to="mlprogram")
+    if a.int8:
+        ml_dec = cto.linear_quantize_weights(ml_dec, q)
     ml_dec.save(os.path.join(a.out, "decoder.mlpackage"))
     assert tuple(reference.shape) == (1, a.max_length, vocab_size), reference.shape
 
