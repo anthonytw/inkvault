@@ -2,8 +2,8 @@
 // `npm test`: serves dist/ and a vault on one origin and drives the viewer in Chromium
 // with Playwright, top level and inside an iframe (the website's demo), with the wheel
 // and with touch (CDP touch events). Checks:
-//   - a note that fits the viewport's width (fit width, and 100% in a viewport a little
-//     wider than the page) never moves sideways, and nothing scrolls sideways;
+//   - a note that fits the viewport's width (fit width, and zoomed out below it) never
+//     moves sideways, and nothing scrolls sideways;
 //   - zoomed in wider than the viewport, the wheel and a touch drag pan sideways.
 // Usage: node scripts/smoke-pan.mjs VAULT_DIR KEY_FILE
 import { createServer } from "node:http";
@@ -89,7 +89,17 @@ for (const framed of [false, true]) {
     check(Math.abs(after.x - fit.x) < 0.5, `${label}: fit width stays centred (x ${fit.x.toFixed(1)} -> ${after.x.toFixed(1)})`);
     check(after.scroll[0] && after.scroll[1] && after.scroll.slice(2).every((v) => v === 0), `${label}: nothing scrolls sideways`);
 
+    // Zoomed out below fit width: still centred, whatever the gesture.
+    for (let i = 0; i < 2; i++) await page.keyboard.press("-");
+    await page.waitForTimeout(100);
+    const small = await state();
+    check(small.w < fit.w && Math.abs(small.x - (small.vw - small.w) / 2) < 0.5, `${label}: zoomed out is centred (x ${small.x.toFixed(1)})`);
+    await wheel(300, 0); await drag(-200, 0); await page.keyboard.press("ArrowRight");
+    const smallAfter = await state();
+    check(Math.abs(smallAfter.x - small.x) < 0.5, `${label}: zoomed out stays centred (x ${small.x.toFixed(1)} -> ${smallAfter.x.toFixed(1)})`);
+
     // Zoomed in: wider than the viewport.
+    await page.keyboard.press("0");
     for (let i = 0; i < 4; i++) await page.keyboard.press("+");
     await page.waitForTimeout(100);
     const zoomed = await state();
