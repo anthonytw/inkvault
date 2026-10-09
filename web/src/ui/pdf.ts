@@ -187,7 +187,12 @@ export class NotePDFs {
     const canvas = document.createElement("canvas");
     canvas.width = width;
     canvas.height = height;
-    const task = page.render({ canvas, viewport, annotationMode: lib.AnnotationMode.DISABLE,
+    // Hand pdf.js the context and no canvas. Given the canvas, pdf.js asks it for an opaque context
+    // (`getContext("2d", { alpha: false })`) where every transparent pixel is black: a math item's
+    // render came out as a black box whatever `background` said.
+    const canvasContext = canvas.getContext("2d", { alpha: true });
+    if (!canvasContext) throw new PDFError("the PDF page cannot be drawn (no canvas)");
+    const task = page.render({ canvas: null, canvasContext, viewport, annotationMode: lib.AnnotationMode.DISABLE,
       background: transparent ? "rgba(0,0,0,0)" : "#ffffff" });
     const timer = setTimeout(() => task.cancel(), renderTimeout);
     try {
