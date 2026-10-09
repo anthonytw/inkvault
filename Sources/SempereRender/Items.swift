@@ -67,6 +67,8 @@ public struct RenderReport: Sendable, Equatable {
     public var videosOmitted = 0
     /// Video clips embedded as PDF file attachments.
     public var videosAttached = 0
+    /// Pages of the attachment list ("PDF + attachments", `RenderOptions.listAttachments`).
+    public var attachmentListPages = 0
 
     public init() {}
 

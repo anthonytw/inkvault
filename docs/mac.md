@@ -400,6 +400,8 @@ There is no Pencil, so on a Mac:
   the current zoom (`PointerCursor.diameter`, 6 to 64 pt); the object eraser
   keeps its own cursor, the lasso and the pixel eraser the system arrow.
 * **Ruler** (⌥⌘R) toggles PencilKit's ruler for straight lines.
+* **Smoothed strokes** (below): Settings → General → Smooth Mouse Strokes,
+  Off, Light (the default) or Strong.
 * Two-finger scroll and pinch scroll and zoom the canvas, as PencilKit's
   scroll view does; click-drag draws. In a paged note the pages scroll as one
   (`PageStackView`); the pointer does not drag the pages while they can be
@@ -409,6 +411,76 @@ Not done: smoothing or simulated pressure for mouse strokes (PencilKit
 produces the strokes and gives a mouse constant force, so mouse ink has a
 uniform width). Post-processing strokes would change what the format stores
 for them; it is left until it has been tried by hand.
+
+### Smoothing mouse and trackpad strokes
+
+A mouse is sampled at the event rate in whole device pixels, and a hand on
+a mouse or trackpad shakes more than one holding a pen, so mouse strokes
+came out jagged. With Smooth Mouse Strokes at Light or Strong, the app draws
+pointer strokes itself (`MouseInk.swift`); the filter is plain Swift in the
+core (`Sources/Sempere/StrokeSmoothing.swift`, tested on Linux by
+`StrokeSmoothingTests`).
+
+**When.** Only on a Mac, only for `indirectPointer` touches (the mouse and
+trackpad), only with an ink tool, and not while the ruler shows: PencilKit's
+ruler snaps its own strokes, so with the ruler PencilKit draws as before
+(`MouseSmoothing.takesPointer`). Then `PageCanvasHost` turns PencilKit's
+drawing gesture off (as for the object eraser) and `MouseInkController`'s
+gesture takes the pointer; the pointer no longer drags the canvas (two-finger
+scroll and pinch still work). With Off, eraser or lasso, PencilKit draws
+exactly as before. The Pencil and fingers never reach this code (a Mac has
+neither; on an iPad it is never active), and strokes already on the page are
+never changed: a smoothed stroke is appended to `canvas.drawing`, which the
+`StrokeLedger` turns into one `addStroke`, and is one undo step.
+
+**While drawing: a 1€ filter** (Casiez, Roussel and Vogel, CHI 2012) on the
+pointer, shown as a line in the tool's colour and width over the ink. It is
+an exponential smoother whose cutoff rises with the pointer's speed,
+`fc = fmin + β·|v|`: slow movement, where jitter shows, is averaged hard; fast
+movement, where lag would show, hardly at all. At constant speed `v` the
+line trails the pointer by `v / (2π(fmin + β v))`, which never exceeds
+`1 / (2π β)`: 4 screen points for Light (`fmin` 4 Hz, `β` 0.04 s/pt) and
+8 for Strong (1.5 Hz, 0.02 s/pt). It works in screen points (the canvas's
+zoomed coordinates), since the shake is the hand's, not the page's.
+
+**When the stroke ends: a Gaussian along the arc length**, recomputed from
+the raw samples (not from the live line, so no lag survives). The samples
+are resampled every screen point of arc length, convolved with a Gaussian of
+σ = 2 (Light) or 5 (Strong) screen points cut at 3σ, and every second point
+is kept. Why this rather than the alternatives:
+
+* Catmull-Rom splines pass *through* every sample, so they keep the jitter
+  (they only fill between samples), and PencilKit already draws a stroke's
+  points as a B-spline.
+* Chaikin corner cutting shrinks every corner, including the hand's real
+  ones, and moves the ends unless they are pinned by hand.
+* A causal filter (the 1€ filter itself) lags: the stroke would end short of
+  where the pointer let go.
+* The Gaussian is symmetric (zero phase: no lag, no drift), its window shrinks
+  symmetrically near the ends, so the first and last samples are kept
+  exactly and the ends are not pulled in, and it has a hard bound: each point
+  is a weighted mean of samples within `⌈3σ/h⌉·h < 3σ + h` of arc length of
+  its own, so no point moves further than that (7 pt for Light, 16 for
+  Strong, at spacing h = 1) from the path the pointer took, and a real corner
+  is rounded by at most that much. A curve of curvature κ shrinks by about
+  κσ²/2 (0.02 pt on a 100 pt circle at Light).
+
+Bounds: a gesture keeps at most 100,000 raw samples and the final pass at
+most 16,384 resampled points (a longer stroke is resampled more coarsely),
+so its work is O(n + 16,384 · 3σ) whatever the input; non-finite samples are
+dropped and timestamps that run backwards are clamped. Each stored point has
+the tool's width (`NibSize`, as a loaded stroke of that width), force 1,
+altitude π/2 and the time of the raw sample it came from, and the stroke's
+creation date is when the drag began, so recordings sync (`rec`) as before.
+
+Tests: `StrokeSmoothingTests` (jagged line in, bounded deviation, endpoints
+kept, bounded work, lag bound), `MouseSmoothingTests` (when it applies, the
+stroke's width and endpoints, other strokes byte for byte, undo, one
+`addStroke`), and `MacWindowUITests.testAMouseDragDrawsASmoothedStroke`
+(a mouse drag in the running Catalyst app draws ink). The CLI has nothing to
+add: smoothing changes only how pointer input becomes a stroke, and the
+stroke is stored like any other. What needs a hand test on a Mac: how Light
+and Strong feel with a mouse and with a trackpad.
 
 ## Sandbox and saved folder access
 
@@ -435,6 +507,9 @@ files read/write, app-scope bookmarks), applied to Catalyst builds only
 6. New Note: type part of a notebook name; open the list with the chevron.
 7. Add a key (paste and generate), remove it, print the recovery kit.
 8. Draw with the mouse and trackpad, with each tool; erase with the object eraser.
+   Settings → General → Smooth Mouse Strokes at Off, Light and Strong: write a
+   word and a circle with each (Light should feel direct, Strong round but
+   laggier); undo and redo a stroke; with the ruler shown, lines stay straight.
 9. Double-click a note in the list: its window opens. Hover over every toolbar
    button: each shows a tooltip.
 10. File > Import PDF as New Note…, Import from Notability… (a `.note` and a

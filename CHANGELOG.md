@@ -9,6 +9,13 @@ The section for a version is the body of its GitHub Release (`docs/releasing.md`
 
 ### Added
 
+- Recordings in exports, finished (C4): "PDF + attachments" ends with an attachment list (kind, title,
+  pages, duration, size of every recording, transcript and video clip), each row linked to its
+  embedded file and to the page it is on; `sempere export --recordings list` adds the page alone.
+  `sempere export --format media` and the app's "Media" export (single note and "Export Notes…") write
+  a note's recordings, transcripts (as text), video clips, images and PDFs as files, decrypted and
+  verified, with readable names and a `media.json` manifest; bulk runs skip notes without media and
+  resume like the other formats.
 - Handwriting → LaTeX on device (G1 part 2), behind a setting and without a model yet: research with
   licences, sizes, accuracy and measured decoder costs in `docs/research/handwriting-to-latex.md`. CLI:
   `sempere recognize-math` picks ink (`--strokes`, `--rect`, `--lasso`, `--all-ink`), reads it with a

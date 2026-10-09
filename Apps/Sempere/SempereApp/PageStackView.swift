@@ -558,6 +558,6 @@ extension PageStackHost: CanvasCommandTarget {
 
     func toggleRuler() {
         guard let editor, !editor.isReadOnly, let slot = focusedSlot else { return }
-        slot.host.canvas.isRulerActive.toggle()
+        slot.host.toggleRuler()
     }
 }

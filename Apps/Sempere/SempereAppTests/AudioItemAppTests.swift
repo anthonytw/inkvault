@@ -183,10 +183,51 @@ struct AudioItemAppTests {
             let audio = try Data(contentsOf: RecordingTests.tone)
             #expect((pdf.range(of: audio) != nil) == attach)
             #expect((pdf.range(of: Data("/F (Lecture.txt)".utf8)) != nil) == attach)
+            // "PDF + attachments" ends with the attachment list, linked to both files (task C4).
+            #expect((pdf.range(of: Data("/Subtype /FileAttachment".utf8)) != nil) == attach)
         }
         // PNG pages of the same note draw the card too.
         let png = try await model.exportNotes([Self.lecture], options: ShareOptions(format: .png), into: dir.appendingPathComponent("png")) { _ in }
         #expect(png.placeholders == 0 && png.failures.isEmpty)
+    }
+
+    /// "Media" (task C4): the recording as stored and its transcript as text,
+    /// in a folder named after the note, with `media.json`; in the bulk
+    /// export too, which leaves out notes without media.
+    @Test func mediaExportWritesTheRecordingAndItsTranscript() async throws {
+        let model = try await RecordingTests.model()
+        let editor = try #require(model.editor)
+        let r = try await editor.addRecording(file: RecordingTests.tone, started: Date(timeIntervalSince1970: 1_800_000_000),
+                                              title: "Lecture", place: true)
+        await model.transcribe(r, in: editor)
+        await editor.flush()
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("media-export-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        #expect(model.canExport(.media, ids: [Self.lecture]))
+        let result = try await model.exportNotes([Self.lecture], options: ShareOptions(format: .media), into: dir) { _ in }
+        #expect(result.failures.isEmpty)
+        #expect(result.exported == 1)
+        #expect(result.mediaFiles == 2, "the audio and its transcript")
+        let folder = try #require(result.items.first)
+        let names = try FileManager.default.contentsOfDirectory(atPath: folder.path).sorted()
+        let audioName = try #require(names.first { $0.hasSuffix("-Recording-1-Lecture.m4a") })
+        #expect(names.contains(MediaExport.manifestName))
+        #expect(names.contains(audioName.replacingOccurrences(of: ".m4a", with: ".txt")))
+        #expect(try Data(contentsOf: folder.appendingPathComponent(audioName)) == Data(contentsOf: RecordingTests.tone))
+        let manifest = try JSONDecoder().decode(MediaManifest.self,
+                                                from: Data(contentsOf: folder.appendingPathComponent(MediaExport.manifestName)))
+        #expect(manifest.files.map(\.kind) == [.recording])
+        #expect(manifest.files.first?.title == "Lecture")
+
+        let options = BulkExportOptions(format: .media, layout: .flat)
+        let jobs = model.bulkExportJobs(.vault, options: options)
+        #expect(jobs.map(\.noteId) == [Self.lecture], "only the note with media")
+        let bulk = dir.appendingPathComponent("bulk")
+        let session = try BulkExportSession(destination: .folder(bulk), options: options, jobs: jobs)
+        let done = try await model.runBulkExport(jobs, session: session) { _ in }
+        #expect(done.exported.count == 1)
+        #expect(done.exported.first?.files.contains { $0.hasSuffix("/" + MediaExport.manifestName) } == true)
+        model.close()
     }
 
     /// The share sheet's completion handler is called on whatever thread the

@@ -1507,11 +1507,11 @@ now. `--json`:
 ### Export
 
 ```
-sempere export (ID|TITLE | --all) --format pdf|svg|png|json|markdown|html --out PATH
+sempere export (ID|TITLE | --all) --format pdf|svg|png|json|markdown|html|media --out PATH
                 [--merge] [--deleted] [--no-paper] [--dpi N] [--at REVISION] [--breaks gaps|fixed]
                 [--notebook NAME] [--images none|png] [--clean]
                 [--pdf-renderer auto|poppler|none] [--pdf-timeout SECONDS]
-                [--assets DIR] [--keep-image-metadata] [--recordings none|attach]
+                [--assets DIR] [--keep-image-metadata] [--recordings none|attach|list]
                 [--videos none|attach] [--attachments]
                 [--layout flat|notebooks] [--zip] [--overwrite] [--no-cache]
 ```
@@ -1542,6 +1542,8 @@ sempere export (ID|TITLE | --all) --format pdf|svg|png|json|markdown|html --out 
   limit, not an allocation; lower `--dpi`. With `--no-paper` the background is
   transparent.
 - `json`: the reconstructed note (`NoteState`, `docs/format.md` §6), items and recordings included.
+- `media`: the note's recordings (and their transcripts as `.txt`), video clips, images and PDFs as
+  files in a folder `<name>/` under `--out`, with `media.json` (see "Media export" below).
 
 Every item kind is drawn by `pdf`, `svg` and `png`: text boxes (bundled fonts and font packs, "Text in
 exports"), images ("Images in exports") and PDF pages ("PDF page backgrounds"), from the
@@ -1550,9 +1552,16 @@ attachments") embeds each note's recordings as PDF file attachments (`/Names /Em
 PDF 1.4: the audio byte for byte, named after the recording's title, and its transcript as a
 `.txt` of time-stamped lines); viewers list them and play or save them (`pdfdetach -list`
 shows them). At most 512 MiB of recordings go into one PDF; the rest are left out with a
-warning. Without it (`none`, the default) a PDF export warns "N recordings not exported". The
-`--recordings list` page and `--format media` of task C4 are not done yet; `json` and `notes
-show` list recordings.
+warning. Without it (`none`, the default) a PDF export warns "N recordings not exported".
+
+A PDF that embeds anything (`--attachments`, `--recordings attach`, `--videos attach`) ends with
+the **attachment list**: a page (or more) with one row per recording, embedded transcript and
+video clip (kind, title, the PDF pages it appears on, duration, size), a paperclip link
+(FileAttachment annotation) to each embedded file and a link to the first page it appears on;
+one left out is marked "(not embedded)". `--recordings list` adds the page without embedding
+anything; `--recordings list,attach` is the same as `attach`. A note without recordings or clips
+gets no page. `pdfdetach -list` shows each embedded file twice (the document's list and the
+link), stored once. docs/io.md "The attachment list page".
 
 Video clips (`format.md` §8.2.7) are drawn by `pdf`, `svg` and `png` as their poster, stretched
 onto the frame, with a play mark over it (a disc and a triangle); a video without a poster is a
@@ -1580,9 +1589,37 @@ written is printed. With `--json`, each entry has `note`, `files` and, when
 some items were drawn as placeholders, `placeholders` (their number), and
 `recordings` (the number embedded) with `--recordings attach`.
 
+#### Media export
+
+`--format media` writes each note's attachments as files into `--out/<name>/`, decrypted and
+verified (streamed, never held whole), each blob once however often it is placed:
+
+```
+Physics-Week-3-0d1c6a1e/
+  Physics-Week-3-Recording-1-Lecture.m4a     the audio as stored
+  Physics-Week-3-Recording-1-Lecture.txt     its transcript, "[m:ss] text" lines
+  Physics-Week-3-Video-1.mp4                 location metadata removed (--keep-image-metadata keeps it)
+  Physics-Week-3-Image-1.jpg                 JPEG/PNG metadata removed (likewise; other images as stored)
+  Physics-Week-3-PDF-1.pdf                   the PDF behind the note's PDF pages, as stored
+  media.json
+```
+
+`media.json`: `{"format": "sempere-media/1", "note": ID, "title": …, "files": [{"file", "kind"
+(recording, video, image, pdf), "title" (a recording's), "pages" (1-based note pages it appears
+on), "duration", "started" (a recording's, RFC 3339), "transcript" (the .txt), "type", "size"}]}`.
+Recordings come first in their order, then clips, images and PDFs in page order. A blob that is
+missing or not downloaded, a transcript that cannot be read, and a JPEG or PNG that cannot be parsed
+to remove its metadata are left out with a warning; other images (a HEIC kept as taken) and JPEG/PNG
+over 64 MiB are written as stored, metadata included, with a warning; a blob that fails
+verification fails the note (exit 1, nothing of it left behind). A note without media writes nothing and warns "no recordings, videos,
+images or PDFs to export" (exit 0). With `--json`, `files` lists the files written, `media.json`
+last. `--no-paper`, `--breaks`, `--merge`, `--images` and `--recordings` do not apply (exit 2).
+With `--all` it is a bulk export (below): `--layout`, `--zip` and resuming apply, and notes whose
+summary names no audio, video, image or PDF are skipped without being read.
+
 #### Bulk export
 
-`--all` with `--format pdf` or `png` (not `--merge` or `--at`) runs the bulk
+`--all` with `--format pdf`, `png` or `media` (not `--merge` or `--at`) runs the bulk
 export the app's "Export Notes…" uses (`BulkExportSession`, docs/io.md "Bulk
 export"): notes are planned from the summaries (the summary cache unless
 `--no-cache`), then read, rendered and written **one at a time**, so memory is
@@ -1607,8 +1644,9 @@ that of the largest note, not of the vault.
   always written whole.
 - A note that cannot be read or rendered is reported on stderr and the others
   are exported; the exit code is then 1.
-- `--recordings attach` without `--videos attach` (or the reverse) keeps the
-  old in-memory path; `--attachments` (both) is the bulk "PDF + attachments".
+- `--recordings attach` without `--videos attach` (or the reverse), and
+  `--recordings list`, keep the old in-memory path; `--attachments` (both) is
+  the bulk "PDF + attachments".
 
 The app's sheet shows the matching command for a notebook or the whole vault:
 
@@ -1617,6 +1655,7 @@ The app's sheet shows the matching command for a notebook or the whole vault:
 | All notes, PDF, folders like notebooks, into a folder | `--all --format pdf --layout notebooks --out FOLDER` |
 | Notebook "School/Math", PDF + attachments, zip | `--all --notebook School/Math --format pdf --attachments --layout notebooks --zip --out Math.zip` |
 | All notes, PNG at 300 dpi, no paper, flat | `--all --format png --dpi 300 --no-paper --out FOLDER` |
+| All notes, Media, folders like notebooks | `--all --format media --layout notebooks --out FOLDER` |
 | A list selection | one `sempere export ID --format pdf --out FOLDER` per note |
 
 #### PDF page backgrounds
