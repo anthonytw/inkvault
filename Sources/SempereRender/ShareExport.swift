@@ -4,6 +4,9 @@ import Sempere
 /// The formats the app's share/export action offers.
 public enum ShareFormat: String, CaseIterable, Sendable, Identifiable {
     case pdf, png, markdown, html
+    /// The notes' recordings (with transcripts), clips, images and PDFs as
+    /// files, a folder per note with `media.json` (`MediaExport`).
+    case media
 
     public var id: String { rawValue }
 
@@ -14,6 +17,7 @@ public enum ShareFormat: String, CaseIterable, Sendable, Identifiable {
         case .png: return "PNG Pages"
         case .markdown: return "Text (Markdown)"
         case .html: return "HTML"
+        case .media: return "Media"
         }
     }
 }
@@ -78,6 +82,12 @@ public struct ShareResult: Sendable {
     public var recordingsOmitted = 0
     /// Video clips embedded in the PDFs ("PDF + attachments").
     public var videosAttached = 0
+    /// Media export: files written (media and transcripts, not the manifests).
+    public var mediaFiles = 0
+    /// Media export: notes that held no recordings, videos, images or PDFs.
+    public var withoutMedia = 0
+    /// Warnings of the export (media left out, metadata kept), one per line.
+    public var warnings: [String] = []
 }
 
 /// Renders notes into a scratch directory for sharing. One engine for the app's
@@ -89,6 +99,7 @@ public struct ShareResult: Sendable {
 /// | PNG | `<stem>-p001.png`, ... | a folder `<stem>/` per note with `p001.png`, ... |
 /// | Markdown | `<stem>.md`; with the PDF or page PNGs, a folder `<stem>/` with the `.md`, those files and a `README.md` | folder `Sempere Export/` mirroring the notebooks |
 /// | HTML | one self-contained `<stem>.html` | folder `Sempere Export/` with one file per note and `index.html` |
+/// | Media | a folder `<stem>/` with the media files and `media.json` | the same per note; a note without media writes nothing |
 ///
 /// Everything is blocking: call `run` off the main actor. It checks
 /// `Task.checkCancellation()` between notes (and pages).
@@ -123,6 +134,7 @@ public enum ShareExport {
         var render = RenderOptions(paper: options.paper, pdfRasterizer: pdfRasterizer, shaper: shaper)
         render.embedRecordings = options.format == .pdf && options.pdfAttachments
         render.embedVideos = options.format == .pdf && options.pdfAttachments
+        render.listAttachments = options.format == .pdf && options.pdfAttachments
         func renderOptions(for id: UUID) -> RenderOptions {
             var r = render
             r.blobs = blobs?(id)
@@ -133,6 +145,7 @@ public enum ShareExport {
         var items: [URL] = []
         var failures: [String] = []
         var exported = 0
+        var mediaFiles = 0, withoutMedia = 0
         func write(_ data: Data, _ url: URL) throws {
             // A cancelled run (the sheet went away) writes no more plaintext.
             try Task.checkCancellation()
@@ -224,6 +237,29 @@ public enum ShareExport {
                 exported = good.count
             }
             progress(notes.count, notes.count)
+        case .media:
+            for (n, (s, state)) in notes.enumerated() {
+                try Task.checkCancellation()
+                progress(n, notes.count)
+                let folder = scratch.appendingPathComponent(name(s, state), isDirectory: true)
+                do {
+                    var noteReport = RenderReport()
+                    let r = try MediaExport.write(state, noteId: s.id, blobs: blobs?(s.id), to: folder,
+                                                  keepMetadata: false, report: &noteReport)
+                    let short = s.id.uuidString.lowercased().prefix(8)
+                    for w in noteReport.warnings { report.warn("\(short): \(w)") }
+                    if r.files.isEmpty {
+                        withoutMedia += 1
+                    } else {
+                        items.append(folder)
+                        mediaFiles += r.files.count - 1
+                        exported += 1
+                    }
+                } catch is CancellationError { throw CancellationError() } catch {
+                    failures.append("\(s.id.uuidString.lowercased()): \(errorText(error))")
+                }
+            }
+            progress(notes.count, notes.count)
         case .pdf, .png:
             for (n, (s, state)) in notes.enumerated() {
                 try Task.checkCancellation()
@@ -263,6 +299,10 @@ public enum ShareExport {
         result.recordingsOmitted = options.format == .pdf ? report.recordingsOmitted
             : notes.reduce(0) { $0 + $1.1.recordings.count }
         result.videosAttached = report.videosAttached
+        result.mediaFiles = mediaFiles
+        result.withoutMedia = withoutMedia
+        if options.format == .media { result.recordingsOmitted = 0 }
+        result.warnings = report.warnings
         return result
     }
 

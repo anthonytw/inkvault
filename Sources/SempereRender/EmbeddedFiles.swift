@@ -13,6 +13,8 @@ struct EmbeddedFiles {
         var content: Content
         /// Audio is already compressed; text is worth deflating.
         var compress: Bool
+        /// What the attachment list page knows the file by (`AttachmentList.recordingKey`, ...).
+        var listKey: String? = nil
 
         /// Where the bytes come from: held in memory, or streamed from a blob
         /// when the PDF is written (a video of up to 1 GiB is never held whole).
@@ -51,7 +53,7 @@ struct EmbeddedFiles {
     /// order, one file per clip however often it is placed. Each is streamed
     /// from its blob when the PDF is written; one that is not available, or
     /// would pass the size limit, is left out and reported.
-    mutating func add(videosOf note: NoteState, blobs: (any BlobSource)?, report: inout RenderReport) {
+    mutating func add(videosOf note: NoteState, index: Int = 0, blobs: (any BlobSource)?, report: inout RenderReport) {
         let title = note.meta.title.isEmpty ? "Untitled" : note.meta.title
         var seen: Set<String> = []
         var n = 0
@@ -81,7 +83,8 @@ struct EmbeddedFiles {
                 let base = Self.safe(title).isEmpty ? label : "\(Self.safe(title)) – \(label)"
                 files.append(File(name: uniqueName(base, ext: Self.videoExtension(ref.type)),
                                   mimeType: ref.type.split(separator: ";").first.map(String.init) ?? "video/mp4",
-                                  description: desc, content: .blob(ref, blobs), compress: false))
+                                  description: desc, content: .blob(ref, blobs), compress: false,
+                                  listKey: AttachmentList.videoKey(note: index, sha256: ref.sha256)))
                 report.videosAttached += 1
             }
         }
@@ -162,7 +165,8 @@ struct EmbeddedFiles {
             var desc = "\(label) – \(title), \(EmbeddedFormat.utcShort(r.started))"
             if let d = r.duration, d.isFinite { desc += ", \(Transcript.clock(d))" }
             files.append(File(name: audioName, mimeType: r.blob.type.split(separator: ";").first.map(String.init) ?? "audio/mp4",
-                              description: desc, content: content, compress: false))
+                              description: desc, content: content, compress: false,
+                              listKey: AttachmentList.recordingKey(r.id)))
             report.recordingsAttached += 1
             if let ref = r.transcript,
                let content = try? blobs.data(for: ref, maxBytes: Transcript.maxSize),
@@ -172,7 +176,7 @@ struct EmbeddedFiles {
                 bytes += text.count
                 files.append(File(name: uniqueName(base, ext: "txt"), mimeType: "text/plain",
                                   description: "Transcript of \(label) (\(transcript.language), \(transcript.engine))",
-                                  content: .data(text), compress: true))
+                                  content: .data(text), compress: true, listKey: AttachmentList.transcriptKey(r.id)))
             }
         }
     }
