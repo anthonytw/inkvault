@@ -1,7 +1,9 @@
 import Foundation
+import ImportTestSupport
 import XCTest
 import Sempere
 @testable import SempereImport
+@testable import SempereNotability
 
 /// Notability's recognition in `.ntb` bundles (`ios/HandwritingIndex.fb`).
 final class NtbRecognitionTests: XCTestCase {

@@ -1,9 +1,11 @@
 import Age
 import Foundation
+import ImportTestSupport
 import SempereRender
 import Sempere
 import XCTest
 @testable import SempereImport
+@testable import SempereNotability
 
 /// Stage 1 of the import fidelity evaluation (`docs/import-notability.md`,
 /// "Fidelity evaluation"; driven by `scripts/import-eval.sh`). Skipped unless

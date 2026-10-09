@@ -1,4 +1,5 @@
 import Foundation
+import SempereImport
 import Sempere
 
 /// A parsed Notability `.note` package (see `docs/import-notability.md`).

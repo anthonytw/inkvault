@@ -1,8 +1,10 @@
 import Age
 import Foundation
+import ImportTestSupport
 import Sempere
 import XCTest
 @testable import SempereImport
+@testable import SempereNotability
 
 /// Whole-backup behaviour on synthetic data: copies and versions of one
 /// note, short per-curve arrays, shapes, and `.ntb` bundles
@@ -23,10 +25,10 @@ final class NotabilityBackupTests: XCTestCase {
                                 recipients: [identity.recipient], identities: [identity])
     }
 
-    func run(_ files: [ZipWriter.File], vault: Vault? = nil, name: String = "backup.zip") throws
+    func run(_ files: [TestZip.File], vault: Vault? = nil, name: String = "backup.zip") throws
         -> (NotabilityImporter.ImportReport, Vault) {
         let url = tmp.appendingPathComponent(name)
-        try ZipWriter.write(files).write(to: url)
+        try TestZip.write(files).write(to: url)
         let v = try vault ?? makeVault()
         var clock = HybridClock()
         return (try NotabilityImporter.import(paths: [url], into: v, device: DeviceID("0a0b0c0d")!, clock: &clock), v)
@@ -46,8 +48,8 @@ final class NotabilityBackupTests: XCTestCase {
     // MARK: Zip entry times
 
     func testZipEntryModificationTime() throws {
-        let (t, d) = ZipWriter.dos(2023, 12, 11, 16, 15, 24)
-        let zip = try ZipArchive(data: ZipWriter.write([.init(path: "a", data: Data("x".utf8), dosTime: t, dosDate: d),
+        let (t, d) = TestZip.dos(2023, 12, 11, 16, 15, 24)
+        let zip = try ZipArchive(data: TestZip.write([.init(path: "a", data: Data("x".utf8), dosTime: t, dosDate: d),
                                                         .init(path: "b", data: Data("y".utf8))]))
         var utc = Calendar(identifier: .gregorian)
         utc.timeZone = TimeZone(identifier: "UTC")!
@@ -84,7 +86,7 @@ final class NotabilityBackupTests: XCTestCase {
     /// Equal modification dates: the newer zip entry wins, then the path.
     func testTieBreakByFileTimeThenPath() throws {
         let pkg = SyntheticNote.package()
-        let (a, ad) = ZipWriter.dos(2021, 8, 1), (b, bd) = ZipWriter.dos(2023, 12, 11)
+        let (a, ad) = TestZip.dos(2021, 8, 1), (b, bd) = TestZip.dos(2023, 12, 11)
         var (report, _) = try run([
             .init(path: "Notability/X/A.note", data: pkg, dosTime: a, dosDate: ad),
             .init(path: "Notability/Y/A.note", data: pkg, dosTime: b, dosDate: bd),
@@ -117,7 +119,7 @@ final class NotabilityBackupTests: XCTestCase {
     /// imported as a separate note with a derived id, so no ink is lost; a
     /// second run finds both in the vault.
     func testVersionWithOtherSempereImportedSeparately() throws {
-        let files: [ZipWriter.File] = [
+        let files: [TestZip.File] = [
             .init(path: "Notability/A/new.note", data: SyntheticNote.package(curves: fewerCurves,
                                                                              modified: t0.addingTimeInterval(20))),
             .init(path: "Notability/A/old.note", data: SyntheticNote.package(curves: SyntheticNote.curves + [otherCurve],
@@ -172,7 +174,7 @@ final class NotabilityBackupTests: XCTestCase {
     /// lost. Ids are content-addressed now, and do not depend on file times.
     func testExtraVersionsWithSameDateAndCountGetDistinctStableIds() throws {
         let same = t0.addingTimeInterval(10)
-        func files(_ dos: (UInt16, UInt16)) -> [ZipWriter.File] { [
+        func files(_ dos: (UInt16, UInt16)) -> [TestZip.File] { [
             .init(path: "Notability/A/new.note", data: SyntheticNote.package(curves: [line(y: 100)],
                                                                              modified: t0.addingTimeInterval(20)),
                   dosTime: dos.0, dosDate: dos.1),
@@ -181,12 +183,12 @@ final class NotabilityBackupTests: XCTestCase {
             .init(path: "Notability/C/v2.note", data: SyntheticNote.package(curves: [line(y: 100), line(y: 700, rgba: [0, 0, 255, 255])],
                                                                             modified: same), dosTime: dos.0, dosDate: dos.1),
         ] }
-        let (report, vault) = try run(files(ZipWriter.dos(2024, 1, 2)))
+        let (report, vault) = try run(files(TestZip.dos(2024, 1, 2)))
         XCTAssertEqual(report.imported, 3, "\(report.notes.map(\.status))")
         XCTAssertEqual(Set(report.notes.compactMap(\.noteId)).count, 3)
         // A later download of the same backup (other file times, other order):
         // every note is found again, nothing new is written.
-        let (again, _) = try run(Array(files(ZipWriter.dos(2025, 6, 7)).reversed()), vault: vault, name: "later.zip")
+        let (again, _) = try run(Array(files(TestZip.dos(2025, 6, 7)).reversed()), vault: vault, name: "later.zip")
         XCTAssertEqual(again.notes.map(\.status), Array(repeating: .skipped("already in the vault"), count: 3))
         XCTAssertEqual(Set(again.notes.compactMap(\.noteId)), Set(report.notes.compactMap(\.noteId)))
         XCTAssertEqual(try vault.noteIDs().count, 3)
@@ -196,7 +198,7 @@ final class NotabilityBackupTests: XCTestCase {
     /// choices, ids and vault content.
     func testOrderOfInputsDoesNotChangeTheResult() throws {
         let createdMs = Int64((SyntheticNote.created.timeIntervalSince1970 * 1000).rounded())
-        let entries: [ZipWriter.File] = [
+        let entries: [TestZip.File] = [
             .init(path: "Notability/A/x.note", data: SyntheticNote.package(curves: fewerCurves, modified: t0.addingTimeInterval(20))),
             .init(path: "Notability/B/x.note", data: SyntheticNote.package(modified: t0.addingTimeInterval(30))),
             .init(path: "Notability/C/x.note", data: SyntheticNote.package(curves: SyntheticNote.curves + [otherCurve],
@@ -206,12 +208,12 @@ final class NotabilityBackupTests: XCTestCase {
             .init(path: "Notability/D/lone.ntb", data: SyntheticBundle.package(SyntheticBundle.noteBundle(
                 title: "Lone", strokes: SyntheticBundle.strokesMatchingSyntheticNote()))),
         ]
-        func outcome(_ parts: [[ZipWriter.File]]) throws -> [String] {
+        func outcome(_ parts: [[TestZip.File]]) throws -> [String] {
             let vault = try makeVault()
             var urls: [URL] = []
             for (i, part) in parts.enumerated() {
                 let url = tmp.appendingPathComponent("part-\(UUID().uuidString)-\(i).zip")
-                try ZipWriter.write(part).write(to: url)
+                try TestZip.write(part).write(to: url)
                 urls.append(url)
             }
             var clock = HybridClock()
@@ -237,7 +239,7 @@ final class NotabilityBackupTests: XCTestCase {
     /// note chosen (and so every id) depended on the order of the inputs.
     func testRankingIsIndependentOfInputOrder() throws {
         let createdMs = Int64((SyntheticNote.created.timeIntervalSince1970 * 1000).rounded())
-        let entries: [ZipWriter.File] = [
+        let entries: [TestZip.File] = [
             .init(path: "Notability/A/x.note", data: SyntheticNote.package(curves: [], handwriting: false,
                                                                            modified: t0.addingTimeInterval(30))),
             .init(path: "Notability/B/x.ntb", data: SyntheticBundle.package(SyntheticBundle.noteBundle(
@@ -247,7 +249,7 @@ final class NotabilityBackupTests: XCTestCase {
         // One zip per copy (entries inside a zip are read in path order), passed in every order.
         let zips = try entries.enumerated().map { i, e -> URL in
             let url = tmp.appendingPathComponent("copy-\(i).zip")
-            try ZipWriter.write([e]).write(to: url)
+            try TestZip.write([e]).write(to: url)
             return url
         }
         var outcomes = Set<String>()
@@ -268,8 +270,8 @@ final class NotabilityBackupTests: XCTestCase {
     /// Copies split over several zips (Drive splits large backups) are resolved together.
     func testCopiesAcrossZips() throws {
         let a = tmp.appendingPathComponent("part-1.zip"), b = tmp.appendingPathComponent("part-2.zip")
-        try ZipWriter.write([.init(path: "Notability/A/x.note", data: SyntheticNote.package(modified: t0))]).write(to: a)
-        try ZipWriter.write([.init(path: "Notability/B/x.note",
+        try TestZip.write([.init(path: "Notability/A/x.note", data: SyntheticNote.package(modified: t0))]).write(to: a)
+        try TestZip.write([.init(path: "Notability/B/x.note",
                                    data: SyntheticNote.package(modified: t0.addingTimeInterval(5)))]).write(to: b)
         var clock = HybridClock()
         let report = try NotabilityImporter.import(paths: [a, b], into: makeVault(), device: DeviceID("0a0b0c0d")!,
@@ -304,8 +306,8 @@ final class NotabilityBackupTests: XCTestCase {
     func testFolderAndExtraTags() throws {
         let pkg = SyntheticNote.package(tags: "alpha, Research")
         let first = tmp.appendingPathComponent("first.zip"), moved = tmp.appendingPathComponent("moved.zip")
-        try ZipWriter.write([.init(path: "Notability/research/Daily  log/A.note", data: pkg)]).write(to: first)
-        try ZipWriter.write([.init(path: "Notability/Archive/A.note", data: pkg)]).write(to: moved)
+        try TestZip.write([.init(path: "Notability/research/Daily  log/A.note", data: pkg)]).write(to: first)
+        try TestZip.write([.init(path: "Notability/Archive/A.note", data: pkg)]).write(to: moved)
         let vault = try makeVault()
         var clock = HybridClock()
         let options = NotabilityImporter.Options(tagsFromFolders: true, extraTags: ["imported", "ALPHA"])
@@ -500,7 +502,7 @@ final class NotabilityBackupTests: XCTestCase {
         for cut in [0, 3, 16, good.count / 2, good.count - 3] {
             XCTAssertThrowsError(try NotabilityBundle.parse(bundle: good.prefix(cut)), "cut at \(cut)")
         }
-        XCTAssertThrowsError(try NotabilityBundle.parse(package: NotePackage(data: ZipWriter.write([
+        XCTAssertThrowsError(try NotabilityBundle.parse(package: NotePackage(data: TestZip.write([
             .init(path: "version", data: Data("1".utf8)),
         ]))))
         let (report, _) = try run([.init(path: "Notability/A/bad.ntb", data: SyntheticBundle.package(good.prefix(good.count / 2)))])
@@ -515,7 +517,7 @@ final class NotabilityBackupTests: XCTestCase {
         let paired = SyntheticBundle.noteBundle(strokes: SyntheticBundle.strokesMatchingSyntheticNote(), createdMs: createdMs)
         let lone = SyntheticBundle.noteBundle(title: "Only a bundle",
                                               strokes: SyntheticBundle.strokesMatchingSyntheticNote())
-        let files: [ZipWriter.File] = [
+        let files: [TestZip.File] = [
             .init(path: "Notability/A/x.note", data: SyntheticNote.package()),
             .init(path: "Notability/A/x.ntb", data: SyntheticBundle.package(paired)),
             .init(path: "Notability/B/y.ntb", data: SyntheticBundle.package(lone)),

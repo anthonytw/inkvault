@@ -1,6 +1,8 @@
 import CZlib
 import Foundation
+import ImportTestSupport
 @testable import SempereImport
+@testable import SempereNotability
 
 /// Synthetic attachments for `.note` fixtures: PDFs, images and Notability-
 /// shaped media objects. Nothing here comes from a real note.
@@ -134,7 +136,7 @@ enum AttachmentFixtures {
         files.append((dir + "Session.plist", session))
         if let pdf { files.append((dir + "PDFs/" + SyntheticNote.pdfName, pdf)) }
         files += extra.map { (dir + $0.0, $0.1) }
-        return ZipWriter.write(files.map { .init(path: $0.0, data: $0.1) })
+        return TestZip.write(files.map { .init(path: $0.0, data: $0.1) })
     }
 
     // MARK: Recordings

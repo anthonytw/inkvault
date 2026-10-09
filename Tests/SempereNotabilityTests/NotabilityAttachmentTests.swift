@@ -1,9 +1,11 @@
 import Age
 import Foundation
+import ImportTestSupport
 import Sempere
 import SempereRender
 import XCTest
 @testable import SempereImport
+@testable import SempereNotability
 
 /// Attachments of Notability notes (docs/attachments.md §11, tasks D1 and D2):
 /// PDF page backgrounds and images, on synthetic packages only.

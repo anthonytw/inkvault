@@ -1,6 +1,8 @@
 import Foundation
+import ImportTestSupport
 import XCTest
 @testable import SempereImport
+@testable import SempereNotability
 
 /// Seeded mutation fuzzing of the untrusted-input readers added for full
 /// backups: the schema-less `.ntb` FlatBuffers reader and the shape-object

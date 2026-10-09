@@ -1,4 +1,5 @@
 import Foundation
+import SempereImport
 import Sempere
 
 // Attachments as `Session.plist` describes them (docs/import-notability.md

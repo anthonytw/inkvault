@@ -1,6 +1,7 @@
 import ArgumentParser
 import Foundation
 import SempereImport
+import SempereNotability
 import SempereRender
 import Sempere
 

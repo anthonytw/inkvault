@@ -1,9 +1,11 @@
 import Foundation
+import ImportTestSupport
 import Sempere
 import SempereRender
 import XCTest
 
 @testable import SempereImport
+@testable import SempereNotability
 
 /// Regression tests for hostile Notability attachments (typed text, text
 /// boxes, images, recordings; docs/import-notability.md "Attachments"): each

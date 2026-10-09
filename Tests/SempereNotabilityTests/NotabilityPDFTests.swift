@@ -1,8 +1,10 @@
 import Age
 import Foundation
+import ImportTestSupport
 import Sempere
 import XCTest
 @testable import SempereImport
+@testable import SempereNotability
 
 /// Notes laid out on imported PDF pages (synthetic, no personal data).
 final class NotabilityPDFTests: XCTestCase {
@@ -36,9 +38,9 @@ final class NotabilityPDFTests: XCTestCase {
     func testWholeUnitPDFPageIsNotRoundedFurther() throws {
         // A 572-wide note on 4:3 slides: 572 × 0.75 = 429 exactly.
         let files = SyntheticNote.files(pdfPages: 2, thumbnails: Self.slideThumbs).map { path, data in
-            ZipWriter.File(path: path, data: path.hasSuffix("Session.plist") ? Self.relocked(data, to: "572.0:Mac") : data)
+            TestZip.File(path: path, data: path.hasSuffix("Session.plist") ? Self.relocked(data, to: "572.0:Mac") : data)
         }
-        let note = try NotabilityNote.parse(data: ZipWriter.write(files))
+        let note = try NotabilityNote.parse(data: TestZip.write(files))
         XCTAssertEqual(note.paper.width, 572, accuracy: 1e-9)
         XCTAssertEqual(note.paper.pageHeight, 429, accuracy: 1e-9)
     }
@@ -62,9 +64,9 @@ final class NotabilityPDFTests: XCTestCase {
     func testThumbnailAspectSnapsToLetter() throws {
         let thumbs = [("thumb.png", 48, 62), ("thumb8x.png", 384, 496), ("thumb12x.png", 576, 744)]
         let files = SyntheticNote.files(pdfPages: 3, thumbnails: thumbs).map { path, data in
-            ZipWriter.File(path: path, data: path.hasSuffix("Session.plist") ? Self.relocked(data, to: "572.0:Mac") : data)
+            TestZip.File(path: path, data: path.hasSuffix("Session.plist") ? Self.relocked(data, to: "572.0:Mac") : data)
         }
-        XCTAssertEqual(try NotabilityNote.parse(data: ZipWriter.write(files)).paper.pageHeight, 741, accuracy: 1e-9)
+        XCTAssertEqual(try NotabilityNote.parse(data: TestZip.write(files)).paper.pageHeight, 741, accuracy: 1e-9)
         let ipad = try NotabilityNote.parse(data: SyntheticNote.package(pdfPages: 3, thumbnails: thumbs))
         XCTAssertEqual(ipad.paper.pageHeight, 928, accuracy: 1e-9)
         // An aspect no standard size is near stays as measured.
@@ -160,9 +162,9 @@ final class NotabilityPDFTests: XCTestCase {
     func testImplausibleLockedWidthIsIgnored() throws {
         for value in ["5e-324:iP", "1e-9:iPad", "1e308:iPad"] {
             let files = SyntheticNote.files(pdfPages: 2, thumbnails: Self.slideThumbs).map { path, data in
-                ZipWriter.File(path: path, data: path.hasSuffix("Session.plist") ? Self.relocked(data, to: value) : data)
+                TestZip.File(path: path, data: path.hasSuffix("Session.plist") ? Self.relocked(data, to: value) : data)
             }
-            let note = try NotabilityNote.parse(data: ZipWriter.write(files))
+            let note = try NotabilityNote.parse(data: TestZip.write(files))
             XCTAssertEqual(note.paper.width, 716.8, accuracy: 1e-9, value)
             XCTAssertEqual(note.paper.pageHeight, 538, accuracy: 1e-9, value)
             let state = NotabilityImporter.convert(note)

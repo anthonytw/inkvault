@@ -1,5 +1,7 @@
 import Foundation
+import ImportTestSupport
 @testable import SempereImport
+@testable import SempereNotability
 
 // MARK: - FlatBuffers writer (tests only)
 
@@ -205,14 +207,14 @@ enum SyntheticBundle {
 
     /// The `.ntb` zip around a bundle, optionally with `ios/HandwritingIndex.fb`.
     static func package(_ bundle: Data, handwritingIndex: Data? = nil, extra: [(String, Data)] = []) -> Data {
-        var entries: [ZipWriter.File] = [
+        var entries: [TestZip.File] = [
             .init(path: "version", data: Data("1".utf8), deflate: false),
             .init(path: "noteBundle", data: bundle, deflate: false),
             .init(path: "manifest.json", data: Data("{\"appVersion\":\"16.0\"}".utf8), deflate: false),
         ]
         if let handwritingIndex { entries.append(.init(path: "ios/HandwritingIndex.fb", data: handwritingIndex, deflate: true)) }
         entries += extra.map { .init(path: $0.0, data: $0.1, deflate: true) }
-        return ZipWriter.write(entries)
+        return TestZip.write(entries)
     }
 
     /// One recognised page of a synthetic `ios/HandwritingIndex.fb`: its

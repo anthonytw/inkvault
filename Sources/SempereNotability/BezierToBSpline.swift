@@ -1,4 +1,5 @@
 import Foundation
+import SempereImport
 import Sempere
 
 /// Converts Notability's piecewise cubic Bézier curves into the uniform cubic

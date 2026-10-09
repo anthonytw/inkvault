@@ -1,9 +1,11 @@
 import Age
 import Foundation
+import ImportTestSupport
 import SempereRender
 import Sempere
 import XCTest
 @testable import SempereImport
+@testable import SempereNotability
 
 /// Tests against a real Notability backup. Skipped unless
 /// `SEMPERE_NOTABILITY_SAMPLES` names a backup zip (or a directory of

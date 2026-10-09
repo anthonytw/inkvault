@@ -1,4 +1,5 @@
 import Foundation
+import SempereImport
 import Sempere
 
 /// Notability's shape tool objects (`InkedSpatialHash.shapes`, a nested

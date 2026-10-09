@@ -1,10 +1,12 @@
 import Age
 import Foundation
+import ImportTestSupport
 import SempereRender
 import Sempere
 import XCTest
 
 @testable import SempereImport
+@testable import SempereNotability
 
 /// Regression tests for corrupt or hostile Notability packages (see
 /// `ImportFuzzTests`): each fails with `ImportError` or imports cleanly.
@@ -81,7 +83,7 @@ final class UntrustedImportTests: XCTestCase {
                             ("uuidKey", b.string(SyntheticNote.uuid))])
             var files = SyntheticNote.files()
             files = files.map { $0.0.hasSuffix("metadata.plist") ? ($0.0, b.archive(top: [("root", d)])) : $0 }
-            let zip = ZipWriter.write(files.map { .init(path: $0.0, data: $0.1) })
+            let zip = TestZip.write(files.map { .init(path: $0.0, data: $0.1) })
             let note = try NotabilityNote.parse(data: zip)
             // Session.plist's creation date is the fallback.
             XCTAssertEqual(note.metadata.created, SyntheticNote.created, "\(t)")

@@ -1,4 +1,5 @@
 import Foundation
+import SempereImport
 import Sempere
 
 /// Reader for Notability's newer `.ntb` files (`docs/import-notability.md`,

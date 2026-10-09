@@ -1,9 +1,11 @@
 import Age
 import Foundation
+import ImportTestSupport
 import SempereRender
 import Sempere
 import XCTest
 @testable import SempereImport
+@testable import SempereNotability
 
 /// Parsing, mapping and import of the synthetic `.note` (no personal data).
 final class NotabilityTests: XCTestCase {
@@ -224,7 +226,7 @@ final class NotabilityTests: XCTestCase {
 
     func testImportFromBackupZip() throws {
         let note = SyntheticNote.package()
-        let backup = ZipWriter.write([
+        let backup = TestZip.write([
             .init(path: "Notability/Research/Daily log/A.note", data: note, deflate: false),
             .init(path: "Notability/Research/Daily log/A copy.note", data: note, deflate: true),
             .init(path: "Notability/Research/Daily log/A.pdf", data: Data("%PDF".utf8)),
@@ -490,7 +492,7 @@ final class NotabilityTests: XCTestCase {
 
     func testInconsistentArraysFail() throws {
         // A package without Session.plist.
-        let bad = ZipWriter.write([.init(path: "x/metadata.plist", data: SyntheticNote.metadata())])
+        let bad = TestZip.write([.init(path: "x/metadata.plist", data: SyntheticNote.metadata())])
         XCTAssertThrowsError(try NotabilityNote.parse(data: bad)) { e in
             guard case ImportError.notability = e else { return XCTFail("\(e)") }
         }

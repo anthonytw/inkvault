@@ -1,4 +1,5 @@
 import Foundation
+import SempereImport
 import Sempere
 
 // Recordings of a Notability note (docs/import-notability.md "Recordings",

@@ -1,10 +1,12 @@
 import Age
 import Foundation
+import ImportTestSupport
 import Sempere
 import SemperePDF
 import SempereRender
 import XCTest
 @testable import SempereImport
+@testable import SempereNotability
 
 /// The import gaps closed after the reference-backup survey: `.ntb`
 /// attachments, PDF page text, handwriting language, highlighter behind text
@@ -178,7 +180,7 @@ final class NotabilityGapsTests: XCTestCase {
     // MARK: - PDF text
 
     func indexZip(_ entries: [(String, Data)]) -> Data {
-        ZipWriter.write(entries.map { .init(path: $0.0, data: $0.1) })
+        TestZip.write(entries.map { .init(path: $0.0, data: $0.1) })
     }
 
     func testNotabilityPDFIndexGivesPageTextBySplittingAtFormFeeds() throws {
@@ -345,7 +347,7 @@ final class CLIGapsFixtureTests: XCTestCase {
                                              ("UIAlpha", .real(1))])
             return [("paperStyle", a.object("Notability.NBPaperStyle", [("paperColor", color)]))]
         })
-        let index = ZipWriter.write([.init(path: "PDFTextIndex.txt", data: Data("Teorema espectral\u{0C}Valores propios\u{0C}".utf8)),
+        let index = TestZip.write([.init(path: "PDFTextIndex.txt", data: Data("Teorema espectral\u{0C}Valores propios\u{0C}".utf8)),
                                      .init(path: "PDFMetadataIndex.plist", data: BPlist.encode(.dict([("version", .int(1))])))])
         return AttachmentFixtures.package(session: session,
                                           pdf: AttachmentFixtures.pdf(pages: [(612, 792), (612, 792)]),

@@ -1,8 +1,10 @@
 import Age
 import Foundation
+import ImportTestSupport
 import Sempere
 import XCTest
 @testable import SempereImport
+@testable import SempereNotability
 
 /// Typed text and recordings of Notability notes (docs/attachments.md §11,
 /// tasks D3 and D4), on synthetic packages only.

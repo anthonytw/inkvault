@@ -1,8 +1,10 @@
 import Foundation
+import ImportTestSupport
 import Sempere
 import XCTest
 
 @testable import SempereImport
+@testable import SempereNotability
 
 /// Regression tests for hostile `.ntb` indexes and attachment records and the
 /// `.note` PDF index (docs/import-notability.md ".ntb attachments", "PDF
