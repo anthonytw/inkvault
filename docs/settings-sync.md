@@ -396,7 +396,10 @@ sempere settings schema
 - **WebDAV sync**: `settings.age` is synced as a mutable file. When both sides changed and
   the vault is unlocked, the sync merges them (section 3) and writes the result to both
   sides; locked, it keeps both and reports a conflict, as for `vault.json`. Push-only
-  mirrors upload the local copy.
+  mirrors upload the local copy. A copy that does not verify never replaces one that does.
+  A copy that needs a newer reader is never opened: it is mirrored byte for byte over a
+  copy this version can read (a newer app wrote it, and older apps pause instead of
+  writing), which `format.md` §7.3 allows of any reader.
 - **iCloud Drive**: the app downloads `settings.age` before reading it.
 - **Web viewer**: ignores the file.
 - **Older apps and CLIs** ignore unknown files (`format.md` §1), so they keep working with

@@ -439,14 +439,23 @@ extension Vault {
     ///   never applied or written).
     public func readSharedSettingsFile(allowNewerReader: Bool = false) throws -> SharedSettings.Decoded? {
         try requireMigrated()
-        let secret = try requireReadable()
+        _ = try requireReadable()
         let file = sharedSettingsURL
         guard FileIO.exists(file) else { return nil }
         if let size = (try? FileManager.default.attributesOfItem(atPath: file.path))?[.size] as? Int,
            size > SharedSettings.maxFileBytes {
             throw SharedSettingsError.tooLarge
         }
-        let data = try FileIO.read(file, maxBytes: SharedSettings.maxFileBytes)
+        return try openSharedSettings(try FileIO.read(file, maxBytes: SharedSettings.maxFileBytes),
+                                      allowNewerReader: allowNewerReader)
+    }
+
+    /// Decrypts, verifies and decodes the bytes of a `settings.age` (a copy from
+    /// a sync server, say), as `readSharedSettingsFile` does the vault's own.
+    public func openSharedSettings(_ data: Data, allowNewerReader: Bool = false) throws -> SharedSettings.Decoded {
+        try requireMigrated()
+        let secret = try requireReadable()
+        guard data.count <= SharedSettings.maxFileBytes else { throw SharedSettingsError.tooLarge }
         let plain: Data
         do { plain = try AgeFile.decrypt(data, with: identities) } catch {
             throw SharedSettingsError.undecryptable(SharedSettings.printable("\(error)"))

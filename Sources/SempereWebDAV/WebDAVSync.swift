@@ -166,6 +166,12 @@ public final class WebDAVSync {
             }
         }
 
+        // Shared settings (format.md §13): merged per key when both sides changed.
+        let remoteSettings = remoteRoot[SharedSettings.fileName].flatMap { $0.isCollection ? nil : $0 }
+        do { try syncSharedSettings(remote: remoteSettings) } catch {
+            report.errors.append(.init(path: SharedSettings.fileName, message: Self.describe(error)))
+        }
+
         do {
             let remoteNotes = try listRemoteNotes(rootEntries)
             let localNotes = try localNoteIDs()
@@ -238,7 +244,7 @@ public final class WebDAVSync {
 
     // MARK: - Mutable files
 
-    private func syncMutable(_ name: String, remote: RemoteEntry?) throws {
+    func syncMutable(_ name: String, remote: RemoteEntry?) throws {
         let localURL = root.appendingPathComponent(name)
         // Absent is nil; present but unreadable or oversized is an error, not "absent".
         let local = FileManager.default.fileExists(atPath: localURL.path)
@@ -341,7 +347,8 @@ public final class WebDAVSync {
             if let identical {
                 copy = identical
             } else {
-                let fname = "\(base).conflict-\(Self.sanitize(options.deviceLabel))-\(Self.compactUTC(options.now)).json"
+                let ext = (name as NSString).pathExtension
+                let fname = "\(base).conflict-\(Self.sanitize(options.deviceLabel))-\(Self.compactUTC(options.now)).\(ext)"
                 try LocalFS.write(remote, to: root.appendingPathComponent(fname), replacing: false)
                 copy = fname
             }
