@@ -184,4 +184,17 @@ final class NoteSearchTests: XCTestCase {
         XCTAssertEqual(NoteSearch.snippet(t, words: ["words"])?.text, "plain words only")
         XCTAssertNil(NoteSearch.snippet(t, words: ["absent"]))
     }
+
+    /// Review of #147: a part ending in a carriage return joins the separating newline into one
+    /// character (`\r\n`), so its span did not end on a character boundary and the part was
+    /// dropped from snippets.
+    func testASnippetSurvivesAPartEndingInACarriageReturn() throws {
+        let text = "Lecture notes\r"
+        let page = PageText(pageId: UUID(), number: 1, text: text + "\n" + "x^2",
+                            spans: [.init(start: 0, end: text.utf16.count), .init(start: text.utf16.count + 1,
+                                                                                   end: text.utf16.count + 4, isMath: true)])
+        let snippet = try XCTUnwrap(NoteSearch.snippet(page, words: ["lecture"]))
+        XCTAssertFalse(snippet.isEquation)
+        XCTAssertTrue(snippet.text.hasPrefix("Lecture notes"), snippet.text)
+    }
 }

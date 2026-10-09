@@ -77,6 +77,7 @@ export const catalog = {
   "or drop the vault folder (*.sempere) here": { es: "o suelta aquí la carpeta de la bóveda (*.sempere)" },
   "Other": { es: "Otros" },
   "p. {number}: ": { es: "pág. {number}: " },
+  "[equation]": { es: "[ecuación]" },
   "Page {number}": { es: "Página {number}" },
   "page {number}": { es: "página {number}" },
   "Page {number} cannot be drawn: {detail}": { es: "No se puede dibujar la página {number}: {detail}" },

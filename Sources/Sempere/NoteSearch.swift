@@ -220,13 +220,15 @@ public enum NoteSearch {
         snippet(PageText(pageId: UUID(), number: 1, text: text), words: words)
     }
 
+    /// The part of `text` a span names. Through Unicode scalars, not characters: a part ending in
+    /// `\r` forms one character (`\r\n`) with the joining newline, so its end is no character boundary.
     private static func substring(of text: String, _ span: PageText.Span) -> String? {
-        let u = text.utf16
+        let u = text.utf16, scalars = text.unicodeScalars
         guard span.start >= 0, span.end >= span.start, span.end <= u.count,
               let lo = u.index(u.startIndex, offsetBy: span.start, limitedBy: u.endIndex),
               let hi = u.index(u.startIndex, offsetBy: span.end, limitedBy: u.endIndex),
-              let a = lo.samePosition(in: text), let b = hi.samePosition(in: text) else { return nil }
-        return String(text[a..<b])
+              let a = lo.samePosition(in: scalars), let b = hi.samePosition(in: scalars) else { return nil }
+        return String(scalars[a..<b])
     }
 
     private static func firstMatch(of words: [String], in flat: String) -> Range<String.Index>? {
