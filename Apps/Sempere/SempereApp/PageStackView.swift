@@ -560,4 +560,11 @@ extension PageStackHost: CanvasCommandTarget {
         guard let editor, !editor.isReadOnly, let slot = focusedSlot else { return }
         slot.host.toggleRuler()
     }
+
+    /// The command goes to the page whose item is selected.
+    @discardableResult
+    func perform(itemCommand: MenuCommand) -> Bool {
+        guard let editor, !editor.isReadOnly else { return false }
+        return slots.values.first { $0.host.itemSelection.selectedID != nil }?.host.itemSelection.perform(itemCommand) ?? false
+    }
 }

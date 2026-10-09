@@ -16,6 +16,8 @@ enum MenuCommand: String, CaseIterable, Sendable {
     // Note
     case renameNote, editTags, changePaper, saveVersion, showRecordings, deleteNote, restoreNote
     case previousPage, nextPage, addPage
+    // Note > the selected item on the canvas, and recording
+    case duplicateItem, bringItemToFront, deleteItem, toggleRecording
     // Edit
     case find, undo, redo
     // Tools
@@ -99,6 +101,10 @@ enum MenuCommand: String, CaseIterable, Sendable {
         case .previousPage: return String(localized: "Previous Page")
         case .nextPage: return String(localized: "Next Page")
         case .addPage: return String(localized: "Add Page")
+        case .duplicateItem: return String(localized: "Duplicate Item", comment: "Note menu: duplicate the selected image, text box or other item")
+        case .bringItemToFront: return String(localized: "Bring Item to Front", comment: "Note menu: draw the selected item above the others")
+        case .deleteItem: return String(localized: "Delete Item", comment: "Note menu: delete the selected image, text box or other item")
+        case .toggleRecording: return String(localized: "Start Recording", comment: "Note menu: start recording audio in the note")
         case .find: return String(localized: "Find Notes", comment: "Edit menu: search the notes")
         case .undo: return String(localized: "Undo", comment: "Edit menu: undo")
         case .redo: return String(localized: "Redo", comment: "Edit menu: redo")
@@ -151,6 +157,13 @@ enum MenuCommand: String, CaseIterable, Sendable {
         case .previousPage: return Shortcut("[", cmd)
         case .nextPage: return Shortcut("]", cmd)
         case .addPage: return Shortcut("a", shift)
+        // Item commands follow the Mac apps that have them (Pages and Keynote: ⌘D duplicates, ⌥⇧⌘F brings to front);
+        // ⌥⌘⌫ keeps ⌘⌫ for Move to Recently Deleted. Not UIKit's: checked against its menus (`MacWindowUITests`).
+        case .duplicateItem: return Shortcut("d", cmd)
+        case .bringItemToFront: return Shortcut("f", [.command, .option, .shift])
+        case .deleteItem: return Shortcut(Shortcut.backspace, option)
+        // ⌘M minimises; ⇧⌘M is free in UIKit's menus.
+        case .toggleRecording: return Shortcut("m", shift)
         case .find: return Shortcut("f", cmd)
         case .undo: return Shortcut("z", cmd)
         case .redo: return Shortcut("z", shift)
@@ -192,6 +205,10 @@ enum MenuCommand: String, CaseIterable, Sendable {
         var hasExportTargets = false
         /// The canvas has a page to show.
         var hasPage = false
+        /// An item (image, text box, PDF page…) is selected on the canvas.
+        var hasItemSelection = false
+        /// A recording is running in the open note (the menu then says Stop Recording).
+        var isRecording = false
         var pageIndex = 0
         var pageCount = 0
         /// A vault was opened before and can be reopened.
@@ -232,6 +249,10 @@ enum MenuCommand: String, CaseIterable, Sendable {
         // The note's recordings, read-only notes included (they can still be played).
         case .showRecordings: return unlocked && context.hasPage
         case .addPage: return context.canEditNote
+        case .duplicateItem, .bringItemToFront: return context.canEditNote && context.hasItemSelection
+        // As ⌘⌫: off while a text field may have focus.
+        case .deleteItem: return context.canEditNote && context.hasItemSelection && !context.editingText
+        case .toggleRecording: return context.isRecording || (context.canEditNote && context.hasPage)
         case .previousPage: return context.hasPage && context.pageIndex > 0
         case .nextPage: return context.hasPage && context.pageIndex + 1 < context.pageCount
         case .find, .toggleNoteList: return unlocked && context.hasNoteList
@@ -260,8 +281,9 @@ enum MenuLayout {
     ]
     static let note: [[MenuCommand]] = [
         [.renameNote, .editTags, .changePaper],
-        [.saveVersion, .showRecordings],
+        [.saveVersion, .showRecordings, .toggleRecording],
         [.previousPage, .nextPage, .addPage],
+        [.duplicateItem, .bringItemToFront, .deleteItem],
         [.deleteNote, .restoreNote],
     ]
     static let tools: [[MenuCommand]] = [

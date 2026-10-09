@@ -312,7 +312,11 @@ final class ItemSelectionController: NSObject, UIGestureRecognizerDelegate, @Mai
     private var drag: (ItemSelectionModel.Drag, Item)?
 
     var editor: NoteEditor?
-    var pageID: UUID?
+    var pageID: UUID? {
+        didSet { if oldValue != pageID { reportSelection() } }
+    }
+    /// The page last reported to the editor as having a selected item.
+    private var reportedPage: UUID?
     var commands = ItemCommands()
     /// Opens a text box in its editor ("Edit Text", a tap on the selected box).
     var onEditText: ((Item) -> Void)?
@@ -433,6 +437,7 @@ final class ItemSelectionController: NSObject, UIGestureRecognizerDelegate, @Mai
 
     /// Redraws the outline (the zoom, the item or the selection changed).
     func refresh() {
+        defer { reportSelection() }
         overlay.frame = CGRect(origin: .zero, size: canvas?.contentSize ?? .zero)
         canvas?.bringSubviewToFront(overlay)
         let shown = items.map { item -> Item in
@@ -761,6 +766,34 @@ final class ItemSelectionController: NSObject, UIGestureRecognizerDelegate, @Mai
         case .paste:
             return nil
         }
+    }
+
+    /// Runs a menu command on the selected item (Duplicate, Bring to Front, Delete: the Mac's
+    /// Note menu and shortcuts); false when nothing is selected, the note cannot be edited or
+    /// it is another command.
+    @discardableResult
+    func perform(_ command: MenuCommand) -> Bool {
+        guard let id = model.selected, let pageID, editor?.canEditItems == true else { return false }
+        switch command {
+        case .duplicateItem:
+            guard let new = actions?.duplicate([id], on: pageID).first else { return false }
+            select(new.id)
+        case .bringItemToFront:
+            actions?.bringToFront(id, on: pageID)
+            refresh()
+        case .deleteItem:
+            deleteSelection()
+        default:
+            return false
+        }
+        return true
+    }
+
+    /// Tells the editor whether this canvas's page has a selected item (it enables the menu commands).
+    private func reportSelection() {
+        if let old = reportedPage, old != pageID { editor?.itemSelection(on: old, isSelected: false) }
+        reportedPage = pageID
+        if let pageID { editor?.itemSelection(on: pageID, isSelected: model.selected != nil) }
     }
 
     /// Deletes the selected item (one delta, undoable).

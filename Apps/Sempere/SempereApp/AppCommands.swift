@@ -102,7 +102,11 @@ struct AppCommands: Commands {
     @ViewBuilder
     private func item(_ command: MenuCommand) -> some View {
         let enabled = router.map { command.isEnabled(in: $0.context) } ?? (command == .showLibrary || command == .showSettings)
-        let title = command == .togglePalette && router?.paletteVisible == true ? String(localized: "Hide Tool Palette") : command.title
+        var title = command.title
+        if command == .togglePalette, router?.paletteVisible == true { title = String(localized: "Hide Tool Palette") }
+        if command == .toggleRecording, router?.context.isRecording == true {
+            title = String(localized: "Stop Recording")
+        }
         let button = Button(title) { run(command) }.disabled(!enabled)
         if let shortcut = command.shortcut {
             button.keyboardShortcut(shortcut.key == MenuCommand.Shortcut.backspace ? KeyEquivalent.delete : KeyEquivalent(shortcut.key),
@@ -134,6 +138,10 @@ enum EditorCommands {
             ui.choosingPaper = true
         case .showRecordings:
             if editor != nil { ui.showingRecordings = true }
+        case .toggleRecording:
+            if let editor { Task { await editor.toggleRecording() } }
+        case .duplicateItem, .bringItemToFront, .deleteItem:
+            editor?.canvasTarget?.perform(itemCommand: command)
         case .previousPage:
             if let editor { editor.selectPage(editor.pageIndex - 1) }
         case .nextPage:
@@ -169,6 +177,8 @@ enum EditorCommands {
         context.canEditNote = editor.map { !$0.isReadOnly } ?? false
         context.notePageless = editor?.isPageless ?? false
         context.hasPage = editor?.currentPage != nil
+        context.hasItemSelection = editor?.hasItemSelection ?? false
+        context.isRecording = editor?.recordingSession?.isActive == true
         context.pageIndex = editor?.pageIndex ?? 0
         context.pageCount = editor?.pages.count ?? 0
     }

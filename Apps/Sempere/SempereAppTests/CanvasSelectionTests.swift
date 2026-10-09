@@ -153,6 +153,36 @@ struct CanvasSelectionTests {
         await editor.flush()
     }
 
+    /// GA-13: the Note menu's item commands act on the selected item and tell the editor
+    /// whether one is selected (which enables the menu entries).
+    @Test func itemMenuCommandsActOnTheSelectedItem() async throws {
+        let (vault, _) = try TS.unlockedFixture()
+        let (editor, _) = try await NoteEditorTests.open(vault)
+        let page = try #require(editor.currentPage).id
+        let first = try editor.addItems([Self.image()], on: page)[0]
+        _ = try editor.addItems([Self.image()], on: page)
+        let host = PageCanvasHost(frame: CGRect(x: 0, y: 0, width: 600, height: 800))
+        host.itemSelection.reset(editor: editor, pageID: page, undoManager: nil)
+        #expect(!editor.hasItemSelection)
+        #expect(!host.itemSelection.perform(.duplicateItem), "nothing selected")
+        host.itemSelection.pick(first.id)
+        #expect(editor.hasItemSelection)
+
+        #expect(host.itemSelection.perform(.bringItemToFront))
+        #expect(editor.items(on: page).last?.id == first.id)
+        #expect(host.itemSelection.perform(.duplicateItem))
+        #expect(editor.items(on: page).count == 3)
+        let copy = try #require(host.itemSelection.selectedID)
+        #expect(copy != first.id, "the copy is selected")
+        #expect(!host.itemSelection.perform(.toggleRecording), "not an item command")
+
+        #expect(host.itemSelection.perform(.deleteItem))
+        #expect(editor.items(on: page).map(\.id).contains(copy) == false)
+        #expect(editor.items(on: page).count == 2)
+        #expect(!editor.hasItemSelection, "deleting clears the selection")
+        await editor.flush()
+    }
+
     /// The text tool runs the selection on text boxes (tap selects, a tap on
     /// the selected box edits); selection mode takes every kind.
     @Test func theTextToolAndSelectionModeShareTheSelection() async throws {
