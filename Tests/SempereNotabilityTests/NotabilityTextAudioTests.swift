@@ -273,6 +273,33 @@ final class NotabilityTextAudioTests: XCTestCase {
         XCTAssertLessThanOrEqual(TranscriptRead.parse(many, duration: nil, field: "t")?.segments.count ?? 0, TranscriptRead.maxSegments)
     }
 
+    /// Review of #134: 20 000 segments of 8 192 characters made a blob far past `Transcript.maxSize`, which
+    /// `Transcript.decode` refuses, so the import wrote a transcript no reader could open. The text kept is
+    /// now budgeted, and what is kept encodes to a blob that decodes.
+    func testTranscriptTextIsBudgetedSoTheBlobDecodes() throws {
+        let long = String(repeating: "é", count: TranscriptRead.maxTextLength)   // 2 bytes each in UTF-8
+        let huge = PlistValue.array((0..<TranscriptRead.maxSegments).map {
+            .dict(["text": .string(long), "start": .int(Int64($0)), "end": .int(Int64($0) + 1)])
+        })
+        let read = try XCTUnwrap(TranscriptRead.parse(huge, duration: nil, field: "t"))
+        XCTAssertLessThan(read.segments.count, TranscriptRead.maxSegments, "cut by the byte budget")
+        let total = read.segments.reduce(0) { $0 + $1.text.utf8.count + TranscriptRead.segmentOverhead }
+        XCTAssertLessThanOrEqual(total, TranscriptRead.maxTotalBytes)
+        let data = try Transcript(recording: UUID(), engine: "notability-1", language: "en", created: Date(),
+                                  segments: read.segments).encoded()
+        XCTAssertLessThanOrEqual(data.count, Transcript.maxSize)
+        XCTAssertEqual(try Transcript.decode(data).segments.count, read.segments.count)
+        // Characters JSON escapes (six bytes each) still give a blob that decodes.
+        let control = String(repeating: "\u{1}", count: TranscriptRead.maxTextLength)
+        let escaped = PlistValue.array((0..<TranscriptRead.maxSegments).map {
+            .dict(["text": .string("a" + control + "b"), "start": .int(Int64($0))])
+        })
+        let kept = try XCTUnwrap(TranscriptRead.parse(escaped, duration: nil, field: "t"))
+        let blob = try Transcript(recording: UUID(), engine: "e", language: "en", created: Date(), segments: kept.segments).encoded()
+        XCTAssertLessThanOrEqual(blob.count, Transcript.maxSize)
+        XCTAssertNoThrow(try Transcript.decode(blob))
+    }
+
     func testUnreadableTranscriptFieldIsReported() throws {
         let entry = Self.lectureEntry + "<key>transcriptData</key><integer>3</integer>"
         let pkg = Self.recordingPackage(library: AttachmentFixtures.library([("rec-0", entry)]),
