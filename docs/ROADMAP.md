@@ -85,6 +85,8 @@ The CLI gets every feature first, or at the latest with the app (`CLAUDE.md`
 | Note editing as in the app: `notes new/rename/tag/move/paper/delete/undelete`, `notebooks list/rename` (subtree), `tags list`, `pages list/add`, `notes list --notebook` over sub-notebooks | ✅ #58 | ✅ #58 |
 | `notebooks move NOTEBOOK PARENT` (nest or un-nest a notebook: the app's drag and drop) | ✅ #72 | ✅ #72 |
 | Pages: `pages add --after`, `move`, `delete`, `duplicate`; paged/pageless (`notes layout`) | ✅ #52 | ✅ #52 |
+| Notes: `notes favorite NOTE [--off]`, `notes list --favorites`, `favorite` in the `NoteJSON` of every note listing (GA-01) | ✅ #131 | ✅ #131 |
+| `transcribe --download-model` (SpeechTranscriber's on-device model; the app's Settings button, GA-05) | — (error) | ✅ #131 |
 | Items: `items list`, `move`, `rotate`, `front`, `delete`, `duplicate`, `copy` (the app's item gestures) | ✅ #68 | ✅ #68 |
 | `search --show-boxes` (match locations, numbered across the note, as the app's highlights) | ✅ #72 | ✅ #72 |
 | Items: `items crop` (the app's Crop: the visible part stays in place) | ✅ #81 | ✅ #81 |
@@ -237,17 +239,17 @@ Existing rows were not touched.
 
 | Area | Gap | Size | Audit | Status |
 | --- | --- | --- | --- | --- |
-| Notes | Favorites can be read (summaries, web viewer list) but nothing sets `meta.favorite`: `notes favorite` in the CLI first, then the app | M | GA-01 | 📋 |
-| Items | Rotate an item in the app (`NoteEditor.setItemRotation` has no caller; the CLI has `items rotate`) | M | GA-02 | 📋 |
+| Notes | Favorites: `notes favorite` / `notes list --favorites`; in the app the note's context menu and toolbar toggle it and the sidebar has a Favorites list (the web viewer already had one) | M | GA-01 | 🚧 #131 |
+| Items | Rotate an item in the app: Rotate 90° Left / Right in the selection menu and a two-finger turn (CLI: `items rotate`) | M | GA-02 | 🚧 #131 |
 | Items | CLI edit of a text box's text and style (`items text`, on `NoteOps.setText`) | M | GA-03 | 📋 |
-| Settings | Notebook for quick voice notes in New Notes does nothing; one field should drive capture | S | GA-04 | 📋 |
-| Settings | Transcription model download button never appears (`TranscriptionSettings.downloader` is never set) | M | GA-05 | 📋 |
+| Settings | One notebook setting for quick voice notes (Quick Voice Notes ▸ Notebook); the inert New Notes field is gone and its stored value migrated | S | GA-04 | 🚧 #131 |
+| Settings | Transcription model download button wired to `SpeechTranscription.downloadModel`; `transcribe --download-model` | M | GA-05 | 🚧 #131 |
 | Search | Transcripts in the app's search; highlights on text boxes | M | GA-06, GA-07 | 📋 |
 | Import | App Notability import: show the report and the CLI's options | M | GA-08 | 📋 |
 | Import | Notability transcripts as transcript blobs; GIF/TIFF/WebP handling checked against the doc | S | GA-09, GA-10 | 📋 |
 | Transcription | `DictationTranscriber` step in the fallback chain | S | GA-11 | 📋 |
 | Recording | Live transcript while recording; faded ink playback mode | L | GA-12 | 💡 |
-| Mac | Shortcuts for item actions and recording; Note menu entries for toolbar-only commands | M | GA-13, GA-14 | 📋 |
+| Mac | Shortcuts for item actions and recording ⌘D / ⌥⇧⌘F / ⌥⌘⌫ / ⇧⌘M (GA-13, 🚧 #131); Note menu entries for toolbar-only commands (GA-14, 📋) | M | GA-13, GA-14 | 🚧 #131 / 📋 |
 | iPhone | Page layout switch, page duplicate/delete/add-after, insert PDF at page, thumbnail strip, swipe to turn pages | M | GA-15, GA-16 | 📋 |
 | Keys | Recipient `repair --keep` and replace-recipient in the app (today the alert says to use the CLI) | M | GA-17 | 📋 |
 | Backup | CLI reminder (overdue check) for the app's "Remind Me" | S | GA-18 | 📋 |

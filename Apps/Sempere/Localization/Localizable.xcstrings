@@ -2082,14 +2082,14 @@
         }
       }
     },
-    "A new note whose title you leave empty is named %@. Quick voice notes go to the notebook “%@”; use / for levels." : {
-      "comment" : "Settings ▸ New Notes footer; the first value is a quoted sample title, the second a notebook name",
+    "A new note whose title you leave empty is named %@." : {
+      "comment" : "Settings ▸ New Notes footer; the value is a quoted sample title",
       "extractionState" : "manual",
       "localizations" : {
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Una nota nueva cuyo título dejes vacío se llama %1$@. Las notas de voz rápidas van al cuaderno «%2$@»; usa / para los niveles."
+            "value" : "Una nota nueva cuyo título dejes vacío se llama %@."
           }
         }
       }
@@ -2548,6 +2548,30 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Añadir fotos, vídeos, una imagen del portapapeles, páginas de un PDF o una ecuación"
+          }
+        }
+      }
+    },
+    "Add this note to Favorites" : {
+      "comment" : "Tooltip of the favorite button",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Añadir esta nota a Favoritas"
+          }
+        }
+      }
+    },
+    "Add to Favorites" : {
+      "comment" : "Note menu and toolbar: mark the note as a favorite",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Añadir a Favoritas"
           }
         }
       }
@@ -3105,6 +3129,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Negrita"
+          }
+        }
+      }
+    },
+    "Bring Item to Front" : {
+      "comment" : "Note menu: draw the selected item above the others",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Traer elemento al frente"
           }
         }
       }
@@ -4405,6 +4441,18 @@
         }
       }
     },
+    "Delete Item" : {
+      "comment" : "Note menu: delete the selected image, text box or other item",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Eliminar elemento"
+          }
+        }
+      }
+    },
     "Delete Page" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -4831,6 +4879,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Duplicar"
+          }
+        }
+      }
+    },
+    "Duplicate Item" : {
+      "comment" : "Note menu: duplicate the selected image, text box or other item",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Duplicar elemento"
           }
         }
       }
@@ -5285,6 +5345,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Face ID o Touch ID se ha bloqueado tras demasiados intentos. Bloquea el dispositivo y desbloquéalo con su código; después, vuelve a intentarlo."
+          }
+        }
+      }
+    },
+    "Favorites" : {
+      "comment" : "Sidebar row and note list title: notes marked as favorites",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Favoritas"
           }
         }
       }
@@ -6048,6 +6120,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "En #%@"
+          }
+        }
+      }
+    },
+    "In Favorites" : {
+      "comment" : "Search scope",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "En Favoritas"
           }
         }
       }
@@ -9938,6 +10022,18 @@
         }
       }
     },
+    "Remove from Favorites" : {
+      "comment" : "Note menu and toolbar: take the favorite mark off",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Quitar de Favoritas"
+          }
+        }
+      }
+    },
     "Remove restores the last checked list and re-encrypts every note with a new vault key, so no other device can read them." : {
       "comment" : "Device list alert: what its Remove button does",
       "extractionState" : "manual",
@@ -9958,6 +10054,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "¿Quitar esta clave?"
+          }
+        }
+      }
+    },
+    "Remove this note from Favorites" : {
+      "comment" : "Tooltip of the favorite button",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Quitar esta nota de Favoritas"
           }
         }
       }
@@ -10544,6 +10652,42 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "De derecha a izquierda"
+          }
+        }
+      }
+    },
+    "Rotate" : {
+      "comment" : "Undo action name (Edit menu: Undo …)",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Girar"
+          }
+        }
+      }
+    },
+    "Rotate 90° Left" : {
+      "comment" : "Item menu on the canvas",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Girar 90° a la izquierda"
+          }
+        }
+      }
+    },
+    "Rotate 90° Right" : {
+      "comment" : "Item menu on the canvas",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Girar 90° a la derecha"
           }
         }
       }
@@ -11572,6 +11716,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Inicio"
+          }
+        }
+      }
+    },
+    "Start Recording" : {
+      "comment" : "Note menu: start recording audio in the note",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Empezar a grabar"
           }
         }
       }
@@ -14514,18 +14670,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Nota de voz"
-          }
-        }
-      }
-    },
-    "Voice Notes" : {
-      "comment" : "Settings ▸ New Notes: notebook that quick voice notes go to",
-      "extractionState" : "manual",
-      "localizations" : {
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Notas de voz"
           }
         }
       }

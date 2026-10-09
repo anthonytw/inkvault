@@ -98,8 +98,10 @@ the Insert menu's entry does (#104). Imports file new notes under the sidebar's 
 | Note | Paper… | ⌥⌘P |
 | Note | Save Version… | ⌥⌘S |
 | Note | Recordings… | ⌃⌘R |
+| Note | Start Recording / Stop Recording (starts in the open note, asking for the microphone the first time; "Stop" while one runs) | ⇧⌘M |
 | Note | Previous Page, Next Page | ⌘[, ⌘] |
 | Note | Add Page | ⇧⌘A |
+| Note | Duplicate Item, Bring Item to Front, Delete Item (the item selected on the canvas; off while nothing is selected, the note is read-only, and Delete Item also while a text field may have focus) | ⌘D, ⌥⇧⌘F, ⌥⌘⌫ |
 | Note | Move to Recently Deleted | ⌘⌫ |
 | Note | Restore Note | (none) |
 | Tools | Pen, Marker, Pencil, Eraser, Lasso | ⌥⌘1 … ⌥⌘5 |

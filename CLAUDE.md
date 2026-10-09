@@ -563,6 +563,13 @@ Branch per task, PR to `main`, squash merge, CI green. Commit messages:
   `PageStackLayout.revealOffset`): embedded canvases never scroll. "Recognize All" results
   (`recognitionResults`) live in the model until the next run or `close()`, never on disk.
   A run writes each page only if its digest still matches (`RecognitionJob.ops`).
+- Favorites (`meta.favorite`): written only via `NoteOps.setFavorite` (CLI `notes favorite`, the app's
+  `AppModel.setFavorite`); the sidebar's Favorites is `SidebarItem.favorites`. The quick-voice-notes notebook is
+  the capture profile's alone (Settings ▸ Quick Voice Notes); `LegacyVoiceNotebook` only carries over what
+  older builds stored in New Notes. The Mac's item commands (`duplicateItem`, `bringItemToFront`, `deleteItem`)
+  run on the selected item through `CanvasCommandTarget.perform(itemCommand:)`, enabled from
+  `NoteEditor.hasItemSelection` (each canvas reports its page); rotation is `ItemActions.rotate` (menu quarter
+  turns, the controller's `UIRotationGestureRecognizer`).
 - Newer format versions (`format.md` §7): a vault whose `format` is a later
   `sempere/<major>` or whose `features` are unknown, and revisions marked newer
   (their `format`/`features`), open read-only. Newer revisions decode

@@ -447,7 +447,7 @@ struct EditorView: View {
             Task { await model.report { try await model.setFavorite(!on, for: editor.noteID) } }
         }
         .disabled(model.isVaultReadOnly)
-        .help(on ? "Remove this note from Favorites" : "Add this note to Favorites")
+        .help(LocalizedStringKey(on ? "Remove this note from Favorites" : "Add this note to Favorites"))
     }
 
     private var eraserSizeMenu: some View {

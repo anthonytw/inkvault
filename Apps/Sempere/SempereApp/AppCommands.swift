@@ -102,17 +102,21 @@ struct AppCommands: Commands {
     @ViewBuilder
     private func item(_ command: MenuCommand) -> some View {
         let enabled = router.map { command.isEnabled(in: $0.context) } ?? (command == .showLibrary || command == .showSettings)
-        var title = command.title
-        if command == .togglePalette, router?.paletteVisible == true { title = String(localized: "Hide Tool Palette") }
-        if command == .toggleRecording, router?.context.isRecording == true {
-            title = String(localized: "Stop Recording")
-        }
-        let button = Button(title) { run(command) }.disabled(!enabled)
+        let button = Button(title(of: command)) { run(command) }.disabled(!enabled)
         if let shortcut = command.shortcut {
             button.keyboardShortcut(shortcut.key == MenuCommand.Shortcut.backspace ? KeyEquivalent.delete : KeyEquivalent(shortcut.key),
                                     modifiers: shortcut.modifiers.eventModifiers)
         } else {
             button
+        }
+    }
+
+    /// The entry's title: Hide / Show Tool Palette and Start / Stop Recording follow the state.
+    private func title(of command: MenuCommand) -> String {
+        switch command {
+        case .togglePalette where router?.paletteVisible == true: return String(localized: "Hide Tool Palette")
+        case .toggleRecording where router?.context.isRecording == true: return String(localized: "Stop Recording")
+        default: return command.title
         }
     }
 
