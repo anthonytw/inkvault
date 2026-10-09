@@ -191,3 +191,25 @@ extension RecipientsProblem.Reason {
         }
     }
 }
+
+extension Vault {
+    /// The version markers this device's trust record holds (format.md §2.1);
+    /// nil when it has none, or it cannot be read.
+    public var recordedMarkers: VaultMarkers? { (try? trustStore?.record(for: vaultId))??.markers }
+
+    /// Tags the version markers of a vault written before they were
+    /// authenticated (format.md §2.1 "Version markers"), once, as the first
+    /// write would: every check of `requireWritable` applies first (an
+    /// untagged list is tagged too). Returns false, writing nothing, when the
+    /// markers are tagged already, the vault is locked or read-only, or its
+    /// list does not check.
+    @discardableResult
+    public mutating func upgradeMarkers() throws -> Bool {
+        guard manifest.markersTag == nil, let secret, recipientsStatus.allowsWriting, !isReadOnly else { return false }
+        try requireWritable()
+        if case .untagged = recipientsStatus {} else { try tagMarkersOnDisk() }   // no-op when just tagged
+        manifest = try Self.readManifest(FileIO.read(manifestURL, maxBytes: BoundedRead.maxManifestBytes))
+        recipientsStatus = Self.recipientsStatus(manifest, secret: secret, trust: trustStore)
+        return manifest.markersTag != nil
+    }
+}

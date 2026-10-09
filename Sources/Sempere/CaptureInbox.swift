@@ -815,6 +815,11 @@ extension Vault {
         /// The inbox files deleted.
         public var removed: [String]
         public var error: String?
+        /// Who captured it (format.md §11.3): the manifest's device and the
+        /// recipient the capture is attributed to (nil: unattributed).
+        public var captured: CaptureAttribution?
+        /// That recipient's label in vault.json.
+        public var capturedBy: String?
     }
 
     /// Adopts capture `id` as this device (the CLI's `inbox import`): reads
@@ -830,6 +835,11 @@ extension Vault {
         do {
             let pending = try readCapture(id, backoff: backoff, now: now)
             result.title = pending.manifest?.title
+            if let m = pending.manifest {
+                let who = CaptureAttribution(device: m.device, recipient: pending.recipient)
+                result.captured = who
+                result.capturedBy = who.label(in: recipients)
+            }
             // A note exists once it has a revision: a folder holding only the
             // blobs of an adoption interrupted before its delta is still new.
             let exists = try !revisionNames(of: ids.note).isEmpty
