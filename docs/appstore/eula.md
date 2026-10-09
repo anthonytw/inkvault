@@ -35,8 +35,8 @@ Sempere is free software. Its source code is published at
 <https://github.com/anthonytw/sempere> under the GNU General Public License, version 3 or (at
 your option) any later version, with an additional permission that allows distribution
 through the App Store (the "App Store exception"). You may use, study, share and change that
-source code under those terms; the full texts are in the App (Settings ▸ About ▸ License) and
-in the repository. Third-party components keep their own licences, listed in Settings ▸ About ▸
+source code under those terms; the full texts are in the App (Settings ▸ About ▸ About Sempere ▸ License) and
+in the repository. Third-party components keep their own licences, listed in Settings ▸ About ▸ About Sempere ▸
 Acknowledgments.
 
 This agreement covers the copy of the App you received from the App Store. It does not limit
