@@ -367,6 +367,25 @@ colour), then the ink. Each item is one of:
   `breaks` the viewer breaks greedily with widths measured by the browser
   (after white space, after `-`, between wide CJK characters, and inside a
   word wider than the frame), which can differ from another renderer's lines.
+- **Markdown text box** (§8.2.4 "Markdown text", §8.5.4): parsed and laid
+  out by a port of the Swift code (`src/format/markdown.ts`: the dialect's
+  parser, plain text, rendered paragraphs; `src/render/markdown.ts`: lines,
+  metrics, markers, quote bars, rules, code fills), then drawn as the items it
+  stands for: text items with fixed lines (run `font` `mono` for code), its
+  formulas as math items (their stored render through pdf.js, else their
+  source) and its shapes under them. With the box's stored `layout` (when its
+  hash matches the text) the lines and baselines are the CLI's and the app's
+  whatever the fonts (`test/markdown.test.ts` reads the shared fixtures
+  `Tests/SempereTests/Fixtures/text/markdown.json`; the cross-check compares
+  the fixture vault's Markdown note with the CLI's SVG, shapes included).
+  **Math is drawn from the stored renders, not KaTeX:** a KaTeX typesetting
+  would size formulas differently from SwiftMath and so move the lines away
+  from the app's and the CLI's, needs its own fonts and stylesheet (the CSP
+  allows neither), and parses LaTeX in the page; the renders are the same PDF
+  path as equation items, already verified and sandboxed in pdf.js. A formula
+  the app has not typeset yet (a box written by the CLI) shows its LaTeX
+  source in a monospace font, as in the CLI's exports, and is reported. Search
+  sees the plain text (no markup).
 - **Image** (JPEG or PNG, by signature): the header is checked first (8-bit
   baseline or progressive JPEG with 1 or 3 components, any valid PNG, at most
   100 MP and plausible for the file's size), metadata is stripped as the

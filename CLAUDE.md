@@ -600,6 +600,19 @@ Branch per task, PR to `main`, squash merge, CI green. Commit messages:
   item's `pageText` register, kept in `extra` (`Item.pageText`): fill it with a
   `PDFTextExtracting` (`BuiltinPDFTextExtractor`, the CLI's `pdftotext`,
   the app's `PDFKitTextExtractor`) through `PDFIngest.withText`.
+- Markdown text boxes (`format.md` §8.2.4 "Markdown text", §8.5.4, PR #129): `markup: "markdown"`; the source
+  IS the box's text (one run, no `breaks`), so older readers show and edit it as plain text. Readers ignore run
+  attributes and `breaks` of such a box; `layout` (rendered breaks as SOURCE offsets) counts only when its `of`
+  equals `MarkdownText.hash` of the text (an older editor keeps the field after changing the source); `math`
+  entries match a formula by latex/display/size/colour (stale ones are ignored, their blobs still referenced).
+  One parser and layout: `MarkdownDocument` / `MarkdownPlan` (core), `MarkdownLayout` / `MarkdownItems`
+  (SempereRender: a box is expanded at `PreparedPage` into text items with fixed breaks, `math` items and an
+  `underlay` of shapes, so every writer and `ItemRaster` draws it), ported in `web/src/format/markdown.ts` and
+  `web/src/render/markdown.ts`: change all of them together and regenerate `Fixtures/text/markdown.json`
+  (`SEMPERE_WRITE_MARKDOWN_FIXTURE=1 swift test --filter MarkdownLayoutTests`) and the web goldens. Writers relayout
+  with `MarkdownLayout.relayout` (the app through `TextKitBreaks.relayout`, the CLI through `laidOutText`). Search
+  and reports use `MarkdownText.searchText`. The app typesets formulas on close (`NoteEditor.preparedMarkdown`:
+  renders first, then one delta); the CLI never typesets.
 - Recordings (tasks E4, E5, `docs/attachments.md` §14): pure logic (format, `RecordingTimeline`,
   `RecordingSync`, `TranscriptBuilder`, `TranscriptionLanguage`) in `Sources/Sempere/RecordingSupport.swift`;
   the Speech framework only in `Sources/SempereSpeech` (behind `#if canImport(Speech)`, shared by the app and

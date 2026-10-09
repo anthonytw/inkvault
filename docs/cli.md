@@ -444,6 +444,7 @@ sempere attach pdf NOTE FILE [--pages 1-3,5,7-] [--after N] [--pdf-text auto|bui
 sempere attach text NOTE (TEXT | --file FILE|-) [--page N] [--frame ... | --at ... --width ...]
                              [--font sans|serif|mono] [--size PT] [--color #RRGGBB[AA]]
                              [--align start|center|end|left|right] [--bold] [--italic] [--lang TAG]
+                             [--markdown] [--no-breaks]
                              [--layer content|background] [--rec RECORDING [--rec-at SECONDS]] [--dry-run]
 sempere attach math NOTE (--latex SOURCE | --latex-file FILE|-) [--page N] [--frame ... | --at ... --width ...]
                              [--inline] [--size PT] [--color #RRGGBB[AA]] [--render FILE.pdf [--engine NAME]]
@@ -1102,6 +1103,7 @@ sempere items move ID|TITLE ITEM --frame x,y,w,h
 sempere items rotate ID|TITLE ITEM --degrees D
 sempere items crop ID|TITLE ITEM (--crop x,y,w,h | --clear) [--keep-frame]
 sempere items replace ID|TITLE ITEM FILE [--keep-metadata]
+sempere items text ID|TITLE ITEM (TEXT | --file FILE|-) [--markdown | --no-markdown] [--no-breaks]
 sempere items math ID|TITLE ITEM [--latex SOURCE | --latex-file FILE|-] [--display | --no-display]
                                  [--size PT] [--color #RRGGBB[AA]] [--render FILE.pdf [--engine NAME]]
 sempere items front ID|TITLE ITEM
@@ -1110,6 +1112,31 @@ sempere items duplicate ID|TITLE ITEM... [--dx PT] [--dy PT]
 sempere items copy ID|TITLE ITEM... --to ID|TITLE [--page N]
 sempere items poster ID|TITLE ITEM (IMAGE | --from-clip [--poster-time S] | --remove) [--dry-run]
 ```
+
+**Markdown text boxes** (`format.md` §8.2.4 "Markdown text", §8.5.4).
+`attach text --markdown` stores the text as Markdown source with LaTeX math:
+headings, `**bold**`, `*italic*`, `~~strikethrough~~`, `` `code` ``, bullet,
+ordered and task lists (`- [ ]`, `- [x]`), links, block quotes, fenced code
+blocks, thematic breaks, inline `$…$` and display `$$…$$` math; every line
+break shows as a line break. The source is the box's text (one run), so older
+readers show it as plain text; the line breaks stored are those of the
+rendered text, laid out with the CLI's fonts (`layout`, with the hash of the
+text they belong to), and the frame is as tall as the rendered lines.
+`--bold` and `--italic` are refused with `--markdown` (Markdown says it). The
+CLI cannot typeset: formulas are drawn as their LaTeX source (in a monospace
+font, reported by `export`) until the app typesets the box. `items text`
+replaces a box's text in one delta (the `text` register and, when the height
+of its lines changes, the frame): a Markdown box gets the new source and
+keeps its style and the typeset formulas the new source still uses; a plain
+box gets the text as one run in its style (run styles are dropped);
+`--markdown` turns a plain box into a Markdown box in the same font, size,
+colour, alignment, direction and language, `--no-markdown` the other way; the
+text is laid out again unless `--no-breaks`. `items list` shows a text box's
+text as search sees it (Markdown without markup) and `(Markdown)`; `--json`
+adds `text` and `markup`. `items move` lays a Markdown box out again at a new
+width like any laid-out box. `search` matches a Markdown box's text without
+its markup, `export` draws it rendered (PDF, SVG, PNG), the Markdown export
+writes the source as it is and the HTML export renders it.
 
 Recordings on the page (audio items, `format.md` §8.2.9) are placed with
 `recordings place` or `attach recording --place`; `list` shows them with the
