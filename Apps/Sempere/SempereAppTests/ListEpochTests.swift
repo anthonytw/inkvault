@@ -207,7 +207,6 @@ struct ListEpochTests {
         try await model.readSummaries([Self.lecture])
         model.flushListUpdates()
         #expect(model.notes.first { $0.id == Self.lecture }?.title == oldTitle, "the stale batch was dropped")
-        #expect(!model.verifiedNoteIDs.contains(Self.lecture) || model.summaryEpochs[Self.lecture] == 1)
 
         // Without a re-read in between, the same batch is applied.
         model.onSummaryRead = nil

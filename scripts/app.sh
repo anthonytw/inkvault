@@ -67,7 +67,8 @@ case "${1:-}" in
       -only-testing:SempereAppTests/PhoneReadingTests \
       -only-testing:SempereAppTests/PhoneCanvasTests -only-testing:SempereAppTests/PhoneRootTests \
       -only-testing:SempereAppTests/ZoomStepsTests -only-testing:SempereAppTests/PhoneStackTests \
-      -only-testing:SempereAppTests/PhoneInsertTests -only-testing:SempereAppTests/InsertOptionsTests
+      -only-testing:SempereAppTests/PhoneInsertTests -only-testing:SempereAppTests/InsertOptionsTests \
+      -only-testing:SempereAppTests/PhoneToolbarTests -only-testing:SempereAppTests/PhonePagelessTests
     ;;
   pseudo)
     # docs/localization.md "Checking layouts": PseudoLanguageUITests once per language, on the
