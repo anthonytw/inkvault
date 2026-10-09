@@ -30,11 +30,15 @@ struct RecipientsAlert: Identifiable, Equatable, Sendable {
     }
 
     static let title = String(localized: "This vault's device list was changed without its key", comment: "Alert title: vault.json's recipients were edited without the vault key")
+    static let markersTitle = String(localized: "This vault's format was changed without its key", comment: "Alert title: vault.json's format or features were edited without the vault key")
+
+    /// `title`, or `markersTitle` for a version-marker problem (format.md §2.1).
+    var displayTitle: String { problem.reason.isMarkers ? Self.markersTitle : Self.title }
 
     /// Remove is offered when the library can write the last verified list:
     /// not after an unconfirmed secret change (the files are tagged under a
     /// secret this device no longer holds), nor when no list is known.
-    var canRemove: Bool { problem.reason != .secretUnconfirmed && problem.restore != nil }
+    var canRemove: Bool { problem.reason != .secretUnconfirmed && !problem.reason.isMarkers && problem.restore != nil }
 
     /// Trust This List is offered when this device's own record of the list
     /// cannot be read (security review 2026-10, R5): the list itself checks
@@ -54,6 +58,12 @@ struct RecipientsAlert: Identifiable, Equatable, Sendable {
             lines.append(String(localized: "The vault's key was replaced in a way this device cannot confirm."))
         case .recordUnreadable:
             lines.append(String(localized: "This device's record of the vault's devices cannot be read, so the list cannot be checked against it."))
+        case .markersMismatch, .markersRemoved, .markersRolledBack:
+            // Security review 2026-10, N3: format and features are authenticated too.
+            lines.append(String(localized: "Someone who can change the vault's folder changed which version of Sempere may write to it, without the vault's key. This version would otherwise write to a vault it must only read."))
+            lines.append(String(localized: "Your notes can still be read. Nothing is written to this vault until this is fixed."))
+            lines.append(String(localized: "Repair it with `sempere vault markers repair` on a computer that has opened this vault before, or restore vault.json from a backup."))
+            return lines.joined(separator: "\n\n")
         }
         if unexpected.isEmpty {
             lines.append(String(localized: "No unknown device was added, but the list is not the one this device last checked."))

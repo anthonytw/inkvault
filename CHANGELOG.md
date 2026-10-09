@@ -290,6 +290,19 @@ The section for a version is the body of its GitHub Release (`docs/releasing.md`
 
 ### Security
 
+- Security review 2026-10, the open findings (#125). **C2:** each capture profile now holds its own
+  device's capture key (`format.md` §11.1), so a voice note is attributed to the device that recorded it
+  (`captured` on the recording, "Voice note from iPad" in the app, `from …` in `sempere inbox list` and
+  `import`) and no other profile can pass as it or add a transcript to its voice notes; profiles made
+  before are replaced at unlock, and their captures adopted as unattributed. **C3:** a device removed from
+  the vault can no longer add voice notes, also while the rewrap of its removal is unfinished; its waiting
+  captures are reported and kept. **N3:** `format` and `features` in `vault.json` are authenticated
+  (`markersTag`, `format.md` §2.1 "Version markers") and kept in the trust record: a downgraded, stripped
+  or replayed manifest is refused for writing (exit 6) and reported; older vaults are tagged at their
+  next unlock or write; `sempere vault markers [status|tag|repair]`. Older Sempere versions read such a
+  vault and stop writing to it (the new `markers-tag` feature). **P4:** the web viewer's ciphertext cache
+  is keyed by the vault's key state, so a recipient change or a finished rewrap drops copies a removed key
+  could open. **C8:** the comment in `QuickCapture.swift` now names the protection class it uses.
 - Security review of October 2026 (`docs/security-review-2026-10.md`):
   - A `rewrap-journal.json` planted in the vault folder, or sent by a sync server, made revisions and
     blobs tagged under a secret of the attacker's verify, and a resumed rewrap re-tagged them under the real
