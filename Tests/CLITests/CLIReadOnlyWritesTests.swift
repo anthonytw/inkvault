@@ -1,4 +1,5 @@
 import Age
+import CLITestSupport
 import Foundation
 import Sempere
 import XCTest
@@ -107,7 +108,7 @@ final class CLIReadOnlyWritesTests: CLITestCase {
             ["notebooks", "rename", "School", "Uni"],
             ["notebooks", "move", "School", "Archive"],
             ["import", "pdf", pdf],
-            ["import", "notability", URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("Fixtures/synthetic.note").path],
+            ["import", "notability", URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("SempereNotabilityTests/Fixtures/synthetic.note").path],
             ["blobs", "copy", blob, "--from", physics, "--to", groceries],
         ]
         // `restore` copies a backup to a new vault and never touches the vault in use, so it is no

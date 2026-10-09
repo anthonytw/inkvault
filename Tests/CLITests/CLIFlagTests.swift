@@ -1,4 +1,5 @@
 import Age
+import CLITestSupport
 import Foundation
 import Sempere
 import XCTest
@@ -10,7 +11,7 @@ final class CLIFlagTests: CLITestCase {
     let groceries = "bbbbbbbb-2222-4222-8222-000000000002"
     static let images = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
         .appendingPathComponent("SempereRenderTests/Fixtures/images")
-    static let notability = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("Fixtures")
+    static let notability = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("SempereNotabilityTests/Fixtures")
 
     var key: [String] { ["--vault", path("mine.sempere"), "--identity", path("mine.sempere.key")] }
 
