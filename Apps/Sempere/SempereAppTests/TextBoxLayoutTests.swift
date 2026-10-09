@@ -330,4 +330,39 @@ struct TextBoxLayoutTests {
         undo.undo()
         #expect(editor.items(on: page).contains { $0.text?.string == edited.text?.string })
     }
+
+    /// Review fix (#136): typing in a text box on the canvas turns off the menu commands whose
+    /// Mac shortcuts are text-editing keys (⌘⌫ deletes to the line start, ⌥⌘⌫ was Delete Page):
+    /// a menu key equivalent wins over the text view, so they deleted the note or the page.
+    @Test func typingInABoxTurnsOffTheDeleteShortcuts() async throws {
+        let (vault, _) = try TS.unlockedFixture()
+        let (editor, _) = try await NoteEditorTests.open(vault, debounce: .seconds(60))
+        if editor.isPageless { await editor.setLayout(pageless: false) }
+        while editor.pages.count < 2 { editor.addPage() }
+        let page = try #require(editor.currentPage).id
+        let canvas = UIScrollView(frame: CGRect(x: 0, y: 0, width: 600, height: 800))
+        let layer = ItemLayerView(frame: canvas.bounds)
+        canvas.addSubview(layer)
+        let controller = TextBoxEditorController()
+        controller.attach(to: canvas, itemLayer: layer)
+        controller.reset(editor: editor, pageID: page)
+
+        func context() -> MenuCommand.Context {
+            var c = MenuCommand.Context(window: .note, vault: .unlocked, hasNote: true)
+            EditorCommands.fill(&c, from: editor)
+            return c
+        }
+        #expect(!editor.typingInTextBox)
+        #expect(MenuCommand.deletePage.isEnabled(in: context()))
+        #expect(MenuCommand.deleteNote.isEnabled(in: context()))
+
+        controller.beginNew(at: ItemFrames.Point(x: 100, y: 100))
+        #expect(controller.isEditing && editor.typingInTextBox)
+        #expect(!MenuCommand.deletePage.isEnabled(in: context()), "⌥⌘⌫ is the text view's")
+        #expect(!MenuCommand.deleteNote.isEnabled(in: context()), "⌘⌫ is the text view's")
+
+        controller.endEditing(commit: false)
+        #expect(!editor.typingInTextBox)
+        #expect(MenuCommand.deletePage.isEnabled(in: context()))
+    }
 }

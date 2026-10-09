@@ -8,6 +8,8 @@ import UIKit
 /// page after it. Every gesture is one delta through `NoteEditor`.
 struct PageStripView: View {
     let editor: NoteEditor
+    /// Called after a thumbnail was tapped (the phone closes its sheet).
+    var onPicked: () -> Void = {}
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -25,6 +27,7 @@ struct PageStripView: View {
             ForEach(Array(editor.pages.enumerated()), id: \.element.id) { index, page in
                 Button {
                     editor.selectPage(index)
+                    onPicked()
                 } label: {
                     PageStripRow(editor: editor, page: page, number: index + 1, selected: index == editor.pageIndex)
                 }
