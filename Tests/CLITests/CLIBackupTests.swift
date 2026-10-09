@@ -161,6 +161,52 @@ final class CLIBackupTests: CLITestCase {
         XCTAssertEqual(again.status, 1, again.err)
     }
 
+    /// `backup status --max-age`: the app's Remind Me for scripts (exit 3 when overdue).
+    func testBackupStatusMaxAge() throws {
+        let vault = try copyFixtureVault()
+        let dir = path("backup")
+        XCTAssertEqual(try cli(["backup", "status", dir, "--max-age", "7"]).status, 1, "not a backup")
+        XCTAssertEqual(try cli(["backup", vault, "--to", dir, "-q"]).status, 0)
+
+        let fresh = try cli(["backup", "status", dir, "--max-age", "7", "--json"])
+        XCTAssertEqual(fresh.status, 0, fresh.err)
+        let json = try XCTUnwrap(fresh.json as? [String: Any])
+        XCTAssertEqual(json["overdue"] as? Bool, false)
+        XCTAssertEqual(json["maxAgeDays"] as? Int, 7)
+        XCTAssertNotNil(json["due"] as? String)
+        XCTAssertEqual(json["vaultId"] as? String, "5a3b1e00-1000-4000-8000-000000000001", "the status fields stay at the top level")
+
+        // Ten days without a complete run: overdue, exit 3, in text and JSON.
+        let index = URL(fileURLWithPath: dir).appendingPathComponent("backup.json")
+        var m = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: index)) as? [String: Any])
+        let old = ISO8601DateFormatter().string(from: Date().addingTimeInterval(-10 * 86_400))
+        m["created"] = old
+        m["completed"] = old
+        try JSONSerialization.data(withJSONObject: m).write(to: index)
+        let late = try cli(["backup", "status", dir, "--max-age", "7"])
+        XCTAssertEqual(late.status, 3, late.out + late.err)
+        XCTAssertTrue(late.out.contains("OVERDUE"), late.out)
+        let lateJSON = try cli(["backup", "status", dir, "--max-age", "7", "--json"])
+        XCTAssertEqual(lateJSON.status, 3)
+        XCTAssertEqual((lateJSON.json as? [String: Any])?["overdue"] as? Bool, true)
+        XCTAssertEqual(try cli(["backup", "status", dir, "--max-age", "30"]).status, 0)
+        XCTAssertEqual(try cli(["backup", "status", dir]).status, 0, "without --max-age nothing is judged")
+
+        // A run that only failed does not count: `updated` moves, `completed` stays.
+        m["completed"] = nil
+        try JSONSerialization.data(withJSONObject: m).write(to: index)
+        XCTAssertEqual(try cli(["backup", "status", dir, "--max-age", "7"]).status, 3, "never completed: from created")
+        XCTAssertTrue(try cli(["backup", "status", dir]).out.contains("never"))
+
+        // A complete run clears it.
+        XCTAssertEqual(try cli(["backup", vault, "--to", dir, "-q"]).status, 0)
+        XCTAssertEqual(try cli(["backup", "status", dir, "--max-age", "7"]).status, 0)
+
+        for bad in ["0", "3651", "-1", "x"] {
+            XCTAssertEqual(try cli(["backup", "status", dir, "--max-age", bad]).status, 2, bad)
+        }
+    }
+
     func testBackupStatusAndRestoreDryRun() throws {
         let vault = try copyFixtureVault()
         let dir = path("backup")
@@ -177,6 +223,10 @@ final class CLIBackupTests: CLITestCase {
         XCTAssertEqual(json["totalBytes"] as? Int, json["bytes"] as? Int)
         XCTAssertNotNil(json["updated"] as? String)
         XCTAssertTrue(try cli(["backup", "status", dir]).out.contains("updated"))
+
+        XCTAssertNotNil(json["completed"] as? String, "a run without errors completes")
+        XCTAssertNil(json["overdue"], "no --max-age, no verdict")
+        XCTAssertTrue(try cli(["backup", "status", dir]).out.contains("completed"))
 
         let target = path("restored.sempere")
         let dry = try cli(["restore", dir, "--to", target, "--dry-run", "--json"])

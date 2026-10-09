@@ -50,6 +50,11 @@ public struct BackupManifest: Codable, Hashable, Sendable {
     public var vaultId: String
     public var created: Date
     public var updated: Date
+    /// The start of the last run that finished without a file error (absent
+    /// in folders written before it existed, and until a run completes):
+    /// what an overdue check counts from (`BackupStatus.dueDate`). `updated`
+    /// moves with every run, failed or interrupted ones included.
+    public var completed: Date?
     /// Path relative to the backup root (`/`-separated) → hash and size.
     public var files: [String: Entry]
 
@@ -194,8 +199,12 @@ public struct BackupStatus: Encodable, Hashable, Sendable {
     public var vaultId: String
     /// The first run into this folder.
     public var created: Date
-    /// The last run that wrote `backup.json` (every run does, changed or not).
+    /// The last run that wrote `backup.json` (every run does, changed or not,
+    /// and one with file errors or cut short too).
     public var updated: Date
+    /// The last run that finished without a file error; nil when none did
+    /// (or the folder predates the field). See `dueDate(maxAgeDays:)`.
+    public var completed: Date?
     /// Note folders with at least one file in the backup.
     public var notes: Int
     /// Files of the vault itself (outside `versions/`) and their bytes.
@@ -206,6 +215,48 @@ public struct BackupStatus: Encodable, Hashable, Sendable {
     public var versionBytes: Int
     /// Everything the index records, in bytes.
     public var totalBytes: Int
+}
+
+extension BackupStatus {
+    /// What an overdue check counts from: the last complete run, else the
+    /// folder's first run (a folder whose runs all failed, or written before
+    /// `completed` existed, is due `maxAgeDays` after it was made).
+    public var lastBackupBase: Date { completed ?? created }
+
+    /// When the backup is due again: `maxAgeDays` after `lastBackupBase`.
+    public func dueDate(maxAgeDays: Int) -> Date {
+        BackupSchedule.dueDate(since: lastBackupBase, days: maxAgeDays)
+    }
+
+    /// Whether no backup completed in the last `maxAgeDays` days
+    /// (`sempere backup status --max-age`). See `BackupSchedule.isOverdue`.
+    public func isOverdue(maxAgeDays: Int, now: Date = Date()) -> Bool {
+        BackupSchedule.isOverdue(since: lastBackupBase, days: maxAgeDays, now: now)
+    }
+}
+
+/// "No backup in N days" (the app's Remind Me, `sempere backup status
+/// --max-age`): one rule for both.
+public enum BackupSchedule {
+    /// The largest number of days honoured (ten years); larger values are
+    /// clamped, so the date arithmetic cannot overflow.
+    public static let maxDays = 3650
+    /// A last backup dated further than this ahead of `now` cannot be
+    /// trusted (a clock that ran ahead, or an edited `backup.json`): it
+    /// counts as overdue rather than postponing the check for years.
+    public static let futureTolerance: TimeInterval = 86_400
+
+    /// `days` (clamped to `0...maxDays`) after `base`.
+    public static func dueDate(since base: Date, days: Int) -> Date {
+        base.addingTimeInterval(TimeInterval(min(max(days, 0), maxDays)) * 86_400)
+    }
+
+    /// True when `now` is at or past the due date, or `base` lies more than
+    /// `futureTolerance` in the future.
+    public static func isOverdue(since base: Date, days: Int, now: Date) -> Bool {
+        if base.timeIntervalSince(now) > futureTolerance { return true }
+        return dueDate(since: base, days: days) <= now
+    }
 }
 
 /// What restoring from a folder would bring back, read from the files on
@@ -558,6 +609,9 @@ public enum Backup {
         } else {
             report.kept += gone.sorted()
         }
+        // Only a run without file errors counts as a backup (an interrupted
+        // one throws before this line and leaves `completed` as it was).
+        if report.errors.isEmpty { manifest.completed = options.now }
         // Drop index entries for files that are gone from the mirror and
         // that this run did not delete (removed by hand): verify reports them.
         try save()
@@ -788,7 +842,8 @@ public enum Backup {
         let manifestURL = dir.appendingPathComponent(BackupManifest.fileName)
         guard FileIO.exists(manifestURL) else { throw BackupError.notABackupDirectory(dir.path) }
         let m = try BackupManifest.read(manifestURL)
-        var s = BackupStatus(vaultId: m.vaultId, created: m.created, updated: m.updated, notes: 0, files: 0, bytes: 0,
+        var s = BackupStatus(vaultId: m.vaultId, created: m.created, updated: m.updated, completed: m.completed,
+                             notes: 0, files: 0, bytes: 0,
                              versionFiles: 0, versionBytes: 0, totalBytes: 0)
         var notes = Set<Substring>()
         for (path, entry) in m.files {
