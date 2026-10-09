@@ -27,6 +27,8 @@ struct RootView: View {
     @State private var restoredVault: UUID?
     /// Settings ▸ Quick Voice Notes asked for by a widget or the control (`VoiceNoteLink.settings`).
     @State private var showingVoiceSettings = false
+    /// Choose Devices to Keep from the recipients alert (format.md §2.1 "Repair").
+    @State private var repairChoice: RecipientsRepairChoice?
 
     /// The stack column an iPhone shows (`CompactNavigation`); the other devices ignore it.
     @State private var compactColumn: NavigationSplitViewColumn = .sidebar
@@ -156,6 +158,9 @@ struct RootView: View {
         .sheet(isPresented: $creatingVault) {
             NewVaultView()
         }
+        .sheet(item: $repairChoice) { choice in
+            RecipientsRepairView(choice: choice)
+        }
         .sheet(isPresented: .constant(model.phase == .locked || keys.holdsUnlockSheet(model))) {
             UnlockView()
                 .voiceNoteBanner()
@@ -203,6 +208,9 @@ struct RootView: View {
                 Button("Trust This List") {
                     Task { await model.report { try await model.confirmRecipientsList() } }
                 }
+            }
+            if model.recipientsAlert?.canChoose == true {
+                Button("Choose Devices to Keep…") { repairChoice = model.recipientsRepairChoice() }
             }
             Button("Cancel", role: .cancel) { model.dismissRecipientsAlert() }
         } message: {
