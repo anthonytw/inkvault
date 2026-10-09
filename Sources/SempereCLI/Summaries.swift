@@ -52,7 +52,12 @@ struct VaultSummaries: ParsableCommand {
             FileHandle.standardOutput.write(data)
             return
         }
-        try data.write(to: target, options: .atomic)
+        // The plaintext holds titles and text: owner-only from the moment it exists (0600), never chmod'ed later.
+        if plaintext {
+            try writePrivateFile(data, to: target)
+        } else {
+            try data.write(to: target, options: .atomic)
+        }
         if output.json {
             try output.emitJSON(Report(path: target.path, notes: notes, entries: entries.count, read: read,
                                        bytes: data.count))

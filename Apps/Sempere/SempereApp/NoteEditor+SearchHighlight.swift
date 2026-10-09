@@ -1,9 +1,17 @@
 import Foundation
 import Sempere
+import SempereRender
 
-/// Highlighting the words a search found (recognition boxes, format.md §5.5)
-/// on the canvas, and stepping through them across the note's pages.
+/// Highlighting the words a search found (recognition boxes, format.md §5.5, and the words inside
+/// text boxes, found with the layout the canvas draws) on the canvas, and stepping through them across
+/// the note's pages.
 extension NoteEditor {
+    /// Where words fall inside a text box: laid out by CoreText, the shaper that draws the canvas's
+    /// text (`TextMatchBoxes`, the CLI's `search --show-boxes` uses the same code with its own shaper).
+    static let textBoxMatcher: TextBoxMatcher = { words, item in
+        TextMatchBoxes.boxes(of: words, in: item, shaper: CoreTextShaper())
+    }
+
     /// The pages as the highlight sees them: recognition that no longer
     /// describes the strokes (edited here, or a basis that does not match)
     /// is left out, since its boxes would sit in the wrong places. While the
@@ -20,15 +28,16 @@ extension NoteEditor {
 
     /// Starts highlighting the words of `query`, on the first match of `page`
     /// (the page the search result named) when it has one, and shows it.
-    /// Shows nothing when no word has a box (a match in the title, a tag, or
-    /// text without boxes).
+    /// Shows nothing when no word has a box (a match in the title or a tag, or
+    /// in a page with neither recognised words nor a text box that contains one).
     func highlightSearch(query: String, page: UUID?) {
         guard !isPreparing else {
             pendingSearch = (query, page)   // `applyPendingSearch` runs when the pages are read
             return
         }
         pendingSearch = nil
-        searchCursor = SearchMatchCursor(query: query, pages: pagesForHighlight, preferredPage: page)
+        searchCursor = SearchMatchCursor(query: query, pages: pagesForHighlight, preferredPage: page,
+                                         textBoxes: Self.textBoxMatcher)
         if searchCursor != nil { revealCurrentMatch() }
     }
 

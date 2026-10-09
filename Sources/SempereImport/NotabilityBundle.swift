@@ -117,6 +117,7 @@ public enum NotabilityBundle {
         var placed: [(curve: Int, page: Int)] = []   // stroke and line indices with their page
         var originX: [Float] = []   // per stroke, as stored
         var pdfs = 0, media = 0, unsupportedStrokes = 0, unsupportedShapes = 0, dashed = Set<Int>()
+        var unsupportedKinds: [String: Int] = [:]
         var attachments: [NotabilityNote.BundleAttachment] = []
 
         // Erase records list the ids of the stroke and shape records they
@@ -178,7 +179,11 @@ public enum NotabilityBundle {
             case .erase:
                 break
             case .stroke:
-                guard let pieces = try stroke(fb, payload, budget: &budget) else { unsupportedStrokes += 1; continue }
+                guard let pieces = try stroke(fb, payload, budget: &budget) else {
+                    unsupportedStrokes += 1
+                    unsupportedKinds[try unsupportedStrokeKind(fb, payload), default: 0] += 1
+                    continue
+                }
                 let isDashed = try fb.field(payload, 5).map { try fb.u8($0) != 0 } ?? false
                 let pg = try pageIndex(fb, payload)
                 let ox = try fb.field(payload, 1).map { try fb.f32($0) } ?? 0
@@ -190,7 +195,11 @@ public enum NotabilityBundle {
                 }
             case .shape:
                 try budget.spend(64)
-                guard let curve = try line(fb, payload) else { unsupportedShapes += 1; continue }
+                guard let curve = try line(fb, payload) else {
+                    unsupportedShapes += 1
+                    unsupportedKinds[try unsupportedShapeKind(fb, payload), default: 0] += 1
+                    continue
+                }
                 placed.append((-(lines.count + 1), try pageIndex(fb, payload)))
                 lines.append(curve)
             }
@@ -251,6 +260,7 @@ public enum NotabilityBundle {
         note.shapeCount = lines.count
         note.unsupportedShapes = unsupportedShapes
         note.unsupportedStrokes = unsupportedStrokes
+        note.unsupportedKinds = unsupportedKinds
         note.clampedStrokes = curves.filter(\.originClamped).count
         note.erasedRecords = erasedCount
         note.bundleAttachments = attachments
@@ -423,6 +433,23 @@ public enum NotabilityBundle {
               pieces.allSatisfy({ $0.points.allSatisfy { $0.x.isFinite && $0.y.isFinite } && $0.fw.allSatisfy(\.isFinite) })
         else { return nil }
         return pieces
+    }
+
+    /// What kind of stroke record `stroke` could not decode, for the report (GA-27): the geometry
+    /// header's kind byte, or why there is none. Names only, never content.
+    static func unsupportedStrokeKind(_ fb: FlatBuffer, _ p: Int) throws -> String {
+        guard let g = try fb.field(p, 9) else { return "stroke without geometry" }
+        let blob = try fb.bytes(atVectorRef: g)
+        guard blob.count >= 4 else { return "stroke with a short geometry" }
+        let b = [UInt8](blob.prefix(4))
+        return "stroke of geometry kind \(b[3])" + (b[3] == 3 ? " (undecodable: precision \(b[0]), flags or width)" : "")
+    }
+
+    /// The kind byte (record field 4) of a shape record `line` could not decode.
+    static func unsupportedShapeKind(_ fb: FlatBuffer, _ p: Int) throws -> String {
+        guard let k = try fb.field(p, 4) else { return "shape without a kind" }
+        let kind = try fb.u8(k)
+        return "shape of kind \(kind)" + (kind == 1 ? " (undecodable line)" : "")
     }
 
     /// A straight-line shape record: origin (field 1), kind 1 (field 4), the

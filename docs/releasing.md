@@ -13,7 +13,11 @@ A release is a git tag `vX.Y.Z`. `.github/workflows/release.yml` does the rest.
 3. The workflow:
    - **prepare**: fails unless the tag points at a commit reachable from `main` (the workflow does not run
      the tests itself: merge only with CI green, then tag), is `vMAJOR.MINOR.PATCH[-pre]`, equals the version in
-     `Version.swift`, and `CHANGELOG.md` has a non-empty section for it;
+     `Version.swift`, and `CHANGELOG.md` has a non-empty section for it whose heading is
+     `## [X.Y.Z] - YYYY-MM-DD` and which holds no `TODO(user)` anywhere
+     (`scripts/changelog-section.sh`, tested by `scripts/test-changelog-section.sh` in CI's `release` job):
+     a placeholder left for the maintainer, such as the release date, never reaches the release notes or the
+     tarballs' CHANGELOG;
    - **linux** (x86_64 on `ubuntu-24.04`, aarch64 on `ubuntu-24.04-arm`, both in
      `swift:6.4-noble`) and **macos** (`swift build --arch arm64 --arch x86_64`): build, check
      that the binary is static (Linux) or universal (macOS) and prints the tag's version, and

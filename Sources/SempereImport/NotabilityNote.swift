@@ -188,6 +188,9 @@ public struct NotabilityNote: Hashable, Sendable {
     /// Strokes whose geometry could not be decoded (`.ntb` stroke kinds other
     /// than Bézier ink); 0 for `.note` packages.
     public var unsupportedStrokes = 0
+    /// `.ntb`: the stroke and shape records that were not converted, by what they are ("stroke of
+    /// geometry kind 7", "shape of kind 2") with their counts, so a survey of a backup says what to decode next.
+    public var unsupportedKinds: [String: Int] = [:]
     /// `NBNoteTakingSessionHandwritingLanguageKey` as stored (`en_US`, `es_ES`).
     public var handwritingLanguage: String?
     /// `NBNoteTakingSessionIsHighlighterBehindTextKey`.
