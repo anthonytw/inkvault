@@ -173,9 +173,10 @@ struct WebDAVAppTests {
         #expect(s.model.webdavLocations.locations.first?.lastPush != nil)
         _ = try await s.model.createNote(title: "Written on the iPad", paper: .ruled, notebook: nil)
         #expect(await TS.waitUntil { s.remote.pushes == 2 })
-        // Sync Now runs one more.
+        // Sync Now runs one more (a write landing meanwhile may have added one).
+        let before = s.remote.pushes
         await s.model.webdavSyncNow()
-        #expect(s.remote.pushes == 3)
+        #expect(s.remote.pushes > before)
     }
 
     @Test func offlineKeepsWorkingAndSaysSo() async throws {
