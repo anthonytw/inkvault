@@ -25,6 +25,8 @@ enum SidebarItem: Hashable, Sendable {
     case notebook(String)
     case tag(String)
     case deleted
+    /// Notes marked as favorites (`meta.favorite`, format.md §5.4).
+    case favorites
     /// The notes the last "Recognize All Notes" run changed (`AppModel.recognitionResults`).
     case recentlyRecognized
 }
@@ -557,6 +559,7 @@ final class AppModel {
         case .notebook(let n): return notes.filter { !$0.deleted && NotebookPath.name($0.notebook, isWithin: n) }
         case .tag(let t): return notes.filter { !$0.deleted && $0.tags.contains { NoteOps.tagKey($0) == NoteOps.tagKey(t) } }
         case .deleted: return notes.filter(\.deleted)
+        case .favorites: return notes.filter { !$0.deleted && $0.favorite }
         case .recentlyRecognized:
             return RecentlyRecognized.notes(notes, now: activityNow())
         }

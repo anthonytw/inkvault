@@ -100,6 +100,8 @@ The CLI gets every feature first, or at the latest with the app (`CLAUDE.md`
 | Note editing as in the app: `notes new/rename/tag/move/paper/delete/undelete`, `notebooks list/rename` (subtree), `tags list`, `pages list/add`, `notes list --notebook` over sub-notebooks | ✅ #58 | ✅ #58 |
 | `notebooks move NOTEBOOK PARENT` (nest or un-nest a notebook: the app's drag and drop) | ✅ #72 | ✅ #72 |
 | Pages: `pages add --after`, `move`, `delete`, `duplicate`; paged/pageless (`notes layout`) | ✅ #52 | ✅ #52 |
+| Notes: `notes favorite NOTE [--off]`, `notes list --favorites`, `favorite` in the `NoteJSON` of every note listing (GA-01) | ✅ #131 | ✅ #131 |
+| `transcribe --download-model` (SpeechTranscriber's on-device model; the app's Settings button, GA-05) | — (error) | ✅ #131 |
 | Items: `items list`, `move`, `rotate`, `front`, `delete`, `duplicate`, `copy` (the app's item gestures) | ✅ #68 | ✅ #68 |
 | `search --show-boxes` (match locations, numbered across the note, as the app's highlights) | ✅ #72 | ✅ #72 |
 | Items: `items crop` (the app's Crop: the visible part stays in place) | ✅ #81 | ✅ #81 |
@@ -139,7 +141,7 @@ The CLI gets every feature first, or at the latest with the app (`CLAUDE.md`
 | Handwritten math (G1 part 2): `recognize-math` (`--strokes`/`--rect`/`--lasso`/`--all-ink`, `--model DIR` on Core ML, `--latex` anywhere, `--place replace\|beside`, `--save-image`) | ✅ #118 (`--model`: macOS only) | ✅ #118 |
 | Vaults of a newer format version (`format.md` §7): read commands work and report `readOnly`, `readOnlyReasons` and per-note `newer` in `--json`; every write exits 7 | ✅ #94 | ✅ #94 |
 | `--version` prints the GPL-3 notice (copyright, no warranty, free to redistribute) with links to the licence and `SECURITY.md`; `about` (`--json`) adds the source, vulnerability reporting, the security limits page and the third-party list (`SempereAbout`, shared with the app's About) | ✅ #142 | ✅ #142 |
-| `notes favorite` / `unfavorite` (nothing sets `meta.favorite` today; the app follows) (GA-01, M) | 📋 | 📋 |
+| `notes favorite NOTE [--off]` and `notes list --favorites` (GA-01, M) | ✅ #131 | ✅ #131 |
 | `items text` (edit a text box's text and style, on `NoteOps.setText`) (GA-03, M) | 📋 | 📋 |
 | `backup` overdue check for the app's "Remind Me" (GA-18, S) | 📋 | 📋 |
 | `vault summaries --plaintext --out` writes the file mode 0600 (P5) (GA-30, S) | ✅ #130 | — |
@@ -205,10 +207,10 @@ The CLI gets every feature first, or at the latest with the app (`CLAUDE.md`
 | Release | TestFlight | ✅ builds 6 and 7 (internal group) |
 | Release | App Store submission prep (export compliance, privacy manifests for the app and widget, App Privacy / age rating / review notes / listing, privacy policy page, `scripts/release-check.sh` in CI; `docs/release/`) | ✅ #113; the submission itself is 📋 (the maintainer submits) |
 | Release | App Store screenshots generated from a synthetic demo vault (`scripts/screenshots.sh`, CI dispatch) | ✅ #53 |
-| Notes | Favorites in the app: set and clear `meta.favorite` once `notes favorite` exists in the CLI (GA-01, M) | 📋 |
-| Items | Rotate an item (`NoteEditor.setItemRotation` has no caller; the CLI has `items rotate`) (GA-02, M) | 📋 |
-| Settings | "Notebook for quick voice notes" in New Notes does nothing; one field should drive capture (GA-04, S) | 📋 |
-| Settings | Transcription model download button never appears (`TranscriptionSettings.downloader` is never set) (GA-05, M) | 📋 |
+| Notes | Favorites in the app: the note's context menu and toolbar set and clear `meta.favorite`, and the sidebar lists Favorites (GA-01, M) | 🚧 #131 |
+| Items | Rotate an item: Rotate 90° Left / Right in the selection menu and a two-finger turn (GA-02, M) | 🚧 #131 |
+| Settings | One notebook setting for quick voice notes (Quick Voice Notes ▸ Notebook); the inert New Notes field is gone and its stored value migrated (GA-04, S) | 🚧 #131 |
+| Settings | Transcription model download button wired to `SpeechTranscription.downloadModel` (also `transcribe --download-model`), and the panel lists the speech engines and which one is used (GA-05, M) | 🚧 #131 |
 | Search | Transcripts in the app's search (`TranscriptSearch`, shared with `search --transcripts`) (GA-06, M); highlights inside text boxes (`TextMatchBoxes`; CLI `search --show-boxes` too) (GA-07, M) | 🚧 #134 (not yet tried on the iPad) |
 | Import | App Notability import: an options sheet (attachments, photo metadata, PDF page text, folder tags, read handwriting) and the full report (`dropped.*`, warnings) (GA-08, M) | 🚧 #134 (not yet tried on the iPad) |
 | Keys | Recipient `repair --keep` and replace-recipient in the app (today the alert says to use the CLI) (GA-17, M) | 📋 |
@@ -252,7 +254,7 @@ behaviour and testing on a real Mac.
 | Drawing with mouse/trackpad (any input, object eraser takes the pointer, tool-sized cursor, ruler) | ✅ #46 (`docs/mac.md`); mouse stroke smoothing (Settings → General: Off / Light / Strong) ✅ #123 |
 | Mac App Store build (same bundle, universal purchase) | ✅ #113: project checked (one bundle id, sandbox, entitlements allow-list in `scripts/release-check.sh`), steps in `docs/release/app-store.md` §6; the submission is 📋 |
 | Mac App Store screenshots (Catalyst, 2880 × 1800, best effort) | ✅ #53 |
-| Keyboard shortcuts for item actions (duplicate, front, delete) and for recording (GA-13, S) | 📋 |
+| Keyboard shortcuts for item actions and recording: ⌘D, ⌥⇧⌘F, ⌃⌘⌫, ⌃⌘M (GA-13, S) | 🚧 #131 |
 | Menu parity: Version History, page duplicate / delete / undo delete, Add Page After This One, layout toggle, Show Pages, Text and Select tools, eraser size and Compact Palette as Note / Tools / View entries (GA-14, M) | ✅ #136 (not yet tried on a Mac) |
 | CI: run the Mac Catalyst app suites on PRs, not only on `main` and dispatch (GA-62, S; a decision on macOS runner time) | 📋 (needs the maintainer) |
 | Menu-bar item for quick capture (GA-23, M): File > Start/Stop Voice Note (⇧⌘M) ✅ #136; a status-bar icon with Quick Voice Note and New Note, from a small AppKit bundle loaded by the Catalyst app, with a Settings toggle 🚧 | 🔀 follow-up PR for the icon (not yet tried on a Mac) |

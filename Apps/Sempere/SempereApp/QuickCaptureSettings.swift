@@ -13,7 +13,7 @@ struct QuickCaptureSettingsSection: View {
 
     @AppModelEnvironment private var model
     @State private var stored: StoredCaptureProfile?
-    @State private var notebook = CaptureProfile.defaultNotebook
+    @State private var notebook = LegacyVoiceNotebook.value() ?? CaptureProfile.defaultNotebook
     @State private var problem: String?
 
     var body: some View {
@@ -62,6 +62,7 @@ struct QuickCaptureSettingsSection: View {
         }
         .id(Self.anchor)
         .onAppear {
+            model.migrateLegacyVoiceNotebook()
             reload()
             // Live Activities may have been switched in Settings ▸ Sempere meanwhile.
             model.quickCapture.publishStatus()
