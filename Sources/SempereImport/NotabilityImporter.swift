@@ -69,6 +69,8 @@ public enum NotabilityImporter {
         public var recordings = 0
         /// Strokes written with `rec` (linked to a recording).
         public var recLinkedStrokes = 0
+        /// Recordings that got Notability's own transcript as a transcript blob.
+        public var transcripts = 0
         /// Blobs written (distinct contents).
         public var blobs = 0
         /// Their total size in bytes.
@@ -142,6 +144,65 @@ public enum NotabilityImporter {
 
         /// True when nothing was left behind.
         public var isEmpty: Bool { self == Dropped() }
+
+        /// What `Kind` counts, in report order: the nonzero ones, for the CLI's verbose line and the app's
+        /// report sheet (which localizes `Kind` itself).
+        public var nonZero: [(kind: Kind, count: Int)] {
+            Kind.allCases.compactMap { k in count(of: k) > 0 ? (k, count(of: k)) : nil }
+        }
+
+        /// The counter `kind` names.
+        public func count(of kind: Kind) -> Int {
+            switch kind {
+            case .typedTextCharacters: return typedTextCharacters
+            case .pdfs: return pdfs
+            case .pdfPages: return pdfPages
+            case .media: return media
+            case .pdfHighlights: return pdfHighlights
+            case .templatePDFs: return templatePDFs
+            case .recLinks: return recLinks
+            case .recordings: return recordings
+            case .dashedStrokes: return dashedStrokes
+            case .unknownStyleStrokes: return unknownStyleStrokes
+            case .defaultedAttributeStrokes: return defaultedAttributeStrokes
+            case .unsupportedShapes: return unsupportedShapes
+            case .unsupportedStrokes: return unsupportedStrokes
+            case .clampedStrokes: return clampedStrokes
+            case .bundleRecordsWithoutFile: return bundleRecordsWithoutFile
+            case .bundleFilesUnreferenced: return bundleFilesUnreferenced
+            case .pdfTextPages: return pdfTextPages
+            }
+        }
+
+        /// One counter of `Dropped`, named for reports (the raw value is the JSON key).
+        public enum Kind: String, CaseIterable, Sendable {
+            case typedTextCharacters, pdfs, pdfPages, media, pdfHighlights, templatePDFs, recLinks, recordings
+            case dashedStrokes, unknownStyleStrokes, defaultedAttributeStrokes, unsupportedShapes, unsupportedStrokes
+            case clampedStrokes, bundleRecordsWithoutFile, bundleFilesUnreferenced, pdfTextPages
+
+            /// The English words the CLI prints after the count.
+            public var english: String {
+                switch self {
+                case .typedTextCharacters: return "typed text characters"
+                case .pdfs: return "pdfs"
+                case .pdfPages: return "pdf pages (imported as blank paper)"
+                case .media: return "media objects"
+                case .pdfHighlights: return "pdf highlights"
+                case .templatePDFs: return "template PDF paper"
+                case .recLinks: return "stroke links to recordings"
+                case .recordings: return "recordings"
+                case .dashedStrokes: return "dashed strokes imported solid"
+                case .unknownStyleStrokes: return "strokes of unknown style imported as pen"
+                case .defaultedAttributeStrokes: return "strokes with a missing style, colour or width (defaulted)"
+                case .unsupportedShapes: return "shapes not converted"
+                case .unsupportedStrokes: return "strokes of an undecoded .ntb kind"
+                case .clampedStrokes: return ".ntb strokes placed at the page edge (position not stored)"
+                case .bundleRecordsWithoutFile: return ".ntb records naming no file of the bundle"
+                case .bundleFilesUnreferenced: return ".ntb attachment files no record names"
+                case .pdfTextPages: return "pdf pages without text"
+                }
+            }
+        }
     }
 
     /// Outcome for one source note.
@@ -274,7 +335,11 @@ public enum NotabilityImporter {
             return ha != hb ? ha : a < b
         }
         var recordings = attachments?.recordings ?? []
-        for r in recordings.indices { recordings[r].id = UUID.derived(from: key + ":recording:\(r)") }
+        let transcriptBlobs = attachments?.transcriptBlobs(key: key) ?? [:]
+        for r in recordings.indices {
+            recordings[r].id = NotabilityAttachments.recordingID(key: key, index: r)
+            if let t = transcriptBlobs[r] { recordings[r].transcript = t.ref }
+        }
         var strokes: [Stroke] = []
         strokes.reserveCapacity(note.curves.count)
         var maxY = 0.0
@@ -943,6 +1008,10 @@ public enum NotabilityImporter {
                                             pdfText: options.pdfText) : nil
         result.dropped = dropped(note, attachments: attachments)
         result.warnings = attachments?.warnings ?? []
+        if !note.unsupportedKinds.isEmpty {
+            result.warnings.append(".ntb: not converted: " + note.unsupportedKinds.sorted { $0.key < $1.key }
+                .map { "\($0.value) \($0.key)" }.joined(separator: ", "))
+        }
         do {
             var ops: [Op] = []
             var seq = 1
@@ -980,7 +1049,10 @@ public enum NotabilityImporter {
             // Blobs first: a delta never references a blob that is not
             // written yet (format.md §8.1.4).
             var imported = attachments?.imported ?? ImportedAttachments()
-            for (_, blob) in (attachments?.blobs ?? [:]).sorted(by: { $0.key < $1.key }) {
+            let transcriptBlobs = (attachments?.transcriptBlobs(key: "sempere-notability:" + (key) + (salt.map { ":gen:" + $0 } ?? "")) ?? [:])
+            let allBlobs = (attachments?.blobs ?? [:]).sorted(by: { $0.key < $1.key }).map(\.value)
+                + transcriptBlobs.sorted(by: { $0.key < $1.key }).map { (ref: $0.value.ref, data: $0.value.data) }
+            for blob in allBlobs {
                 try vault.writeBlob(note: id, blob.data, type: blob.ref.type)
                 imported.blobs += 1
                 imported.blobBytes += blob.ref.size

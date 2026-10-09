@@ -78,7 +78,7 @@ let package = Package(
                     dependencies: ["Sempere", "FuzzSupport", .product(name: "Crypto", package: "swift-crypto")],
                     resources: [.copy("Fixtures")]),
         .testTarget(name: "SempereRenderTests", dependencies: ["SempereRender", "SempereFonts", "Age", "FuzzSupport"],
-                    exclude: ["generate_sample_note.py", "generate_qr_vectors.py", "generate_image_fixtures.py", "generate_shaping_fixtures.py"],
+                    exclude: ["generate_sample_note.py", "generate_qr_vectors.py", "generate_image_fixtures.py", "generate_legacy_image_fixtures.py", "generate_shaping_fixtures.py"],
                     resources: [.copy("Fixtures")]),
         .testTarget(name: "SemperePDFTests", dependencies: ["SemperePDF", "FuzzSupport"],
                     exclude: ["generate_fixtures.py"], resources: [.copy("Fixtures")]),
