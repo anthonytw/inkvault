@@ -53,6 +53,24 @@ final class CLISummariesTests: CLITestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: filePath(vault)))
     }
 
+    /// The plaintext file is owner-only (0600) whatever the umask (the test
+    /// runner's 022 gave 0644 before), and a file already there (here 0644)
+    /// is replaced, not rewritten in place.
+    func testPlaintextFileIsOwnerOnly() throws {
+        let vault = try copyFixtureVault()
+        let out = tmp.appendingPathComponent("summaries.json").path
+        let fm = FileManager.default
+        XCTAssertTrue(fm.createFile(atPath: out, contents: Data("old".utf8), attributes: [.posixPermissions: 0o644]))
+        let r = try cli(["vault", "summaries", "--vault", vault, "--identity", Self.fixtureKey, "--plaintext", "--out", out])
+        XCTAssertEqual(r.status, 0, r.err)
+        let mode = try XCTUnwrap(fm.attributesOfItem(atPath: out)[.posixPermissions] as? NSNumber).intValue
+        XCTAssertEqual(mode & 0o777, 0o600)
+        let content = try JSONSerialization.jsonObject(with: Data(contentsOf: URL(fileURLWithPath: out))) as? [String: Any]
+        XCTAssertEqual(content?["format"] as? String, "sempere-summaries/1")
+        XCTAssertEqual(try fm.contentsOfDirectory(atPath: tmp.path).filter { $0.hasPrefix(".sempere-tmp-") }, [])
+
+    }
+
     /// Once it exists, any command that unlocks the vault keeps it current;
     /// none creates it, and a locked command leaves it alone.
     func testUnlockedCommandsKeepAnExistingFileCurrent() throws {
