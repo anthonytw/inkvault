@@ -250,7 +250,7 @@ private struct CertificateWarning: View {
             Text(verbatim: certificate.fingerprint).font(.caption2.monospaced()).textSelection(.enabled)
         }
         .padding(10)
-        .background(Color.red.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
+        .background(SwiftUI.Color.red.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
         .accessibilityElement(children: .combine)
     }
 }
@@ -321,7 +321,7 @@ struct WebDAVStatusBar: View {
         return session.unconfirmed > 0 ? "arrow.up.circle" : "checkmark.circle"
     }
 
-    private var tint: Color {
+    private var tint: SwiftUI.Color {
         if session.needsAttention { return .orange }
         return .secondary
     }
