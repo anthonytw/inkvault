@@ -14,6 +14,7 @@
 // first unlock, and rewritten as version 2 then.
 
 import { HTTPSource, type VaultSource } from "./source.ts";
+import { t } from "../i18n/index.ts";
 
 /** Why a passkey could not remember or unlock the key. */
 export type PasskeyErrorCode =
@@ -408,7 +409,7 @@ const localLocation = "local:";
 
 /** A location for people: the URL, or "a folder on this computer". */
 export function describeLocation(location: string): string {
-  return location === localLocation ? "a folder opened from this computer" : location;
+  return location === localLocation ? t("a folder opened from this computer") : location;
 }
 
 function sameBytes(a: Uint8Array, b: Uint8Array): boolean {

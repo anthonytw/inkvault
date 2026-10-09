@@ -463,6 +463,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = SempereInfo.plist;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES = "CemeteryDoor ShadowS InkWind";
 				INFOPLIST_KEY_CFBundleDisplayName = Sempere;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
 				INFOPLIST_KEY_NSCameraUsageDescription = "Sempere uses the camera to add photos to your notes.";
@@ -502,6 +503,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = SempereInfo.plist;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES = "CemeteryDoor ShadowS InkWind";
 				INFOPLIST_KEY_CFBundleDisplayName = Sempere;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
 				INFOPLIST_KEY_NSCameraUsageDescription = "Sempere uses the camera to add photos to your notes.";
