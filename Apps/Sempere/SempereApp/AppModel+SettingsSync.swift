@@ -234,15 +234,15 @@ extension AppModel {
 
         let type = settingsDeviceType
         var state = settingsSync
-        let pass: SettingsSyncState.Pass?
+        let decided: SettingsSyncState.Pass?
         do {
-            pass = try await step(&state, currentSettingsValues(), file, type, Date())
+            decided = try await step(&state, currentSettingsValues(), file, type, Date())
         } catch {
             settingsSyncProblem = .failed(String(describing: error))
             return
         }
         guard (try? ensureCurrent(gen)) != nil else { return }
-        guard let pass else { return }   // the step asked the user first
+        guard let pass = decided else { return }   // the step asked the user first
         settingsSync = state
         if !pass.warnings.isEmpty {
             settingsLog.warning("settings.age: \(pass.warnings.count) invalid values skipped")
