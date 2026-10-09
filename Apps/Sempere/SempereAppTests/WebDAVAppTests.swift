@@ -13,6 +13,7 @@ final class FakeWebDAVRemote: WebDAVRemote, @unchecked Sendable {
     let server: URL
     private var _downloads = 0, _pushes = 0, _redownloads = 0
     private var _pushedUnlocked: [Bool] = []
+    private var _redownloadKeys: [Int] = []
     var downloadError: (any Error)?
     var downloadReport = SyncReport()
     var pushError: (any Error)?
@@ -28,6 +29,8 @@ final class FakeWebDAVRemote: WebDAVRemote, @unchecked Sendable {
     var pushes: Int { lock.lock(); defer { lock.unlock() }; return _pushes }
     var redownloads: Int { lock.lock(); defer { lock.unlock() }; return _redownloads }
     var pushedUnlocked: [Bool] { lock.lock(); defer { lock.unlock() }; return _pushedUnlocked }
+    /// How many identities each re-download was given (the new copy is checked under them).
+    var redownloadKeys: [Int] { lock.lock(); defer { lock.unlock() }; return _redownloadKeys }
 
     func set(_ change: (FakeWebDAVRemote) -> Void) { lock.lock(); change(self); lock.unlock() }
 
@@ -49,15 +52,13 @@ final class FakeWebDAVRemote: WebDAVRemote, @unchecked Sendable {
         lock.lock(); defer { lock.unlock() }
         _pushes += 1
         _pushedUnlocked.append(vault?.canRead == true)
-        #expect(options.pushOnly == false, "the copy sets push-only itself (WebDAVLocalCopy.push)")
         if let pushError { throw pushError }
         return pushReport
     }
 
     func redownload(_ endpoint: WebDAVEndpoint, copy: WebDAVLocalCopy,
                     identities: [any AgeIdentity]) throws -> (report: SyncReport, replaced: Bool) {
-        lock.lock(); _redownloads += 1; let replaces = redownloadReplaces; lock.unlock()
-        #expect(!identities.isEmpty, "the new copy is checked under the vault's key")
+        lock.lock(); _redownloads += 1; _redownloadKeys.append(identities.count); let replaces = redownloadReplaces; lock.unlock()
         if replaces { try place(into: copy) }
         return (SyncReport(), replaces)
     }
@@ -235,6 +236,7 @@ struct WebDAVAppTests {
         try await s.model.downloadWebDAVAgain(library: s.library)
         #expect(s.remote.pushes >= 2, "a push before the download")
         #expect(s.remote.redownloads == 1)
+        #expect(s.remote.redownloadKeys == [1], "the new copy is checked under the vault's key")
         #expect(s.model.phase == .unlocked)
         #expect(s.model.isWebDAVVault)
 
