@@ -78,7 +78,7 @@ struct ExpectationsSheets: ViewModifier {
                     case .tour(let firstRun):
                         QuickTourView(firstRun: firstRun)
                     case .keyNotice(let firstRun):
-                        KeyNoticeView(firstRun: firstRun) { showTourIfDue() }
+                        if firstRun { FirstRunFlow() } else { KeyNoticeView(firstRun: false) }
                     }
                 }
                 .onAppear { shown.sheet = sheet }
@@ -110,14 +110,27 @@ struct ExpectationsSheets: ViewModifier {
         }
     }
 
-    /// After "I Understand": the tour replaces the notice (a new item swaps the
-    /// sheet) when it is due, else the sheet closes. Not left to the trigger
-    /// above: in CI the tour never showed once the notice had closed.
-    private func showTourIfDue() {
-        if OnboardingPolicy.automatic && !OnboardingMemory().tourSeen {
-            present(.tour(firstRun: true))
+}
+
+/// The first-run sheet: About Your Key, then (when it is due) the quick tour in
+/// the same sheet. One presentation: a second sheet presented as the first
+/// closed was dropped on the iPad simulator in CI, and swapping the item did
+/// not show it either.
+private struct FirstRunFlow: View {
+    @Environment(\.dismiss) private var dismiss
+    @State private var showingTour = false
+
+    var body: some View {
+        if showingTour {
+            QuickTourView(firstRun: true)
         } else {
-            ui.expectations = nil
+            KeyNoticeView(firstRun: true) {
+                if OnboardingPolicy.automatic && !OnboardingMemory().tourSeen {
+                    showingTour = true
+                } else {
+                    dismiss()
+                }
+            }
         }
     }
 }
@@ -260,9 +273,10 @@ struct QuickTourView: View {
                 }
                 .tabViewStyle(.page(indexDisplayMode: .always))
                 .indexViewStyle(.page(backgroundDisplayMode: .always))
+                // On the pages only: an identifier on the whole stack replaced the buttons' own.
+                .accessibilityIdentifier("quickTour")
                 controls
             }
-            .accessibilityIdentifier("quickTour")
             .navigationTitle("Quick Tour")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

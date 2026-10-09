@@ -178,8 +178,11 @@ final class LaunchSmokeUITests: XCTestCase {
     }
 
     @MainActor
-    private func press(_ element: XCUIElement) {
-        guard element.waitForExistence(timeout: 30) else { return }
+    private func press(_ element: XCUIElement, file: StaticString = #filePath, line: UInt = #line) {
+        guard element.waitForExistence(timeout: 30) else {
+            XCTFail("\(element) not found", file: file, line: line)
+            return
+        }
         #if targetEnvironment(macCatalyst)
         element.click()
         #else
