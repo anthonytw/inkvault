@@ -36,6 +36,14 @@ The section for a version is the body of its GitHub Release (`docs/releasing.md`
 - `sempere backup status DIR --max-age DAYS` exits 3 when no backup run completed in DAYS days, the
   app's Remind Me for scripts (GA-18). `backup.json` records the last run without file errors
   (`completed`), which the check counts from; the app and the CLI share the rule.
+- Markdown text boxes with LaTeX math (`format.md` §8.2.4 "Markdown text", §8.5.4): headings, bold,
+  italic, strikethrough, code, bullet, numbered and task lists, links, block quotes, code blocks, rules,
+  inline `$…$` and display `$$…$$` math. The source is the box's text, so older versions show it as plain
+  text; the rendered lines are stored with it and the same in the app, its exports, `sempere export` and the
+  web viewer. App: new text boxes are Markdown, edited as source with a Markdown bar of helpers and drawn
+  rendered; formulas are typeset with SwiftMath when the edit closes. CLI: `attach text --markdown`,
+  `items text` (with `--markdown`/`--no-markdown`); search sees the text without markup; Markdown exports
+  keep the source, HTML exports render it. Styled text boxes keep working unchanged.
 - Web viewer in Spanish: the interface is in English or Spanish, taken from the browser's language list
   with a Language selector (Automatic, English, Español) that overrides it and is remembered in the
   browser. Notes, notebook and tag names, recording titles and transcripts are shown as written; dates,

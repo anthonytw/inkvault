@@ -282,6 +282,40 @@ final class SempereFuzzTests: VaultTestCase {
         })
     }
 
+    /// Markdown text boxes (format.md §8.5.4): any source parses, its plain
+    /// text and rendered paragraphs are built, every offset points inside the
+    /// source, and the editing helpers keep their selection inside the text.
+    func testFuzzMarkdown() throws {
+        let seeds = ["# H\n\n- [x] **a** _b_ ~~c~~ `d` [e](f) <g:h>\n> q\n```\ncode\n```\n$$\nx\n$$",
+                     "1. a\n   - b\n     > c *d* $e$ $$f$$", "***x** y*", "[a](<b> \"t\") ![i](j)", "\\* \\$ $5 $6",
+                     String(repeating: "> - ", count: 30) + "deep"].map { Data($0.utf8) }
+        assertClean(Fuzz.run("markdown", seeds: seeds, quick: 2000, text: true, maxSize: 4096, generate: { rng in
+            let pieces = ["*", "_", "~~", "`", "$", "$$", "[", "]", "(", ")", "<", ">", "#", "- ", "1. ", "\n", " ", "\\", "x",
+                          "[ ] ", "```", "!", "é", "😀"]
+            return Data((0..<rng.below(3000)).map { _ in rng.pick(pieces) }.joined().utf8)
+        }) { input in
+            let source = String(decoding: input, as: UTF8.self)
+            let count = source.unicodeScalars.count
+            let doc = MarkdownDocument(source)
+            _ = doc.plainText
+            let content = TextContent(size: 12, color: .black, runs: [TextRun(source)], markup: .markdown)
+            for p in MarkdownPlan(content).paragraphs {
+                var last = -1
+                for a in p.atoms {
+                    if a.offset < 0 || a.offset > count { return "offset \(a.offset) outside the source" }
+                    if a.offset <= last { return "offsets not increasing" }
+                    last = a.offset
+                }
+            }
+            let n = (source as NSString).length
+            for action in MarkdownEditing.Action.allCases {
+                let r = MarkdownEditing.apply(action, to: source, selection: NSRange(location: n / 3, length: n / 3))
+                if r.selection.location + r.selection.length > (r.text as NSString).length { return "\(action): selection outside" }
+            }
+            return nil
+        })
+    }
+
     func testFuzzTranscript() throws {
         let t = Transcript(recording: UUID(), engine: "apple-speechtranscriber-26.4", language: "en-US", created: Self.wall,
                            segments: [.init(start: 0.52, end: 3.1, text: "Today we look at linear maps.", confidence: 0.94,

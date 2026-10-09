@@ -232,13 +232,23 @@ public struct TextRun: Hashable, Sendable, Codable {
     public var color: Color?
     public var size: Double?
     public var lang: String?
+    /// Override of the box's generic family (format.md §8.2.4); an unknown
+    /// value is the box's.
+    public var font: TextContent.Font?
     /// Unknown fields, re-emitted unchanged.
     public var extra: [String: JSONValue]
 
     public init(_ t: String, b: Bool = false, i: Bool = false, u: Bool = false, s: Bool = false,
-                color: Color? = nil, size: Double? = nil, lang: String? = nil, extra: [String: JSONValue] = [:]) {
+                color: Color? = nil, size: Double? = nil, lang: String? = nil, font: TextContent.Font? = nil,
+                extra: [String: JSONValue] = [:]) {
         self.t = t; self.b = b; self.i = i; self.u = u; self.s = s
-        self.color = color; self.size = size; self.lang = lang; self.extra = extra
+        self.color = color; self.size = size; self.lang = lang; self.font = font; self.extra = extra
+    }
+
+    /// The family this run is drawn in: its own known one, else the box's.
+    public func effectiveFont(in box: TextContent.Font) -> TextContent.Font {
+        if let font, [.sans, .serif, .mono].contains(font) { return font }
+        return box.effective
     }
 
     /// True when `other` has the same attributes (everything but `t`), so a
@@ -249,7 +259,7 @@ public struct TextRun: Hashable, Sendable, Codable {
         return o == self
     }
 
-    static let knownKeys: Set<String> = ["t", "b", "i", "u", "s", "color", "size", "lang"]
+    static let knownKeys: Set<String> = ["t", "b", "i", "u", "s", "color", "size", "lang", "font"]
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: AnyKey.self)
@@ -261,6 +271,7 @@ public struct TextRun: Hashable, Sendable, Codable {
         color = try c.decodeIfPresent(Color.self, "color")
         size = try c.decodeIfPresent(Double.self, "size")
         lang = try c.decodeIfPresent(String.self, "lang")
+        font = try c.decodeIfPresent(TextContent.Font.self, "font")
         extra = try c.extra(excluding: Self.knownKeys)
         if let size, !TextContent.isValidSize(size) {
             throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath, debugDescription: "run size out of range"))
@@ -292,6 +303,7 @@ public struct TextRun: Hashable, Sendable, Codable {
         try c.encodeIfPresent(color, "color")
         try c.encodeIfPresent(size.map(InkJSON.round3), "size")
         try c.encodeIfPresent(lang, "lang")
+        try c.encodeIfPresent(font, "font")
         try c.encodeExtra(extra, excluding: Self.knownKeys)
     }
 }
@@ -352,6 +364,14 @@ public struct TextContent: Hashable, Sendable, Codable {
     /// the start of `string` (format.md §8.2.4, §8.5.3). Kept as written;
     /// a renderer checks them (`validBreaks`) before using them.
     public var breaks: [Int]?
+    /// How the text is marked up (format.md §8.2.4 "Markdown text"): nil
+    /// for styled runs, `.markdown` for Markdown source.
+    public var markup: TextMarkup?
+    /// A Markdown box's line breaks of its rendered text, for the text whose
+    /// hash it names (format.md §8.2.4).
+    public var layout: RenderedLayout?
+    /// A Markdown box's typeset formulas (format.md §8.2.4).
+    public var math: [TypesetFormula]?
     /// Unknown fields, re-emitted unchanged.
     public var extra: [String: JSONValue]
 
@@ -361,15 +381,22 @@ public struct TextContent: Hashable, Sendable, Codable {
         public static let runs = 1_000
         public static let breaks = 10_000
         public static let size = 1_000.0
+        /// Typeset formulas of one Markdown box.
+        public static let formulas = 1_000
     }
 
     public init(font: Font = .sans, family: String? = nil, size: Double, color: Color, align: Alignment? = nil,
                 dir: Direction? = nil, lang: String? = nil, runs: [TextRun], breaks: [Int]? = nil,
+                markup: TextMarkup? = nil, layout: RenderedLayout? = nil, math: [TypesetFormula]? = nil,
                 extra: [String: JSONValue] = [:]) {
         self.font = font; self.family = family; self.size = size; self.color = color
         self.align = align; self.dir = dir; self.lang = lang; self.runs = runs; self.breaks = breaks
+        self.markup = markup; self.layout = layout; self.math = math
         self.extra = extra
     }
+
+    /// True for a Markdown box this reader renders (`markup` `markdown`).
+    public var isMarkdown: Bool { markup == .markdown }
 
     /// The item's text: every run's `t`, concatenated.
     public var string: String { runs.map(\.t).joined() }
@@ -399,6 +426,14 @@ public struct TextContent: Hashable, Sendable, Codable {
         if runs.count > Limits.runs { return "more than \(Limits.runs) runs" }
         if let breaks, breaks.count > Limits.breaks { return "more than \(Limits.breaks) breaks" }
         if runs.reduce(0, { $0 + $1.t.utf8.count }) > Limits.utf8Bytes { return "text longer than \(Limits.utf8Bytes) bytes" }
+        if let layout {
+            if layout.breaks.count > Limits.breaks { return "more than \(Limits.breaks) layout breaks" }
+            if let why = layout.violation { return why }
+        }
+        if let math {
+            if math.count > Limits.formulas { return "more than \(Limits.formulas) typeset formulas" }
+            for f in math { if let why = f.violation { return why } }
+        }
         return nil
     }
 
@@ -407,7 +442,8 @@ public struct TextContent: Hashable, Sendable, Codable {
         return r > 0 && r <= Limits.size
     }
 
-    static let knownKeys: Set<String> = ["font", "family", "size", "color", "align", "dir", "lang", "runs", "breaks"]
+    static let knownKeys: Set<String> = ["font", "family", "size", "color", "align", "dir", "lang", "runs", "breaks",
+                                         "markup", "layout", "math"]
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: AnyKey.self)
@@ -424,6 +460,13 @@ public struct TextContent: Hashable, Sendable, Codable {
             breaks = try Self.decodeBounded(c, "breaks", max: Limits.breaks)
         } else {
             breaks = nil
+        }
+        markup = try c.decodeIfPresent(TextMarkup.self, "markup")
+        layout = try c.decodeIfPresent(RenderedLayout.self, "layout")
+        if c.contains(AnyKey("math")) {
+            math = try Self.decodeBounded(c, "math", max: Limits.formulas)
+        } else {
+            math = nil
         }
         extra = try c.extra(excluding: Self.knownKeys)
         if let why = limitViolation {
@@ -456,6 +499,9 @@ public struct TextContent: Hashable, Sendable, Codable {
         try c.encodeIfPresent(lang, "lang")
         try c.encode(runs, "runs")
         try c.encodeIfPresent(breaks, "breaks")
+        try c.encodeIfPresent(markup, "markup")
+        try c.encodeIfPresent(layout, "layout")
+        try c.encodeIfPresent(math, "math")
         try c.encodeExtra(extra, excluding: Self.knownKeys)
     }
 }

@@ -215,7 +215,7 @@ enum AttachmentListing {
         var what: String
         switch i.kind {
         case .text:
-            let t = (i.text?.string ?? "").split(whereSeparator: \.isNewline).joined(separator: " ")
+            let t = (i.text.map(MarkdownText.searchText) ?? "").split(whereSeparator: \.isNewline).joined(separator: " ")
             what = "\"" + (t.count > 40 ? t.prefix(39) + "…" : t) + "\""
         case .pdfPage: what = (i.blob.map(blob) ?? "") + " page \((i.pageIndex ?? 0) + 1)"
         case .video:

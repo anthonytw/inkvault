@@ -38,7 +38,7 @@ public struct PageText: Hashable, Sendable, Codable {
             if let text = p.recognition?.text, !text.isEmpty { parts.append((text, false)) }
             for item in p.items.sorted(by: Item.drawsBefore) {
                 switch item.kind {
-                case .text: if let text = item.text?.string, !text.isEmpty { parts.append((text, false)) }
+                case .text: if let text = item.text.map(MarkdownText.searchText), !text.isEmpty { parts.append((text, false)) }
                 case .pdfPage: if let text = item.pageText?.text, !text.isEmpty { parts.append((text, false)) }
                 case .math: if let latex = item.math?.latex, !latex.isEmpty { parts.append((latex, true)) }
                 default: break
@@ -335,7 +335,7 @@ public enum SearchMatches {
             guard let textBoxes else { continue }
             for item in page.items.sorted(by: Item.drawsBefore) where item.kind == .text {
                 // Laying a text out is the costly part: only boxes that contain a word.
-                guard let string = item.text?.string,
+                guard let string = item.text.map(MarkdownText.searchText),
                       words.contains(where: { string.range(of: $0, options: NoteSearch.options) != nil }) else { continue }
                 for found in textBoxes(words, item) where isDrawable(found.box) {
                     out.append(SearchMatch(pageId: page.id, page: index + 1, text: found.text, box: found.box, item: item.id))
