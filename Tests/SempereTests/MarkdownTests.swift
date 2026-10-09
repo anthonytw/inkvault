@@ -269,6 +269,9 @@ final class MarkdownTests: XCTestCase {
         XCTAssertEqual(edit(.heading, "Title", 2), "# Ti[]tle")
         XCTAssertEqual(edit(.heading, "# Title", 4), "## Ti[]tle")
         XCTAssertEqual(edit(.heading, "### Title", 6), "Ti[]tle")
+        // Fuzz finds: a line of only #s (a run longer than a heading) loses its marker, the selection stays inside.
+        XCTAssertEqual(edit(.heading, "####", 1, 1), "[]")
+        XCTAssertEqual(edit(.heading, "##########", 3, 3), "[]")
     }
 
     func testEveryActionKeepsTheSelectionInsideTheText() {

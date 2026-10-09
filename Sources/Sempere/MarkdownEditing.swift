@@ -149,7 +149,14 @@ public enum MarkdownEditing {
         let next = current >= 3 ? 0 : current + 1
         let replacement = next == 0 ? "" : String(repeating: "#", count: next) + " "
         let out = ns.replacingCharacters(in: NSRange(location: line.location, length: old), with: replacement)
-        let change = (replacement as NSString).length - old
-        return (out, NSRange(location: max(line.location, sel.location + change), length: sel.length))
+        let new = (replacement as NSString).length
+        // Each end of the selection follows the edit; inside the old marker it stays within the new one.
+        func map(_ p: Int) -> Int {
+            if p >= line.location + old { return p + new - old }
+            if p > line.location { return line.location + min(p - line.location, new) }
+            return p
+        }
+        let start = map(sel.location), end = map(sel.location + sel.length)
+        return (out, NSRange(location: start, length: max(0, end - start)))
     }
 }
