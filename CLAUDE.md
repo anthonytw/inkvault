@@ -44,6 +44,15 @@ Do not use features newer than Swift 6.0 in `Sources/`.
   `age -d -i key notes/ID/att/NAME.KIND.age | tail -c +46 | head -c LEN`
   (`format.md` §8.1.7).
 
+## Optional importers
+
+The Notability importer is a removable module (`Sources/SempereNotability`, `docs/import-notability.md`
+"Structure"): the CLI and the app reach it only through `VaultImporter`, `ImportRegistry.swift` and
+`AppImporters.swift` (each gated by `#if canImport(SempereNotability)`). Never name a `Notability…` type
+outside the module and those two files (`scripts/check-importer-isolation.sh`); put anything importers share into
+`SempereImport`. A new import option is an `ImporterOptionSpec`, not a new flag in the CLI or a new toggle in the app.
+`scripts/check-removable-importers.sh` (Linux CI) deletes the module in a copy and builds and tests the rest.
+
 ## Style
 
 Swift 6 strict concurrency. `Sendable` value types for the model. No
