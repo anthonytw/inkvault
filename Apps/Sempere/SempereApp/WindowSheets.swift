@@ -26,39 +26,8 @@ struct WindowSheets: ViewModifier {
                     }
                 }
             }
-            .background {
-                SwiftUI.Color.clear.fileImporter(isPresented: $ui.importingNotability, allowedContentTypes: AppModel.notabilityTypes,
-                                                 allowsMultipleSelection: true) { result in
-                    guard case .success(let urls) = result, !urls.isEmpty else { return }
-                    // The options come next (`NotabilityImportOptionsSheet`); nothing is read before they are chosen.
-                    ui.notabilityPick = NotabilityPick(urls: urls, notebook: model.sidebarNotebook)
-                }
-            }
-            .sheet(item: $ui.notabilityPick) { pick in
-                NotabilityImportOptionsSheet(pick: pick)
-            }
-            .sheet(isPresented: Binding(get: { ui.notabilityReport != nil }, set: { if !$0 { ui.notabilityReport = nil } })) {
-                if let details = ui.notabilityReport { NotabilityReportView(details: details) }
-            }
-            .overlay {
-                if model.isImportingNotability {
-                    ProgressView("Importing from Notability…")
-                        .padding()
-                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
-                }
-            }
-            .alert(model.notabilitySummary?.title ?? "", isPresented: Binding(get: { model.notabilitySummary != nil && isFront },
-                                                                            set: { if !$0 { model.notabilitySummary = nil } })) {
-                if let details = model.notabilitySummary?.details, !details.isEmpty {
-                    Button("Show Report") {
-                        ui.notabilityReport = details
-                        model.notabilitySummary = nil
-                    }
-                }
-                Button("OK", role: .cancel) { model.notabilitySummary = nil }
-            } message: {
-                Text(model.notabilitySummary?.message ?? "")
-            }
+            // Notability import: its own modifier, so this chain stays short enough to type-check.
+            .modifier(NotabilityImportSheets(ui: ui, isFront: isFront))
             // PDFs opened from the Finder or the share sheet (`AppModel+OpenedFiles`).
             .sheet(isPresented: Binding(get: { isFront && [OpenedFile.Stage.ready, .readOnly].contains(model.openedPDFStage) },
                                         set: { _ in })) {
@@ -252,5 +221,53 @@ struct OpenedPDFsWaitingBar: View {
 extension View {
     func windowSheets(_ ui: WindowUI) -> some View {
         modifier(WindowSheets(ui: ui))
+    }
+}
+
+/// The Notability import's picker, options sheet, progress, result alert and report sheet, for
+/// the window `WindowSheets` is attached to (split out of it: one long modifier chain is more than
+/// the type checker solves in reasonable time).
+private struct NotabilityImportSheets: ViewModifier {
+    @AppModelEnvironment private var model
+    let ui: WindowUI
+    /// Whether this window shows app-wide prompts (`WindowSheets.isFront`).
+    let isFront: Bool
+
+    func body(content: Content) -> some View {
+        @Bindable var ui = ui
+        content
+            .background {
+                SwiftUI.Color.clear.fileImporter(isPresented: $ui.importingNotability, allowedContentTypes: AppModel.notabilityTypes,
+                                                 allowsMultipleSelection: true) { result in
+                    guard case .success(let urls) = result, !urls.isEmpty else { return }
+                    // The options come next (`NotabilityImportOptionsSheet`); nothing is read before they are chosen.
+                    ui.notabilityPick = NotabilityPick(urls: urls, notebook: model.sidebarNotebook)
+                }
+            }
+            .sheet(item: $ui.notabilityPick) { pick in
+                NotabilityImportOptionsSheet(pick: pick)
+            }
+            .sheet(isPresented: Binding(get: { ui.notabilityReport != nil }, set: { if !$0 { ui.notabilityReport = nil } })) {
+                if let details = ui.notabilityReport { NotabilityReportView(details: details) }
+            }
+            .overlay {
+                if model.isImportingNotability {
+                    ProgressView("Importing from Notability…")
+                        .padding()
+                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+                }
+            }
+            .alert(model.notabilitySummary?.title ?? "", isPresented: Binding(get: { model.notabilitySummary != nil && isFront },
+                                                                            set: { if !$0 { model.notabilitySummary = nil } })) {
+                if let details = model.notabilitySummary?.details, !details.isEmpty {
+                    Button("Show Report") {
+                        ui.notabilityReport = details
+                        model.notabilitySummary = nil
+                    }
+                }
+                Button("OK", role: .cancel) { model.notabilitySummary = nil }
+            } message: {
+                Text(model.notabilitySummary?.message ?? "")
+            }
     }
 }
