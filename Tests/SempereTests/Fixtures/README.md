@@ -31,10 +31,11 @@ Vault id `5a3b1e00-1000-4000-8000-000000000001`, created
 (kind `bin`, sha256 `ae0a2902…6436`). No revision references it yet (a
 note with items is a follow-up of the attachments merge, task A1), so `verify`
 lists it as `unreferenced`, and `vault.json` has `features: ["attachments",
-"recipients-tag", "signed-secret-link"]` and a `recipientsTag` (`format.md` §2.1; they were added to the
-committed file, so copies of the fixture share a vault id without looking
-like a downgrade). Tests that need a vault written before §2.1 take the tag
-and the feature out of a copy (`FixtureVault.copySample`). `legacy.sempere`
+"recipients-tag", "signed-secret-link", "markers-tag"]`, a `recipientsTag` and a `markersTag`
+(`format.md` §2.1; they were added to the committed file, so copies of the fixture share a vault id
+without looking like a downgrade). Tests that need a vault written before §2.1 take the tags and the
+features out of a copy (`FixtureVault.copySample`). `newer.sempere`'s `vault.json` carries a
+`markersTag` too, as a newer writer's would (§7.6). `legacy.sempere`
 has no tag: its migration writes one.
 
 Stroke ids are `f1c70000-0000-4000-8000-0000000001NN`; page ids end in `…001`,

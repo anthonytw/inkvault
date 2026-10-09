@@ -402,6 +402,13 @@ Branch per task, PR to `main`, squash merge, CI green. Commit messages:
   elsewhere without `Vault.incomingManifestProblem`. The committed
   `Fixtures/sample.sempere` is tagged; copies share its vault id, so an
   untagged copy reads as a downgrade on a device that wrote to a tagged one.
+  `format` and `features` are authenticated too (`markersTag`, §2.1 "Version
+  markers", `MarkersAuth.swift`, mirrored in `web/src/vault/vault.ts`): every
+  `vault.json` write goes through `Vault.writeManifest(…, secret:)`, which tags
+  them; a test that edits `features` the way an older build would also drops
+  `markersTag` and `markers-tag`, or it reads as tampering (`markers*` reasons).
+  Capture profiles hold their device's capture key (`CaptureKey.derive(from:device:)`,
+  §11.1); `Vault.captureKeyRing` is what verifies inbox files, never one key alone.
 - Remembered vault keys (`VaultKeyStore.swift`, `RememberedKeys.swift`): the
   age identity text is stored only in the Keychain, never logged, never in
   `UserDefaults` or files. Device-only items are
