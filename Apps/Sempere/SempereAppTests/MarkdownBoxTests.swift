@@ -91,7 +91,9 @@ struct MarkdownBoxTests {
         let item = try #require(actions.addText(prepared.content, frame: prepared.frame, on: page))
         await editor.flush()
         #expect(try NoteEditorTests.myDeltas(vault, clock).count == deltas + 1)
-        #expect(Set(math.compactMap { $0.math.render?.sha256 }).isSubset(of: editor.blobHashes))
+        let renders = Set(math.compactMap { formula in formula.math.render.map(\.sha256) })
+        let held = editor.blobHashes
+        #expect(renders.count == 2 && renders.isSubset(of: held))
         let laid = MarkdownLayout(try #require(item.text), frame: item.frame, measure: TextBoxFonts.markdownMeasure)
         #expect(laid.boxes.count == 2)
         // Again with the same formulas: nothing typeset anew.
