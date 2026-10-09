@@ -1,4 +1,5 @@
 import XCTest
+import CLITestSupport
 import Foundation
 
 /// `sempere export --all --format pdf|png` through the shared bulk export

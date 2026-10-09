@@ -1171,6 +1171,11 @@ is refused (exit 1). `--json` as for the editing commands.
 
 ### Import
 
+`sempere import` has one subcommand for each importer the build contains (`notability` today, plus the built-in `pdf`).
+An importer is a module (`docs/import-notability.md` "Structure"): its flags come from its option specs, and
+`--notebook`, `--dry-run`, `--pdf-text`, `--recognize` and the vault and output options are the same for all of them.
+Without the Notability module `sempere import` lists only `pdf`; nothing else changes.
+
 ```
 sempere import notability PATH... [--notebook N] [--overwrite] [--dry-run] [--no-scale]
                                    [--no-folder-tags] [--tag T ...] [--no-attachments]

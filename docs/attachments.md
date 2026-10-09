@@ -1523,7 +1523,7 @@ list page (uses C2's text), PDF embedded files (audio and transcript text),
 *Done when:* `pdfdetach -list` shows the attached audio; the list page shows
 title, start time, duration and transcript.
 
-### D. Notability import (`Sources/SempereImport`; Opus for reverse engineering, Sonnet after)
+### D. Notability import (`Sources/SempereNotability`; Opus for reverse engineering, Sonnet after)
 
 Each starts by answering its unknowns in §11 on the user's backup (findings go
 into `docs/import-notability.md`, never the data itself) and by extending the

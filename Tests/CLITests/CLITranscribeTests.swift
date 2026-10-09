@@ -1,3 +1,4 @@
+import CLITestSupport
 import Foundation
 import Sempere
 import XCTest

@@ -37,6 +37,18 @@
         }
       }
     },
+    "%@ Import" : {
+      "comment" : "Alert title after an import from another app (the app's name)",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Importación de %@"
+          }
+        }
+      }
+    },
     "%@ page" : {
       "comment" : "Accessibility label of a page colour preset; %@ is White, Cream or Dark",
       "extractionState" : "manual",
@@ -2982,6 +2994,18 @@
         }
       }
     },
+    "Attachments are PDF pages, images, typed text and recordings; off imports the ink, any recognised handwriting and the note's details only. Camera and location data in photos is removed unless you keep it. PDF page text makes the pages searchable." : {
+      "comment" : "Footer of the import options",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Los adjuntos son páginas PDF, imágenes, texto escrito y grabaciones; desactivados, solo se importan la tinta, la escritura a mano reconocida y los datos de la nota. Los datos de cámara y ubicación de las fotos se quitan salvo que los conserves. El texto de las páginas PDF permite buscar en ellas."
+          }
+        }
+      }
+    },
     "Attachments with no file in the backup" : {
       "comment" : "Notability import report: not imported",
       "extractionState" : "manual",
@@ -4485,6 +4509,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Cantidades de lo que Notability guarda y Sempere no convierte (todavía). Todo lo demás de esas notas se importó."
+          }
+        }
+      }
+    },
+    "Counts of what the source app stores that Sempere does not convert (yet). Everything else of those notes was imported." : {
+      "comment" : "Footer of the Not Imported section of the import report",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cantidades de lo que la aplicación de origen guarda y Sempere no convierte (todavía). Todo lo demás de esas notas se importó."
           }
         }
       }
@@ -6507,18 +6543,6 @@
         }
       }
     },
-    "Import Notability notes or a Notability backup (.note, .ntb, folders or zips) into this vault" : {
-      "comment" : "Help tag of Import from Notability…",
-      "extractionState" : "manual",
-      "localizations" : {
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Importar notas o una copia de seguridad de Notability (.note, .ntb, carpetas o zip) a esta bóveda"
-          }
-        }
-      }
-    },
     "Import PDF as New Note…" : {
       "comment" : "File menu (Mac)",
       "extractionState" : "manual",
@@ -6555,6 +6579,30 @@
         }
       }
     },
+    "Import from %@" : {
+      "comment" : "Title of the import options sheet (the app's name)",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Importar de %@"
+          }
+        }
+      }
+    },
+    "Import from %@…" : {
+      "comment" : "File menu and toolbar: import notes from another app (its name)",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Importar de %@…"
+          }
+        }
+      }
+    },
     "Import from Notability" : {
       "comment" : "Title of the Notability import options sheet",
       "extractionState" : "manual",
@@ -6567,14 +6615,26 @@
         }
       }
     },
-    "Import from Notability…" : {
-      "comment" : "File menu (Mac) and the note list's toolbar",
+    "Import from Other App…" : {
+      "comment" : "File menu entry when the build has no importer to name",
       "extractionState" : "manual",
       "localizations" : {
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Importar de Notability…"
+            "value" : "Importar de otra aplicación…"
+          }
+        }
+      }
+    },
+    "Import notes or a backup from %@ (files, folders or zip archives) into this vault" : {
+      "comment" : "Tooltip of the import-from-another-app button (its name)",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Importa notas o una copia de %@ (archivos, carpetas o archivos zip) en esta bóveda"
           }
         }
       }
@@ -6591,14 +6651,14 @@
         }
       }
     },
-    "Importing from Notability…" : {
-      "comment" : "Progress while a Notability import runs",
+    "Importing from %@…" : {
+      "comment" : "Progress while notes are imported from another app (its name)",
       "extractionState" : "manual",
       "localizations" : {
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Importando de Notability…"
+            "value" : "Importando de %@…"
           }
         }
       }
@@ -7890,18 +7950,6 @@
         }
       }
     },
-    "No Notability notes (.note or .ntb files, or a zip of them) were found in what you picked." : {
-      "comment" : "Notability import result",
-      "extractionState" : "manual",
-      "localizations" : {
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "No se han encontrado notas de Notability (archivos .note o .ntb, o un zip con ellos) en lo que has elegido."
-          }
-        }
-      }
-    },
     "No Note Selected" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -8048,6 +8096,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "No hay ninguna migración en curso."
+          }
+        }
+      }
+    },
+    "No notes from %@ were found in what you picked." : {
+      "comment" : "Import result when the chosen files held nothing to import (the app's name)",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No se encontraron notas de %@ en lo que elegiste."
           }
         }
       }
@@ -8260,18 +8320,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Sin restaurar (dañados o ausentes en la copia): %lld."
-          }
-        }
-      }
-    },
-    "Notability Import" : {
-      "comment" : "Alert title after a Notability import",
-      "extractionState" : "manual",
-      "localizations" : {
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Importación de Notability"
           }
         }
       }
@@ -10149,6 +10197,18 @@
         }
       }
     },
+    "Read Handwriting That %@ Did Not Index" : {
+      "comment" : "Toggle in the import options (the app's name)",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Leer la escritura que %@ no indexó"
+          }
+        }
+      }
+    },
     "Read by Recognize All in the last 7 days" : {
       "comment" : "Header above the Recently Recognized list",
       "extractionState" : "manual",
@@ -10241,6 +10301,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Lee en este dispositivo la escritura a mano de las páginas que Notability nunca reconoció, justo después de importar."
+          }
+        }
+      }
+    },
+    "Reads the handwriting of pages the source app never recognised, on this device, right after the import." : {
+      "comment" : "Footer of the import options",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lee en este dispositivo la escritura a mano de las páginas que la aplicación de origen nunca reconoció, justo después de importar."
           }
         }
       }
@@ -12959,6 +13031,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Etiqueta"
+          }
+        }
+      }
+    },
+    "Tag Notes with Their %@ Folders" : {
+      "comment" : "Toggle in the import options (the app's name)",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Etiquetar las notas con sus carpetas de %@"
           }
         }
       }
