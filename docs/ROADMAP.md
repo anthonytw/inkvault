@@ -10,7 +10,7 @@ working state. Everything here is in scope for the first release (maintainer,
 (device hand tests, an account), and nothing is parked as future. Rows with a `GA-nn` id come from
 `docs/research/gap-audit-2026-10.md` (evidence and `file:line` there); size S under a day · M a PR with
 choices · L a design question or a format change. Dropped by the maintainer, not planned: GA-12,
-GA-22, GA-24, GA-25, GA-26.
+GA-11, GA-22, GA-24, GA-25, GA-26.
 
 ## Order of work
 
@@ -72,7 +72,6 @@ GA-22, GA-24, GA-25, GA-26.
 | Import | Notability's own transcripts become transcript blobs (`engine: notability-<version>`) (GA-09, S) | 📋 |
 | Import | GIF, TIFF and WebP images in a Notability bundle: the doc says counted in `dropped.media`, `ImageIngest` refuses them; trace it and fix the doc or the code (GA-10, S) | 📋 |
 | Import | Undecoded `.ntb` stroke and shape kinds, dashed strokes imported solid, highlighter behind a PDF, pages of two heights (GA-27, M–L) | 📋 |
-| Transcription | `DictationTranscriber` step in the `SempereSpeech` fallback chain (GA-11, S) | 📋 |
 | Capture | C2: a forged capture's attribution (the capturing device is not stored, the notebook comes from the manifest) (GA-31, M) | 📋 |
 | Crypto | C3: a removed device's captures are adopted while its rewrap is unfinished; needs an authenticated names list (format change) (GA-32, L) | 📋 |
 | Crypto | N3: `format` and `features` in `vault.json` are not covered by `recipientsTag` (format change) (GA-33, L) | 📋 |
@@ -270,3 +269,13 @@ behaviour and testing on a real Mac.
 | iPhone: hand test on a physical iPhone (Face ID, folder picker, finger annotation) (GA-71, M) | 📋 (needs the maintainer) | Needs a phone. |
 | Web viewer: cache ciphertext from before a rewrap stays openable by a removed key (P4); passkey record keyed by an unauthenticated vault id (P3) (GA-28, S each) | 📋 | `web/src/vault/cache.ts`, `passkey.ts`; `security-review-2026-10.md`. |
 | Web viewer CI: run all 7 browser smoke scripts (2 run today), give `smoke-cache` a fixture with summaries and an index (GA-52, M) | 📋 | `ci.yml`, `web/scripts/`. |
+
+## First release
+
+Steps only the maintainer can take. None of them is code in this repo, so they are not tasks in `docs/plan.md` beyond a pointer.
+
+| Feature | Status | Notes |
+| --- | --- | --- |
+| Release shape: squash the whole history into one public "Initial commit", as kidsplay did. This repo, with its PRs, keeps the development history as a private archive repo; a fresh public `anthonytw/sempere` gets the single commit. Includes the CHANGELOG and version, the App Store submission, TestFlight → release, and the GitHub rulesets on the new repo | 📋 (needs the maintainer) | Related rows: App Store submission (iPad app Release and macOS app sections), CHANGELOG `TODO(user)` date (GA-41). |
+| Project website on GitHub Pages at `sempere.anthonywertz.com` (custom domain CNAME): capabilities, demo videos, spec sheet (formats, crypto, platforms), the security design, an in-browser web-viewer demo on a sample vault, download links, and hosting of the privacy policy and support URL the App Store needs | 📋 (needs the maintainer) | The privacy policy already has two copies (`docs/privacy/index.html` for Pages, `docs/appstore/privacy-policy.md`). The viewer demo reuses `web/` with the fixture vault; it must never send a key anywhere. |
+| Legal review of the Notability importer before release: reverse engineering and interoperability, Notability's terms of use, trademark use of the name. Option: ship the importer as a separate tool or repo | 📋 (needs the maintainer) | `Sources/SempereImport`, `docs/import-notability.md`. |
