@@ -5,7 +5,7 @@ import { type NoteState } from "../format/model.ts";
 import { type NotebookNode, type SearchHit, canonicalNotebook, isWithinNotebook, notebookTree, search } from "../format/search.ts";
 import { tagKey } from "../format/tags.ts";
 import { type LoadedNote, type NoteSummary, loadNote, summarize } from "../vault/library.ts";
-import { CachingSource } from "../vault/cache.ts";
+import { CachingSource, cacheNamespace } from "../vault/cache.ts";
 import { type ViewerConfig, loadConfig } from "../vault/config.ts";
 import { type ListingProgress, listVault } from "../vault/listing.ts";
 import { HTTPSource, type HTTPMode, SourceError, type VaultSource, readOptional } from "../vault/source.ts";
@@ -169,8 +169,22 @@ export class App {
       this.showOpen(e instanceof SourceError && e.notFound ? `${src.label} has no vault.json: is it a Sempere vault?` : message(e));
       return;
     }
-    // Encrypted revisions and blobs fetched over HTTP are kept in the browser (write-once files).
-    this.source = src instanceof HTTPSource ? new CachingSource(src, await fileCache(), `${src.label}\n${manifest.vaultId}`) : src;
+    // Encrypted revisions and blobs fetched over HTTP are kept in the browser (write-once files),
+    // under the vault's key state: a recipient change or a finished rewrap drops the old copies (P4).
+    if (src instanceof HTTPSource) {
+      let journal: Uint8Array | undefined;
+      try {
+        journal = await readOptional(src, "rewrap-journal.json", limits.manifestBytes);
+      } catch {
+        journal = undefined;
+      }
+      const caching = new CachingSource(src, await fileCache(),
+        await cacheNamespace(src.label, manifest.vaultId, manifest.vaultSecret, journal));
+      await caching.dropOtherNamespaces();
+      this.source = caching;
+    } else {
+      this.source = src;
+    }
     this.manifest = manifest;
     this.showUnlock();
   }
