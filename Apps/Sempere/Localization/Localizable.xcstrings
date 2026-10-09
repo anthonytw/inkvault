@@ -3017,6 +3017,18 @@
         }
       }
     },
+    "App Icon" : {
+      "comment" : "Settings section header (the app's home-screen icon picker)",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Icono de la app"
+          }
+        }
+      }
+    },
     "Applies to every note in “%@” and its sub-notebooks. Use / for levels, e.g. School/Math. An empty name takes the notes out of the notebook and lifts its sub-notebooks to the top." : {
       "comment" : "%@ is the notebook's path",
       "extractionState" : "manual",
@@ -3499,6 +3511,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "No se puede mostrar esta versión"
+          }
+        }
+      }
+    },
+    "Cemetery Door" : {
+      "comment" : "App icon name",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Puerta del cementerio"
           }
         }
       }
@@ -4510,6 +4534,18 @@
         }
       }
     },
+    "Couldn’t change the icon." : {
+      "comment" : "Alert when switching the app icon fails",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No se pudo cambiar el icono."
+          }
+        }
+      }
+    },
     "Counts of what Notability stores that Sempere does not convert (yet). Everything else of those notes was imported." : {
       "comment" : "Footer of the Not Imported section of the Notability import report",
       "extractionState" : "manual",
@@ -5516,6 +5552,18 @@
         }
       }
     },
+    "Every story leaves a trail." : {
+      "comment" : "App icon caption (Ink Wind)",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Toda historia deja su rastro."
+          }
+        }
+      }
+    },
     "Everything goes into one zip archive." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -5854,6 +5902,18 @@
         }
       }
     },
+    "For the notes that choose you." : {
+      "comment" : "App icon caption (Cemetery Door)",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Para las notas que te eligen."
+          }
+        }
+      }
+    },
     "Forget Backup Folder" : {
       "comment" : "Settings ▸ Backups: button (the backup stays on disk)",
       "extractionState" : "manual",
@@ -6017,6 +6077,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Pon a la bóveda un nombre sin barras, sin punto inicial y sin caracteres de control."
+          }
+        }
+      }
+    },
+    "Go to another page, add, duplicate or delete one, or show the thumbnails" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ir a otra página, añadir, duplicar o eliminar una, o mostrar las miniaturas"
           }
         }
       }
@@ -6727,6 +6798,18 @@
         }
       }
     },
+    "Ink Wind" : {
+      "comment" : "App icon name",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Viento de tinta"
+          }
+        }
+      }
+    },
     "Inline" : {
       "comment" : "Equation style (LaTeX inline math: as within a line of text)",
       "extractionState" : "manual",
@@ -6989,6 +7072,18 @@
         }
       }
     },
+    "Keyhole Nib" : {
+      "comment" : "App icon name",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Plumín de cerradura"
+          }
+        }
+      }
+    },
     "Keys of “%@”" : {
       "comment" : "Key window title; the value is the vault name",
       "extractionState" : "manual",
@@ -7074,6 +7169,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Grande"
+          }
+        }
+      }
+    },
+    "Larger Object Eraser" : {
+      "comment" : "Tools menu",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Borrador de objetos más grande"
           }
         }
       }
@@ -12135,6 +12242,18 @@
         }
       }
     },
+    "Shadow S" : {
+      "comment" : "App icon name",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "S con sombra"
+          }
+        }
+      }
+    },
     "Shapes not converted" : {
       "comment" : "Notability import report: not imported",
       "extractionState" : "manual",
@@ -12410,6 +12529,18 @@
         }
       }
     },
+    "Smaller Object Eraser" : {
+      "comment" : "Tools menu",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Borrador de objetos más pequeño"
+          }
+        }
+      }
+    },
     "Smooth Mouse Strokes" : {
       "comment" : "Settings ▸ General (Mac): picker for smoothing strokes drawn with a mouse or trackpad",
       "extractionState" : "manual",
@@ -12584,6 +12715,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Inicio"
+          }
+        }
+      }
+    },
+    "Start Voice Note" : {
+      "comment" : "File menu: record a quick voice note into the inbox",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Iniciar nota de voz"
           }
         }
       }
@@ -12927,6 +13070,30 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Área de resumen"
+          }
+        }
+      }
+    },
+    "Switch to Paged Layout" : {
+      "comment" : "Note menu: make a pageless note into pages",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cambiar a diseño por páginas"
+          }
+        }
+      }
+    },
+    "Switch to Pageless Layout" : {
+      "comment" : "Note menu: make the note one infinite page",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cambiar a diseño sin páginas"
           }
         }
       }
@@ -13763,6 +13930,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "La clave con la que este dispositivo ha desbloqueado «%@»."
+          }
+        }
+      }
+    },
+    "The key to every page." : {
+      "comment" : "App icon caption (Keyhole Nib, the default)",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La llave de cada página."
           }
         }
       }
@@ -15785,6 +15964,30 @@
         }
       }
     },
+    "Use Compact Palette" : {
+      "comment" : "Tools menu: the short tool palette",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Usar paleta compacta"
+          }
+        }
+      }
+    },
+    "Use Full Palette" : {
+      "comment" : "Tools menu: back from the compact palette",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Usar paleta completa"
+          }
+        }
+      }
+    },
     "Use This Key Instead" : {
       "comment" : "Button",
       "extractionState" : "manual",
@@ -16189,6 +16392,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Blanco"
+          }
+        }
+      }
+    },
+    "Written on the wind." : {
+      "comment" : "App icon caption (Shadow S)",
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Escrito en el viento."
           }
         }
       }
