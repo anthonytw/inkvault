@@ -2862,6 +2862,54 @@
         }
       }
     },
+    "Another vault is now at this address, and this device has %lld changes of the vault that was there which were never uploaded. Nothing was changed. To start over, remove that WebDAV vault on the welcome screen first." : {
+      "comment" : "Connect to WebDAV: the folder holds another vault; the count is files not uploaded",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Another vault is now at this address, and this device has %lld change of the vault that was there which was never uploaded. Nothing was changed. To start over, remove that WebDAV vault on the welcome screen first."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Another vault is now at this address, and this device has %lld changes of the vault that was there which were never uploaded. Nothing was changed. To start over, remove that WebDAV vault on the welcome screen first."
+                }
+              }
+            }
+          }
+        },
+        "es" : {
+          "variations" : {
+            "plural" : {
+              "many" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Ahora hay otra bóveda en esta dirección, y este dispositivo tiene %lld cambios de la bóveda que estaba allí que nunca se subieron. No se ha cambiado nada. Para empezar de nuevo, elimina primero esa bóveda WebDAV en la pantalla de bienvenida."
+                }
+              },
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Ahora hay otra bóveda en esta dirección, y este dispositivo tiene %lld cambio de la bóveda que estaba allí que nunca se subió. No se ha cambiado nada. Para empezar de nuevo, elimina primero esa bóveda WebDAV en la pantalla de bienvenida."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Ahora hay otra bóveda en esta dirección, y este dispositivo tiene %lld cambios de la bóveda que estaba allí que nunca se subieron. No se ha cambiado nada. Para empezar de nuevo, elimina primero esa bóveda WebDAV en la pantalla de bienvenida."
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "Another vault was opened meanwhile. Nothing was changed." : {
       "extractionState" : "manual",
       "localizations" : {

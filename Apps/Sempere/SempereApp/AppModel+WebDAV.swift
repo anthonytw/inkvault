@@ -15,6 +15,8 @@ enum WebDAVVaultError: Error, Equatable, CustomStringConvertible {
     case keyChangesUnavailable
     /// The server's re-download failed; the local copy is unchanged.
     case redownloadFailed(String)
+    /// Another vault now lives at a location whose copy holds changes the server never confirmed.
+    case replacedWithChanges(Int)
 
     var description: String {
         switch self {
@@ -31,6 +33,9 @@ enum WebDAVVaultError: Error, Equatable, CustomStringConvertible {
         case .redownloadFailed(let detail):
             return String(localized: "The vault could not be downloaded again; this device's copy is unchanged: \(detail)",
                           comment: "The value is the problem (English)")
+        case .replacedWithChanges(let n):
+            return String(localized: "Another vault is now at this address, and this device has \(n) changes of the vault that was there which were never uploaded. Nothing was changed. To start over, remove that WebDAV vault on the welcome screen first.",
+                          comment: "Connect to WebDAV: the folder holds another vault; the count is files not uploaded")
         }
     }
 }
@@ -68,9 +73,20 @@ extension AppModel {
             ?? WebDAVLocation(id: UUID(), url: listing.url, user: user, vaultId: listing.vaultId, name: listing.name,
                               folderName: WebDAVLocationStore.folderName(for: listing.name))
         if location.vaultId != listing.vaultId {
-            // Another vault now lives there: start a new copy rather than mix two vaults.
-            try webdavLocations.remove(location.id)
-            library.forgetWebDAV(location.id)
+            // Another vault now lives there: start a new copy rather than mix two vaults. The old copy
+            // goes only when it holds nothing the server lacks (else its notes would be lost), after it
+            // is closed, and with its Keychain password.
+            let old = location.id
+            let pending = await unconfirmedWebDAVChanges(old)
+            guard pending == 0 else { throw WebDAVVaultError.replacedWithChanges(pending) }
+            if webdav?.locationID == old {
+                close()
+                await closingEditor?.value
+            }
+            let passwords = webdavPasswords
+            try await offMain { try passwords.delete(for: old) }
+            try webdavLocations.remove(old)
+            library.forgetWebDAV(old)
             location = WebDAVLocation(id: UUID(), url: listing.url, user: user, vaultId: listing.vaultId, name: listing.name,
                                       folderName: WebDAVLocationStore.folderName(for: listing.name))
         }

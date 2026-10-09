@@ -101,6 +101,43 @@ struct WebDAVAppTests {
                      key: try String(contentsOf: keyURL, encoding: .utf8), listing: listing)
     }
 
+    /// Review of #137: when the server folder holds another vault, the old copy was deleted outright,
+    /// notes never uploaded included, even while it was open, and its Keychain password was left behind.
+    @Test func anotherVaultAtTheAddressNeverDeletesUnuploadedChanges() async throws {
+        let s = try Self.setup()
+        let id = try await s.model.connectWebDAV(s.listing, user: "me", password: "pw", pin: nil, library: s.library)
+        let location = try #require(s.model.webdavLocations.location(id))
+        let copy = s.model.webdavLocations.copy(of: location)
+        #expect(copy.unconfirmedChanges() > 0, "the fake download records no sync: everything is unconfirmed")
+        var other = s.listing
+        other.vaultId = UUID().uuidString.lowercased()
+        await #expect(throws: WebDAVVaultError.replacedWithChanges(copy.unconfirmedChanges())) {
+            try await s.model.connectWebDAV(other, user: "me", password: "pw2", pin: nil, library: s.library)
+        }
+        #expect(s.model.webdavLocations.location(id) != nil)
+        #expect(copy.exists)
+        #expect(try s.passwords.password(for: id) == "pw")
+        #expect(s.model.isWebDAVVault, "the open copy stays open")
+        s.model.close()
+    }
+
+    @Test func anotherVaultAtTheAddressReplacesACleanCopyAndItsPassword() async throws {
+        let s = try Self.setup()
+        let id = try await s.model.connectWebDAV(s.listing, user: "me", password: "pw", pin: nil, library: s.library)
+        let location = try #require(s.model.webdavLocations.location(id))
+        // Nothing unconfirmed: no copy left on disk (as after an interrupted first download was cleared).
+        try FileManager.default.removeItem(at: s.model.webdavLocations.copy(of: location).folder)
+        var other = s.listing
+        other.vaultId = UUID().uuidString.lowercased()
+        let fresh = try await s.model.connectWebDAV(other, user: "me", password: "pw2", pin: nil, library: s.library)
+        #expect(fresh != id)
+        #expect(s.model.webdavLocations.location(id) == nil)
+        #expect(throws: (any Error).self) { try s.passwords.password(for: id) }
+        #expect(try s.passwords.password(for: fresh) == "pw2")
+        #expect(s.library.recents.allSatisfy { $0.webdav != id })
+        s.model.close()
+    }
+
     @Test func connectingStoresThePasswordDownloadsAndOpensLocked() async throws {
         let s = try Self.setup()
         let id = try await s.model.connectWebDAV(s.listing, user: "me", password: "pw", pin: nil, library: s.library)

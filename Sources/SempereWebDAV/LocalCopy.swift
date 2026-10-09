@@ -149,8 +149,30 @@ public struct WebDAVLocalCopy: Sendable {
               fm.fileExists(atPath: stagingFolder.appendingPathComponent("vault.json").path) else {
             return (report, false)
         }
+        // The staging folder had no vault.json, so the run took the server's unchecked: it must be one
+        // the copy's key vouches for (same vault, a list and secret written with the vault's key,
+        // format.md §2.1), or a server could swap in another vault or its own secret and the copy,
+        // this device's only offline one, would be gone.
+        if let why = incomingManifestProblem(identities: identities) {
+            var refused = report
+            refused.errors.append(.init(path: WebDAVSync.manifestName, message: SyncReport.printable(why)))
+            return (refused, false)
+        }
         try swapIn()
         return (report, true)
+    }
+
+    /// Why the downloaded `vault.json` may not replace the copy's, or nil (`Vault.incomingManifestProblem`
+    /// against the copy's own, under `identities`).
+    private func incomingManifestProblem(identities: [any AgeIdentity]) -> String? {
+        let name = WebDAVSync.manifestName
+        guard let incoming = try? BoundedRead.contents(of: stagingFolder.appendingPathComponent(name),
+                                                       maxBytes: BoundedRead.maxManifestBytes) else {
+            return "the downloaded vault.json cannot be read"
+        }
+        let local = try? BoundedRead.contents(of: folder.appendingPathComponent(name), maxBytes: BoundedRead.maxManifestBytes)
+        let current = try? Vault.open(at: folder, identities: identities)
+        return Vault.incomingManifestProblem(incoming, local: local, vault: current)
     }
 
     /// Links (or copies) the copy's write-once files and `keys/` into `target`.

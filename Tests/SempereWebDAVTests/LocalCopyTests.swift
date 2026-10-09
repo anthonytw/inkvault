@@ -250,6 +250,46 @@ final class LocalCopyTests: BlobSyncTestCase {
                        "keys/ (never on the server) comes along")
     }
 
+    /// Review of #137: the re-download pulls `vault.json` into an empty folder, where nothing checked it,
+    /// and the copy was then replaced by whatever the server held, another vault's included.
+    func testDownloadingAgainRefusesAManifestTheKeyDoesNotVouchFor() throws {
+        let server = MockDAV()
+        _ = try makeVault("A")
+        try mirror("A", server)
+        let ipad = copy("iPad")
+        _ = try ipad.download(client: try client(server))
+        let manifest = ipad.folder.appendingPathComponent("vault.json")
+        let before = try Data(contentsOf: manifest)
+        // Another vault's vault.json (same key, another vault id and secret), put on the server.
+        _ = try makeVault("X")
+        server.putDirect("vault.json", try Data(contentsOf: dir("X").appendingPathComponent("vault.json")))
+        let again = try ipad.redownload(client: try client(server), identities: [identity])
+        XCTAssertFalse(again.replaced, "\(again.report)")
+        XCTAssertTrue(again.report.errors.contains { $0.path == "vault.json" && $0.message.contains("another vault") },
+                      "\(again.report.errors)")
+        XCTAssertEqual(try Data(contentsOf: manifest), before, "the copy keeps its own vault.json")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: ipad.stagingFolder.path))
+        XCTAssertNoThrow(try openCopy(ipad))
+    }
+
+    /// A key change made on another device (written with the vault's key) still arrives by downloading again.
+    func testDownloadingAgainTakesAKeyChangeMadeElsewhere() throws {
+        let server = MockDAV()
+        _ = try makeVault("A")
+        try mirror("A", server)
+        let ipad = copy("iPad"), phone = copy("phone")
+        _ = try ipad.download(client: try client(server))
+        _ = try phone.download(client: try client(server))
+        var phoneVault = try openCopy(phone)
+        let added = pqIdentity()
+        _ = try phoneVault.addRecipient(added.recipient, label: "laptop")
+        let pushed = try phone.push(client: try client(server), vault: phoneVault)
+        XCTAssertTrue(pushed.overwritten.contains("vault.json"), "\(pushed)")
+        let again = try ipad.redownload(client: try client(server), identities: [identity])
+        XCTAssertTrue(again.replaced, "\(again.report)")
+        XCTAssertTrue(try openCopy(ipad).recipients.contains { $0.key == added.recipient.string })
+    }
+
     func testDownloadingAgainChecksWhatArrivesUnderTheKey() throws {
         let server = MockDAV()
         _ = try makeVault("A")

@@ -1192,10 +1192,19 @@ both devices' files then coexist on the server and nothing is lost, but
 neither sees the other's notes until it downloads the vault again. "Download
 Again" does that: it first pushes (and refuses if that push did not finish
 cleanly, so no change of this device is lost), then downloads the server's
-vault into a new copy, which replaces the old one only once complete. The
-device list of the new copy is checked against this device's trust record
-when it is unlocked (format.md §2.1), so a server cannot slip in a key this
-way either.
+vault into a new copy, which replaces the old one only once complete and
+only when its `vault.json` passes `Vault.incomingManifestProblem` against the
+old copy's under the vault's key (the same vault, a list and secret written
+with the vault's key: another device's key change passes, another vault or a
+secret the server chose does not). The device list of the new copy is also
+checked against this device's trust record when it is unlocked (format.md
+§2.1), so a server cannot slip in a key this way either.
+
+Connecting again to an address whose folder now holds another vault starts a
+new copy. The old copy (and its Keychain password) is deleted only when it
+holds nothing the server never confirmed; otherwise nothing changes and the
+app says how many changes would be lost (remove the location from the welcome
+screen first, whose confirmation says the same).
 
 **Not offered for a WebDAV vault in the app**: changing the vault's keys
 (adding, removing or replacing a device, a migration). A recipient change
