@@ -146,8 +146,11 @@ public enum StrokeSmoothing {
 
         // Gaussian along the arc length, window shrinking symmetrically at the ends.
         let radius = windowRadius(sigma: p.sigma, spacing: h)
-        var weights = [Double](repeating: 0, count: radius + 1)
-        for k in 0...radius { weights[k] = exp(-Double(k * k) * h * h / (2 * p.sigma * p.sigma)) }
+        // weights[0] is 1 whatever sigma: a sigma of 0 (radius 0) must not make it 0/0.
+        var weights = [Double](repeating: 1, count: radius + 1)
+        if radius > 0 {
+            for k in 1...radius { weights[k] = exp(-Double(k * k) * h * h / (2 * p.sigma * p.sigma)) }
+        }
         let n = q.count
         var out: [Sample] = []
         out.reserveCapacity(n / outputStride + 2)

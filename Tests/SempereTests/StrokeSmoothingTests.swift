@@ -143,6 +143,19 @@ final class StrokeSmoothingTests: XCTestCase {
         XCTAssertEqual(out.last, line.last)
     }
 
+    /// `Parameters` is public: a sigma of 0 (or less, or not finite) means no
+    /// Gaussian, the resampled path as it is, never NaN points.
+    func testASigmaOfZeroKeepsTheResampledPath() {
+        for sigma in [0.0, -1, .nan, .infinity] {
+            let p = StrokeSmoothing.Parameters(minCutoff: 1, beta: 0.01, derivativeCutoff: 1, sigma: sigma)
+            let out = StrokeSmoothing.finalPath(zigzag(), parameters: p)
+            XCTAssertFalse(out.isEmpty)
+            XCTAssertTrue(out.allSatisfy { $0.x.isFinite && $0.y.isFinite && $0.t.isFinite }, "sigma \(sigma)")
+            XCTAssertEqual(out.first, zigzag().first)
+            XCTAssertEqual(out.last, zigzag().last)
+        }
+    }
+
     func testWorkIsBoundedForHugeStrokes() {
         // 100,000 samples over 2,000,000 points of arc: resampled to at most maxSamples.
         let raw = (0..<StrokeSmoothing.maxRawSamples).map { i in
